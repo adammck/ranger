@@ -1,0 +1,5 @@
+# binaries
+/examples/kv/kv
+
+# temporary! just to reduce noise while i'm iterating.
+/pkg/proto/gen/*.go
