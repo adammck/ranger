@@ -18,6 +18,13 @@ Client:
 ```console
 $ curl http://localhost:8000/a
 404: Not found
+No such range
+
+$ curl -X PUT -d "whatever" http://localhost:8000/a
+400: Bad Request
+
+$ grpcurl -d '{"range": {"ident": {"key": 1}, "start": "'$(echo -n a | base64)'", "end": "'$(echo -n b | base64)'"}}' -plaintext localhost:9000 ranger.Node.Give
+{ }
 
 $ curl -X PUT -d "whatever" http://localhost:8000/a
 200: OK

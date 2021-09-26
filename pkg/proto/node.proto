@@ -6,7 +6,7 @@ package ranger;
 
 message Ident {
   string scope = 1;
-  int64 key = 2;
+  uint64 key = 2;
 }
 
 message Host {
@@ -21,14 +21,6 @@ message Range {
   // Range of the keys in this range.
   bytes start = 2; // inclusive
   bytes end = 3; // exclusive
-
-  // The host which this range is currently assigned to, if applicable.
-  Host host = 4;
-
-  // The range(s) which this range was created from, when applicable (i.e. for
-  // splits and joins). Nodes may use this info to restore the current state of
-  // the range when accepting it.
-  repeated Range parents = 5;
 }
 
 service Node {
@@ -37,6 +29,14 @@ service Node {
 
 message GiveRequest {
   Range range = 1;
+
+  // The host which this range is currently assigned to, if applicable.
+  Host host = 2;
+
+  // The range(s) which this range was created from, when applicable (i.e. for
+  // splits and joins). Nodes may use this info to restore the current state of
+  // the range when accepting it.
+  repeated Range parents = 3;
 }
 
 message GiveResponse {
