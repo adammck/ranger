@@ -10,25 +10,39 @@ Server:
 
 ```console
 $ cd ~/code/src/github.com/adammck/ranger/examples/kv
-$ go run main.go
+$ go build
+
+$ # Run three nodes.
+$ ./kv -cp ":9001" -dp ":8001"
+$ ./kv -cp ":9002" -dp ":8002"
+$ ./kv -cp ":9003" -dp ":8003"
 ```
 
 Client:
 
 ```console
-$ curl http://localhost:8000/a
+$ # Try to read a key from node 1 which is not assigned.
+$ curl http://localhost:8001/a
 404: Not found
 No such range
 
-$ curl -X PUT -d "whatever" http://localhost:8000/a
+$ # Try to write same.
+$ curl -X PUT -d "whatever" http://localhost:8001/a
 400: Bad Request
 
-$ grpcurl -d '{"range": {"ident": {"key": 1}, "start": "'$(echo -n a | base64)'", "end": "'$(echo -n b | base64)'"}}' -plaintext localhost:9000 ranger.Node.Give
+$ # Assign the range [a,b) to node 1
+$ grpcurl -d '{"range": {"ident": {"key": 1}, "start": "'$(echo -n a | base64)'", "end": "'$(echo -n b | base64)'"}}' -plaintext localhost:9001 ranger.Node.Give
 { }
 
-$ curl -X PUT -d "whatever" http://localhost:8000/a
+$ # Try to read again. Different error.
+$ curl http://localhost:8001/a
+404: No such key
+
+$ # Try to write same. Success!
+$ curl -X PUT -d "whatever" http://localhost:8001/a
 200: OK
 
-$ curl http://localhost:8000/a
+$ # Read again. Success!
+$ curl http://localhost:8001/a
 whatever
 ```

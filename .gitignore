@@ -3,3 +3,4 @@
 
 # temporary! just to reduce noise while i'm iterating.
 /pkg/proto/gen/*.go
+/examples/kv/proto/gen/*.go

@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 
+	pb2 "github.com/adammck/ranger/examples/kv/proto/gen"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 )
 
@@ -47,31 +48,62 @@ func parseIdent(pbid *pb.Ident) (rangeIdent, error) {
 	return rangeIdent(ident), nil
 }
 
+// TODO: move this to the lib
+func (i rangeIdent) String() string {
+	scope := string(bytes.TrimRight(i[:32], "\x00"))
+	key := binary.LittleEndian.Uint64(i[32:])
+
+	if scope == "" {
+		return fmt.Sprintf("%d", key)
+	}
+
+	return fmt.Sprintf("%s/%d", scope, key)
+}
+
+// See also pb.Range.
+type Range struct {
+
+	// Always need this. Move to the lib?
+	ident rangeIdent
+	start []byte
+	end   []byte
+
+	// Just for kv example; other systems may handle transfer differently.
+	writeable bool
+	readable  bool
+}
+
+func parseRange(pbr *pb.Range) (Range, error) {
+	ident, err := parseIdent(pbr.Ident)
+	if err != nil {
+		return Range{}, err
+	}
+
+	return Range{
+		ident: ident,
+		start: pbr.Start,
+		end:   pbr.End,
+	}, nil
+}
+
 // Doesn't have a mutex, since that probably happens outside, to synchronize with other structures.
 type Ranges struct {
-	ranges []pb.Range
+	ranges []Range
 }
 
 func NewRanges() Ranges {
-	return Ranges{ranges: make([]pb.Range, 0)}
+	return Ranges{ranges: make([]Range, 0)}
 }
 
-func (rs *Ranges) Add(r pb.Range) error {
+func (rs *Ranges) Add(r Range) error {
 	rs.ranges = append(rs.ranges, r)
 	return nil
 }
 
 func (rs *Ranges) Find(k key) (rangeIdent, bool) {
-	for _, v := range rs.ranges {
-		if bytes.Compare(k, v.Start) >= 0 && bytes.Compare(k, v.End) < 0 {
-
-			// TODO: move this somewhere else, can't be invalid idents in here.
-			ident, err := parseIdent(v.Ident)
-			if err != nil {
-				panic("invalid ident!")
-			}
-
-			return ident, true
+	for _, r := range rs.ranges {
+		if bytes.Compare(k, r.start) >= 0 && bytes.Compare(k, r.end) < 0 {
+			return r.ident, true
 		}
 	}
 
@@ -86,6 +118,33 @@ type Node struct {
 
 // ---- grpc control plane
 
+type kvServer struct {
+	pb2.UnimplementedKVServer
+	node *Node
+}
+
+func (s *kvServer) Dump(ctx context.Context, req *pb2.DumpRequest) (*pb2.DumpResponse, error) {
+
+	// lol
+	s.node.mu.Lock()
+	defer s.node.mu.Unlock()
+
+	ident := [40]byte{}
+	copy(ident[:], req.Range)
+
+	_, ok := s.node.data[ident]
+	if !ok {
+		return nil, status.Error(codes.InvalidArgument, "range not found")
+	}
+
+	res := &pb2.DumpResponse{}
+	for k, v := range s.node.data[ident] {
+		res.Pairs = append(res.Pairs, &pb2.Pair{Key: k, Value: v})
+	}
+
+	return res, fmt.Errorf("not implemented")
+}
+
 type nodeServer struct {
 	pb.UnimplementedNodeServer
 	node *Node
@@ -93,28 +152,44 @@ type nodeServer struct {
 
 // TODO: most of this can be moved into the lib?
 func (n *nodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveResponse, error) {
-	r := req.GetRange()
-	if r == nil {
+	pbr := req.Range
+	if pbr == nil {
 		return nil, status.Error(codes.InvalidArgument, "missing: range")
 	}
 
-	ident, err := parseIdent(req.Range.GetIdent())
+	r, err := parseRange(pbr)
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
 	n.node.mu.Lock()
 	defer n.node.mu.Unlock()
 
-	_, ok := n.node.data[ident]
+	// TODO: Look in Ranges instead here?
+	_, ok := n.node.data[r.ident]
 	if ok {
-		// todo: format ident in error message
-		return nil, fmt.Errorf("already have range: %q", ident)
+		return nil, fmt.Errorf("already have ident: %s", r.ident)
 	}
 
-	n.node.ranges.Add(*r)
-	n.node.data[ident] = make(map[string][]byte)
-	log.Printf("given range %q", ident)
+	n.node.ranges.Add(r)
+	n.node.data[r.ident] = make(map[string][]byte)
+	log.Printf("given range %s", r.ident)
+
+	// if this range has a host, it is currently assigned to some other node.
+	// since we have been given the range, it has (presumably) already been set
+	// as read-only on the current host.
+	if req.Host != nil {
+		panic("not implemented")
+
+	} else if req.Parents != nil && len(req.Parents) > 0 {
+		panic("not implemented")
+
+	} else {
+		// No current host nor parents. This is a brand new range. We're
+		// probably initializing a new empty scope.
+		r.readable = true
+		r.writeable = true
+	}
 
 	return &pb.GiveResponse{}, nil
 }
@@ -191,8 +266,13 @@ func (h *putHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func init() {
 	// Ensure that nodeServer implements the NodeServer interface
-	var rs *nodeServer = nil
-	var _ pb.NodeServer = rs
+	var ns *nodeServer = nil
+	var _ pb.NodeServer = ns
+
+	// Ensure that kvServer implements the KVServer interface
+	var kvs *kvServer = nil
+	var _ pb2.KVServer = kvs
+
 }
 
 func main() {
@@ -208,6 +288,7 @@ func main() {
 	// init grpc control plane
 	go func() {
 		ns := nodeServer{node: &n}
+		kv := kvServer{node: &n}
 
 		lis, err := net.Listen("tcp", *cp)
 		if err != nil {
@@ -218,6 +299,7 @@ func main() {
 		var opts []grpc.ServerOption
 		s := grpc.NewServer(opts...)
 		pb.RegisterNodeServer(s, &ns)
+		pb2.RegisterKVServer(s, &kv)
 
 		// Register reflection service, so client can introspect (for debugging).
 		reflection.Register(s)
