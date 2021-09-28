@@ -20,10 +20,6 @@ import (
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 )
 
-type RangerNode interface {
-	Give(r pb.GiveRequest) pb.GiveResponse
-}
-
 type key []byte
 
 // wraps ranger/pkg/proto/gen/Ident
@@ -57,26 +53,20 @@ func (i rangeIdent) String() string {
 	return fmt.Sprintf("%s/%d", scope, key)
 }
 
-// See also pb.Range.
-type Range struct {
-
-	// Always need this. Move to the lib?
+// See also pb.RangeMeta.
+type RangeMeta struct {
 	ident rangeIdent
 	start []byte
 	end   []byte
-
-	// Just for kv example; other systems may handle transfer differently.
-	writeable bool
-	readable  bool
 }
 
-func parseRange(pbr *pb.Range) (Range, error) {
+func parseRangeMeta(pbr *pb.Range) (RangeMeta, error) {
 	ident, err := parseIdent(pbr.Ident)
 	if err != nil {
-		return Range{}, err
+		return RangeMeta{}, err
 	}
 
-	return Range{
+	return RangeMeta{
 		ident: ident,
 		start: pbr.Start,
 		end:   pbr.End,
@@ -85,14 +75,14 @@ func parseRange(pbr *pb.Range) (Range, error) {
 
 // Doesn't have a mutex, since that probably happens outside, to synchronize with other structures.
 type Ranges struct {
-	ranges []Range
+	ranges []RangeMeta
 }
 
 func NewRanges() Ranges {
-	return Ranges{ranges: make([]Range, 0)}
+	return Ranges{ranges: make([]RangeMeta, 0)}
 }
 
-func (rs *Ranges) Add(r Range) error {
+func (rs *Ranges) Add(r RangeMeta) error {
 	rs.ranges = append(rs.ranges, r)
 	return nil
 }
@@ -107,8 +97,23 @@ func (rs *Ranges) Find(k key) (rangeIdent, bool) {
 	return rangeIdent{}, false
 }
 
+type RangeState uint8
+
+const (
+	rsUnknown RangeState = iota
+	rsFetching
+	rsReady
+	rsTaken
+)
+
+// This is all specific to the kv example. Nothing generic in here.
+type RangeData struct {
+	data  map[string][]byte
+	state RangeState
+}
+
 type Node struct {
-	data   map[rangeIdent]map[string][]byte
+	data   map[rangeIdent]*RangeData
 	ranges Ranges
 	mu     sync.Mutex // guards data and ranges, todo: split into one for ranges, and one for each range in data
 }
@@ -127,7 +132,7 @@ func (n *nodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveRes
 		return nil, status.Error(codes.InvalidArgument, "missing: range")
 	}
 
-	r, err := parseRange(pbr)
+	rm, err := parseRangeMeta(pbr)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -136,14 +141,15 @@ func (n *nodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveRes
 	defer n.node.mu.Unlock()
 
 	// TODO: Look in Ranges instead here?
-	_, ok := n.node.data[r.ident]
+	_, ok := n.node.data[rm.ident]
 	if ok {
-		return nil, fmt.Errorf("already have ident: %s", r.ident)
+		return nil, fmt.Errorf("already have ident: %s", rm.ident)
 	}
 
-	n.node.ranges.Add(r)
-	n.node.data[r.ident] = make(map[string][]byte)
-	log.Printf("given range %s", r.ident)
+	rd := &RangeData{
+		data:  make(map[string][]byte),
+		state: rsUnknown,
+	}
 
 	// if this range has a host, it is currently assigned to some other node.
 	// since we have been given the range, it has (presumably) already been set
@@ -157,11 +163,44 @@ func (n *nodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveRes
 	} else {
 		// No current host nor parents. This is a brand new range. We're
 		// probably initializing a new empty scope.
-		r.readable = true
-		r.writeable = true
+		rd.state = rsReady
 	}
 
+	n.node.ranges.Add(rm)
+	n.node.data[rm.ident] = rd
+
+	log.Printf("Given: %s", rm.ident)
 	return &pb.GiveResponse{}, nil
+}
+
+func (s *nodeServer) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeResponse, error) {
+	pbr := req.Range
+	if pbr == nil {
+		return nil, status.Error(codes.InvalidArgument, "missing: range")
+	}
+
+	ident, err := parseIdent(req.Range)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "error parsing range ident: %v", err)
+	}
+
+	// lol
+	s.node.mu.Lock()
+	defer s.node.mu.Unlock()
+
+	rd, ok := s.node.data[ident]
+	if !ok {
+		return nil, status.Error(codes.InvalidArgument, "range not found")
+	}
+
+	if rd.state != rsReady {
+		return nil, status.Error(codes.FailedPrecondition, "can only take ranges in the READY state")
+	}
+
+	rd.state = rsTaken
+
+	log.Printf("Taken: %s", ident)
+	return &pb.TakeResponse{}, nil
 }
 
 // ---- data plane
@@ -186,22 +225,25 @@ func (s *kvServer) Dump(ctx context.Context, req *pb2.DumpRequest) (*pb2.DumpRes
 		return nil, status.Errorf(codes.InvalidArgument, "error parsing range ident: %v", err)
 	}
 
-	// TODO: Only allow dumping after the range has been taken / frozen / made unwriteable
-
 	// lol
 	s.node.mu.Lock()
 	defer s.node.mu.Unlock()
 
-	_, ok := s.node.data[ident]
+	rd, ok := s.node.data[ident]
 	if !ok {
 		return nil, status.Error(codes.InvalidArgument, "range not found")
 	}
 
+	if rd.state != rsTaken {
+		return nil, status.Error(codes.FailedPrecondition, "can only dump ranges in the TAKEN state")
+	}
+
 	res := &pb2.DumpResponse{}
-	for k, v := range s.node.data[ident] {
+	for k, v := range rd.data {
 		res.Pairs = append(res.Pairs, &pb2.Pair{Key: k, Value: v})
 	}
 
+	log.Printf("Dumped: %s", ident)
 	return res, nil
 }
 
@@ -219,7 +261,16 @@ func (s *kvServer) Get(ctx context.Context, req *pb2.GetRequest) (*pb2.GetRespon
 		return nil, status.Error(codes.FailedPrecondition, "no valid range")
 	}
 
-	v, ok := s.node.data[ident][k]
+	rd, ok := s.node.data[ident]
+	if !ok {
+		panic("range found in map but no data?!")
+	}
+
+	if rd.state != rsReady && rd.state != rsTaken {
+		return nil, status.Error(codes.FailedPrecondition, "can only GET from ranges in the READY or TAKEN states")
+	}
+
+	v, ok := rd.data[k]
 	if !ok {
 		return nil, status.Error(codes.NotFound, "no such key")
 	}
@@ -244,10 +295,19 @@ func (s *kvServer) Put(ctx context.Context, req *pb2.PutRequest) (*pb2.PutRespon
 		return nil, status.Error(codes.FailedPrecondition, "no valid range")
 	}
 
+	rd, ok := s.node.data[ident]
+	if !ok {
+		panic("range found in map but no data?!")
+	}
+
+	if rd.state != rsReady {
+		return nil, status.Error(codes.FailedPrecondition, "can only PUT to ranges in the READY state")
+	}
+
 	if req.Value == nil {
-		delete(s.node.data[ident], k)
+		delete(rd.data, k)
 	} else {
-		s.node.data[ident][k] = req.Value
+		rd.data[k] = req.Value
 	}
 
 	log.Printf("put %q", k)
@@ -267,7 +327,7 @@ func init() {
 
 func main() {
 	n := Node{
-		data:   make(map[rangeIdent]map[string][]byte),
+		data:   make(map[rangeIdent]*RangeData),
 		ranges: NewRanges(),
 	}
 

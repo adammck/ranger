@@ -26,11 +26,11 @@ $ alias kv=$(pwd)/bin/client.sh
 $ # Try to read a key from node 1 which is not assigned.
 $ kv 8001 kv.KV.Get '{"key": "a"}'
 ERROR:
-  Code: NotFound
-  Message: no such key
+  Code: FailedPrecondition
+  Message: no valid range
 
 $ # Try to write same.
-$ kv 8001 kv.KV.Put '{"key": "a", "value": "whatever"}'
+$ kv 8001 kv.KV.Put '{"key": "a", "value": "'$(echo -n aaa | base64)'"}'
 ERROR:
   Code: FailedPrecondition
   Message: no valid range
@@ -46,14 +46,36 @@ ERROR:
   Code: NotFound
   Message: no such key
 
-$ # Try to write same. Success!
-$ kv 8001 kv.KV.Put '{"key": "a", "value": "whatever"}'
-{ 
+$ # Try to write again. Success!
+$ kv 8001 kv.KV.Put '{"key": "a", "value": "'$(echo -n aaa | base64)'"}'
+{
 }
 
-$ # Read again. Success!
+$ # Read again. Success! (n.b. it's base64 encoded)
 $ kv 8001 kv.KV.Get '{"key": "a"}'
 {
-  "value": "whatever"
+  "value": "YWFh"
+}
+
+$ # Try to dump the contents of range 1 from node 1
+$ kv 8001 kv.KV.Dump '{"range": {"key": 1}}'
+ERROR:
+  Code: FailedPrecondition
+  Message: can only dump ranges in the TAKEN state
+
+$ # Take the range from node 1
+$ kv 8001 ranger.Node.Take '{"range": {"key": 1}}'
+{
+}
+
+# Try to dump again. Success!
+$ kv 8001 kv.KV.Dump '{"range": {"key": 1}}'
+{
+  "pairs": [
+    {
+      "key": "a",
+      "value": "YWFh"
+    }
+  ]
 }
 ```
