@@ -172,13 +172,25 @@ type kvServer struct {
 }
 
 func (s *kvServer) Dump(ctx context.Context, req *pb2.DumpRequest) (*pb2.DumpResponse, error) {
+	pbr := req.Range
+	if pbr == nil {
+		return nil, status.Error(codes.InvalidArgument, "missing: range")
+	}
+
+	// TODO: Import the proto properly instead of casting like this!
+	ident, err := parseIdent(&pb.Ident{
+		Scope: req.Range.Scope,
+		Key:   req.Range.Key,
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "error parsing range ident: %v", err)
+	}
+
+	// TODO: Only allow dumping after the range has been taken / frozen / made unwriteable
 
 	// lol
 	s.node.mu.Lock()
 	defer s.node.mu.Unlock()
-
-	ident := [40]byte{}
-	copy(ident[:], req.Range)
 
 	_, ok := s.node.data[ident]
 	if !ok {
@@ -190,7 +202,7 @@ func (s *kvServer) Dump(ctx context.Context, req *pb2.DumpRequest) (*pb2.DumpRes
 		res.Pairs = append(res.Pairs, &pb2.Pair{Key: k, Value: v})
 	}
 
-	return res, fmt.Errorf("not implemented")
+	return res, nil
 }
 
 func (s *kvServer) Get(ctx context.Context, req *pb2.GetRequest) (*pb2.GetResponse, error) {
