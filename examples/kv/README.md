@@ -13,36 +13,47 @@ $ cd ~/code/src/github.com/adammck/ranger/examples/kv
 $ go build
 
 $ # Run three nodes.
-$ ./kv -cp ":9001" -dp ":8001"
-$ ./kv -cp ":9002" -dp ":8002"
-$ ./kv -cp ":9003" -dp ":8003"
+$ ./kv -addr ":8001"
+$ ./kv -addr ":8002"
+$ ./kv -addr ":8003"
 ```
 
 Client:
 
 ```console
+$ alias kv=$(pwd)/bin/client.sh
+
 $ # Try to read a key from node 1 which is not assigned.
-$ curl http://localhost:8001/a
-404: Not found
-No such range
+$ kv 8001 kv.KV.Get '{"key": "a"}'
+ERROR:
+  Code: NotFound
+  Message: no such key
 
 $ # Try to write same.
-$ curl -X PUT -d "whatever" http://localhost:8001/a
-400: Bad Request
+$ kv 8001 kv.KV.Put '{"key": "a", "value": "whatever"}'
+ERROR:
+  Code: FailedPrecondition
+  Message: no valid range
 
 $ # Assign the range [a,b) to node 1
-$ grpcurl -d '{"range": {"ident": {"key": 1}, "start": "'$(echo -n a | base64)'", "end": "'$(echo -n b | base64)'"}}' -plaintext localhost:9001 ranger.Node.Give
-{ }
+$ kv 8001 ranger.Node.Give '{"range": {"ident": {"key": 1}, "start": "'$(echo -n a | base64)'", "end": "'$(echo -n b | base64)'"}}'
+{
+}
 
 $ # Try to read again. Different error.
-$ curl http://localhost:8001/a
-404: No such key
+$ kv 8001 kv.KV.Get '{"key": "a"}'
+ERROR:
+  Code: NotFound
+  Message: no such key
 
 $ # Try to write same. Success!
-$ curl -X PUT -d "whatever" http://localhost:8001/a
-200: OK
+$ kv 8001 kv.KV.Put '{"key": "a", "value": "whatever"}'
+{ 
+}
 
 $ # Read again. Success!
-$ curl http://localhost:8001/a
-whatever
+$ kv 8001 kv.KV.Get '{"key": "a"}'
+{
+  "value": "whatever"
+}
 ```
