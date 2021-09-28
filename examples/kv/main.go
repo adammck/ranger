@@ -131,6 +131,7 @@ type RangeState uint8
 const (
 	rsUnknown RangeState = iota
 	rsFetching
+	rsFetched
 	rsFetchFailed
 	rsReady
 	rsTaken
@@ -175,7 +176,7 @@ func (rd *RangeData) fetch(addr string, ident rangeIdent) {
 	// node(s) are still serving reads, and if we start writing, they'll be
 	// wrong. We can only serve reads until the assigner tells them to stop,
 	// which will redirect all reads to us. Then we can start writing.
-	rd.state = rsReady
+	rd.state = rsFetched
 }
 
 type Node struct {
@@ -247,6 +248,26 @@ func (n *nodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveRes
 
 	log.Printf("Given: %s", rm.ident)
 	return &pb.GiveResponse{}, nil
+}
+
+func (s *nodeServer) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.ServeResponse, error) {
+	// lol
+	s.node.mu.Lock()
+	defer s.node.mu.Unlock()
+
+	ident, rd, err := s.getRangeData(req.Range)
+	if err != nil {
+		return nil, err
+	}
+
+	if rd.state != rsFetched && !req.Force {
+		return nil, status.Error(codes.Aborted, "won't serve ranges not in the FETCHED state without FORCE")
+	}
+
+	rd.state = rsReady
+
+	log.Printf("Serving: %s", ident)
+	return &pb.ServeResponse{}, nil
 }
 
 func (s *nodeServer) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeResponse, error) {
@@ -377,8 +398,8 @@ func (s *kvServer) Get(ctx context.Context, req *pb2.GetRequest) (*pb2.GetRespon
 		panic("range found in map but no data?!")
 	}
 
-	if rd.state != rsReady && rd.state != rsTaken {
-		return nil, status.Error(codes.FailedPrecondition, "can only GET from ranges in the READY or TAKEN states")
+	if rd.state != rsReady && rd.state != rsFetched && rd.state != rsTaken {
+		return nil, status.Error(codes.FailedPrecondition, "can only GET from ranges in the READY, FETCHED, and TAKEN states")
 	}
 
 	v, ok := rd.data[k]

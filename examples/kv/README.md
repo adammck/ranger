@@ -80,5 +80,59 @@ $ kv 8001 kv.KV.Dump '{"range": {"key": 1}}'
 }
 
 $ # Move that range to node 2
-$ kv 8002 ranger.Node.Give '{"range": {"ident": {"key": 1}, "start": "'$(echo -n a | base64)'", "end": "'$(echo -n b | base64)'"}, "host": {"host": "localhost", "port": "8001"}}'
+$ kv 8002 ranger.Node.Give '{"range": {"ident": {"key": 1}, "start": "'$(echo -n a | base64)'", "end": "'$(echo -n b | base64)'"}, "source": "localhost:8001"}'
+
+$ # Read the key from node 1. This still works!
+$ kv 8001 kv.KV.Get '{"key": "a"}'
+{
+  "value": "YWFh"
+}
+
+$ # Try to write to node 1. This no longer works.
+$ kv 8001 kv.KV.Put '{"key": "a", "value": "'$(echo -n bbb | base64)'"}'
+ERROR:
+  Code: FailedPrecondition
+  Message: can only PUT to ranges in the READY state
+
+$ # Read the key from node 2. This works now!
+$ kv 8002 kv.KV.Get '{"key": "a"}'
+{
+  "value": "YWFh"
+}
+
+$ # Try to write to node 2. This doesn't work yet.
+$ kv 8002 kv.KV.Put '{"key": "a", "value": "'$(echo -n bbb | base64)'"}'
+ERROR:
+  Code: FailedPrecondition
+  Message: can only PUT to ranges in the READY state
+
+$ # Drop the range from node 1.
+$ kv 8001 ranger.Node.Drop '{"range": {"key": 1}}'
+{
+}
+
+$ # Try to read from node 1. No longer works. The range is gone from that node.
+$ kv 8001 kv.KV.Get '{"key": "a"}'
+ERROR:
+  Code: FailedPrecondition
+  Message: no valid range
+
+$ # Enable writes on node 2. This works.
+$ # This would have worked at any time after node 2 finished fetching the range
+$ # from node 1, but one mustn't enable writes until the old node has stopped
+$ # serving reads, to avoid stale reads.
+$ kv 8002 ranger.Node.Serve '{"range": {"key": 1}}'
+{
+}
+
+$ # Try to write to node 2. Success!
+$ kv 8002 kv.KV.Put '{"key": "a", "value": "'$(echo -n bbb | base64)'"}'
+{
+}
+
+$ # Read the new value back. Success!
+$ kv 8002 kv.KV.Get '{"key": "a"}'
+{
+  "value": "YmJi"
+}
 ```
