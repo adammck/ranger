@@ -26,6 +26,7 @@ message Range {
 service Node {
   rpc Give (GiveRequest) returns (GiveResponse) {}
   rpc Take (TakeRequest) returns (TakeResponse) {}
+  rpc Drop (DropRequest) returns (DropResponse) {}
 }
 
 message GiveRequest {
@@ -48,4 +49,12 @@ message TakeRequest {
 }
 
 message TakeResponse {
+}
+
+message DropRequest {
+  Ident range = 1;
+  bool force = 2;
+}
+
+message DropResponse {
 }

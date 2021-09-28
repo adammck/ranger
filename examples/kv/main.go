@@ -87,6 +87,28 @@ func (rs *Ranges) Add(r RangeMeta) error {
 	return nil
 }
 
+func (rs *Ranges) Remove(ident rangeIdent) {
+	idx := -1
+
+	for i := range rs.ranges {
+		if rs.ranges[i].ident == ident {
+			idx = i
+			break
+		}
+	}
+
+	// This REALLY SHOULD NOT happen, because the ident should have come
+	// straight of the range map, and we should still be under the same lock.
+	if idx == -1 {
+		panic("ident not found in range map")
+	}
+
+	// jfc golang
+	// https://github.com/golang/go/wiki/SliceTricks#delete-without-preserving-order
+	rs.ranges[idx] = rs.ranges[len(rs.ranges)-1]
+	rs.ranges = rs.ranges[:len(rs.ranges)-1]
+}
+
 func (rs *Ranges) Find(k key) (rangeIdent, bool) {
 	for _, r := range rs.ranges {
 		if bytes.Compare(k, r.start) >= 0 && bytes.Compare(k, r.end) < 0 {
@@ -174,23 +196,13 @@ func (n *nodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveRes
 }
 
 func (s *nodeServer) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeResponse, error) {
-	pbr := req.Range
-	if pbr == nil {
-		return nil, status.Error(codes.InvalidArgument, "missing: range")
-	}
-
-	ident, err := parseIdent(req.Range)
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "error parsing range ident: %v", err)
-	}
-
 	// lol
 	s.node.mu.Lock()
 	defer s.node.mu.Unlock()
 
-	rd, ok := s.node.data[ident]
-	if !ok {
-		return nil, status.Error(codes.InvalidArgument, "range not found")
+	ident, rd, err := s.getRangeData(req.Range)
+	if err != nil {
+		return nil, err
 	}
 
 	if rd.state != rsReady {
@@ -201,6 +213,51 @@ func (s *nodeServer) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeRes
 
 	log.Printf("Taken: %s", ident)
 	return &pb.TakeResponse{}, nil
+}
+
+func (s *nodeServer) Drop(ctx context.Context, req *pb.DropRequest) (*pb.DropResponse, error) {
+	// lol
+	s.node.mu.Lock()
+	defer s.node.mu.Unlock()
+
+	ident, rd, err := s.getRangeData(req.Range)
+	if err != nil {
+		return nil, err
+	}
+
+	// Skipping this for now; we'll need to cancel via a context in rd.
+	if rd.state == rsFetching {
+		return nil, status.Error(codes.Unimplemented, "dropping ranges in the FETCHING state is not supported yet")
+	}
+
+	if rd.state != rsTaken && !req.Force {
+		return nil, status.Error(codes.Aborted, "won't drop ranges not in the TAKEN state without FORCE")
+	}
+
+	delete(s.node.data, ident)
+	s.node.ranges.Remove(ident)
+
+	log.Printf("Dropped: %s", ident)
+	return &pb.DropResponse{}, nil
+}
+
+// Does not lock range map! You have do to that!
+func (s *nodeServer) getRangeData(pbr *pb.Ident) (rangeIdent, *RangeData, error) {
+	if pbr == nil {
+		return rangeIdent{}, nil, status.Error(codes.InvalidArgument, "missing: range")
+	}
+
+	ident, err := parseIdent(pbr)
+	if err != nil {
+		return ident, nil, status.Errorf(codes.InvalidArgument, "error parsing range ident: %v", err)
+	}
+
+	rd, ok := s.node.data[ident]
+	if !ok {
+		return ident, nil, status.Error(codes.InvalidArgument, "range not found")
+	}
+
+	return ident, rd, nil
 }
 
 // ---- data plane
