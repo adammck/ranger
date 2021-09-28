@@ -9,11 +9,6 @@ message Ident {
   uint64 key = 2;
 }
 
-message Host {
-  string host = 1;
-  string port = 2;
-}
-
 message Range {
   // Unique for every range.
   Ident ident = 1;
@@ -32,8 +27,9 @@ service Node {
 message GiveRequest {
   Range range = 1;
 
-  // The host which this range is currently assigned to, if applicable.
-  Host host = 2;
+  // The node which this range is currently assigned to, if applicable.
+  // TODO: This can probably be subsumed by parents.
+  string source = 2;
 
   // The range(s) which this range was created from, when applicable (i.e. for
   // splits and joins). Nodes may use this info to restore the current state of

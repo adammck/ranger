@@ -68,7 +68,7 @@ $ kv 8001 ranger.Node.Take '{"range": {"key": 1}}'
 {
 }
 
-# Try to dump again. Success!
+$ # Try to dump again. Success!
 $ kv 8001 kv.KV.Dump '{"range": {"key": 1}}'
 {
   "pairs": [
@@ -78,4 +78,7 @@ $ kv 8001 kv.KV.Dump '{"range": {"key": 1}}'
     }
   ]
 }
+
+$ # Move that range to node 2
+$ kv 8002 ranger.Node.Give '{"range": {"ident": {"key": 1}, "start": "'$(echo -n a | base64)'", "end": "'$(echo -n b | base64)'"}, "host": {"host": "localhost", "port": "8001"}}'
 ```

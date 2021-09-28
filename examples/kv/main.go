@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"sync"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -43,14 +44,20 @@ func parseIdent(pbid *pb.Ident) (rangeIdent, error) {
 
 // TODO: move this to the lib
 func (i rangeIdent) String() string {
-	scope := string(bytes.TrimRight(i[:32], "\x00"))
-	key := binary.LittleEndian.Uint64(i[32:])
+	scope, key := i.Decode()
 
 	if scope == "" {
 		return fmt.Sprintf("%d", key)
 	}
 
 	return fmt.Sprintf("%s/%d", scope, key)
+}
+
+// this is only necessary because I made the Dump interface friendly. it would probably be simpler to accept an encoded range ident, or maybe do a better job of hiding the [40]byte
+func (i rangeIdent) Decode() (string, uint64) {
+	scope := string(bytes.TrimRight(i[:32], "\x00"))
+	key := binary.LittleEndian.Uint64(i[32:])
+	return scope, key
 }
 
 // See also pb.RangeMeta.
@@ -124,6 +131,7 @@ type RangeState uint8
 const (
 	rsUnknown RangeState = iota
 	rsFetching
+	rsFetchFailed
 	rsReady
 	rsTaken
 )
@@ -131,7 +139,43 @@ const (
 // This is all specific to the kv example. Nothing generic in here.
 type RangeData struct {
 	data  map[string][]byte
-	state RangeState
+	state RangeState // TODO: guard this
+}
+
+func (rd *RangeData) fetch(addr string, ident rangeIdent) {
+	log.Printf("Fetching: %s from: %s", ident, addr)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	conn, err := grpc.DialContext(
+		ctx,
+		addr,
+		grpc.WithInsecure(),
+		grpc.WithBlock())
+	if err != nil {
+		log.Fatalf("fail to dial: %v", err)
+	}
+
+	client := pb2.NewKVClient(conn)
+
+	scope, key := ident.Decode()
+	res, err := client.Dump(ctx, &pb2.DumpRequest{Range: &pb2.Ident{Scope: scope, Key: key}})
+	if err != nil {
+		log.Printf("Fetch failed: %s from: %s: %s", ident, addr, err)
+		rd.state = rsFetchFailed
+		return
+	}
+
+	for _, pair := range res.Pairs {
+		rd.data[pair.Key] = pair.Value
+	}
+
+	// Can't go straight into rsReady, because that allows writes. The source
+	// node(s) are still serving reads, and if we start writing, they'll be
+	// wrong. We can only serve reads until the assigner tells them to stop,
+	// which will redirect all reads to us. Then we can start writing.
+	rd.state = rsReady
 }
 
 type Node struct {
@@ -163,21 +207,31 @@ func (n *nodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveRes
 	defer n.node.mu.Unlock()
 
 	// TODO: Look in Ranges instead here?
-	_, ok := n.node.data[rm.ident]
+	rd, ok := n.node.data[rm.ident]
 	if ok {
-		return nil, fmt.Errorf("already have ident: %s", rm.ident)
+		// Special case: We already have this range, but gave up on fetching it.
+		// To keep things simple, delete it. it'll be added again (while still
+		// holding the lock) below.
+		if rd.state == rsFetchFailed {
+			delete(n.node.data, rm.ident)
+			n.node.ranges.Remove(rm.ident)
+		} else {
+			return nil, fmt.Errorf("already have ident: %s", rm.ident)
+		}
 	}
 
-	rd := &RangeData{
+	rd = &RangeData{
 		data:  make(map[string][]byte),
 		state: rsUnknown,
 	}
 
-	// if this range has a host, it is currently assigned to some other node.
-	// since we have been given the range, it has (presumably) already been set
-	// as read-only on the current host.
-	if req.Host != nil {
-		panic("not implemented")
+	if req.Source != "" {
+		// This range is being moved as-is from another host.
+		rd.state = rsFetching
+
+		// It's okay if this completes (somehow) before the lock is released.
+		// Just means that the range will be available for rw immediately.
+		go rd.fetch(req.Source, rm.ident)
 
 	} else if req.Parents != nil && len(req.Parents) > 0 {
 		panic("not implemented")
