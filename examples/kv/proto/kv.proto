@@ -3,8 +3,20 @@ option go_package = "github.com/adammck/ranger/examples/kv/proto";
 
 package kv;
 
-service KV {
-  rpc Dump (DumpRequest) returns (DumpResponse) {}
+message GetRequest {
+  string key = 1;
+}
+
+message GetResponse {
+  bytes value = 1;
+}
+
+message PutRequest {
+  string key = 1;
+  bytes value = 2;
+}
+
+message PutResponse {
 }
 
 message DumpRequest {
@@ -18,4 +30,12 @@ message Pair {
 
 message DumpResponse {
   repeated Pair pairs = 1;
+}
+
+service KV {
+  rpc Get (GetRequest) returns (GetResponse) {}
+  rpc Put (PutRequest) returns (PutResponse) {}
+
+  // Only used for nodes to transfer state.
+  rpc Dump (DumpRequest) returns (DumpResponse) {}
 }

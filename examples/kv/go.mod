@@ -2,8 +2,6 @@ module github.com/adammck/ranger/examples/kv
 
 go 1.16
 
-require github.com/gorilla/mux v1.8.0
-
 require (
 	github.com/adammck/ranger v0.0.1
 	github.com/golang/protobuf v1.5.2

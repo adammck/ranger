@@ -7,13 +7,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net"
-	"net/http"
 	"sync"
 
-	"github.com/gorilla/mux"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/reflection"
@@ -116,34 +113,7 @@ type Node struct {
 	mu     sync.Mutex // guards data and ranges, todo: split into one for ranges, and one for each range in data
 }
 
-// ---- grpc control plane
-
-type kvServer struct {
-	pb2.UnimplementedKVServer
-	node *Node
-}
-
-func (s *kvServer) Dump(ctx context.Context, req *pb2.DumpRequest) (*pb2.DumpResponse, error) {
-
-	// lol
-	s.node.mu.Lock()
-	defer s.node.mu.Unlock()
-
-	ident := [40]byte{}
-	copy(ident[:], req.Range)
-
-	_, ok := s.node.data[ident]
-	if !ok {
-		return nil, status.Error(codes.InvalidArgument, "range not found")
-	}
-
-	res := &pb2.DumpResponse{}
-	for k, v := range s.node.data[ident] {
-		res.Pairs = append(res.Pairs, &pb2.Pair{Key: k, Value: v})
-	}
-
-	return res, fmt.Errorf("not implemented")
-}
+// ---- control plane
 
 type nodeServer struct {
 	pb.UnimplementedNodeServer
@@ -194,74 +164,82 @@ func (n *nodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveRes
 	return &pb.GiveResponse{}, nil
 }
 
-// ---- http data plane
+// ---- data plane
 
-type getHandler struct {
+type kvServer struct {
+	pb2.UnimplementedKVServer
 	node *Node
 }
 
-func (h *getHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	k, ok := vars["key"]
+func (s *kvServer) Dump(ctx context.Context, req *pb2.DumpRequest) (*pb2.DumpResponse, error) {
+
+	// lol
+	s.node.mu.Lock()
+	defer s.node.mu.Unlock()
+
+	ident := [40]byte{}
+	copy(ident[:], req.Range)
+
+	_, ok := s.node.data[ident]
 	if !ok {
-		http.Error(w, "Missing param: key", http.StatusNotFound)
-		return
+		return nil, status.Error(codes.InvalidArgument, "range not found")
 	}
 
-	h.node.mu.Lock()
-	defer h.node.mu.Unlock()
-
-	ident, ok := h.node.ranges.Find(key(k))
-	if !ok {
-		http.Error(w, "404: No such range", http.StatusNotFound)
-		return
+	res := &pb2.DumpResponse{}
+	for k, v := range s.node.data[ident] {
+		res.Pairs = append(res.Pairs, &pb2.Pair{Key: k, Value: v})
 	}
 
-	v, ok := h.node.data[ident][k]
+	return res, fmt.Errorf("not implemented")
+}
+
+func (s *kvServer) Get(ctx context.Context, req *pb2.GetRequest) (*pb2.GetResponse, error) {
+	k := req.Key
+	if k == "" {
+		return nil, status.Error(codes.InvalidArgument, "missing: key")
+	}
+
+	s.node.mu.Lock()
+	defer s.node.mu.Unlock()
+
+	ident, ok := s.node.ranges.Find(key(k))
 	if !ok {
-		http.Error(w, "404: No such key", http.StatusNotFound)
-		return
+		return nil, status.Error(codes.FailedPrecondition, "no valid range")
+	}
+
+	v, ok := s.node.data[ident][k]
+	if !ok {
+		return nil, status.Error(codes.NotFound, "no such key")
 	}
 
 	log.Printf("get %q", k)
-	w.WriteHeader(http.StatusOK)
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Write(v)
+	return &pb2.GetResponse{
+		Value: v,
+	}, nil
 }
 
-type putHandler struct {
-	node *Node
-}
+func (s *kvServer) Put(ctx context.Context, req *pb2.PutRequest) (*pb2.PutResponse, error) {
+	k := req.Key
+	if k == "" {
+		return nil, status.Error(codes.InvalidArgument, "missing: key")
+	}
 
-func (h *putHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	k, ok := vars["key"]
+	s.node.mu.Lock()
+	defer s.node.mu.Unlock()
+
+	ident, ok := s.node.ranges.Find(key(k))
 	if !ok {
-		http.Error(w, "Missing param: key", http.StatusNotFound)
-		return
+		return nil, status.Error(codes.FailedPrecondition, "no valid range")
 	}
 
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Error reading request body: %s", err), http.StatusBadRequest)
-		return
+	if req.Value == nil {
+		delete(s.node.data[ident], k)
+	} else {
+		s.node.data[ident][k] = req.Value
 	}
-
-	h.node.mu.Lock()
-	defer h.node.mu.Unlock()
-
-	ident, ok := h.node.ranges.Find(key(k))
-	if !ok {
-		http.Error(w, "404: No such range", http.StatusNotFound)
-		return
-	}
-
-	h.node.data[ident][k] = body
 
 	log.Printf("put %q", k)
-	w.WriteHeader(http.StatusOK)
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	fmt.Fprintln(w, "200: OK")
+	return &pb2.PutResponse{}, nil
 }
 
 func init() {
@@ -281,44 +259,29 @@ func main() {
 		ranges: NewRanges(),
 	}
 
-	cp := flag.String("cp", ":9000", "address to listen on (grpc control plane)")
-	dp := flag.String("dp", ":8000", "address to listen on (http data plane)")
+	addr := flag.String("addr", ":9000", "address to listen on")
 	flag.Parse()
 
-	// init grpc control plane
-	go func() {
-		ns := nodeServer{node: &n}
-		kv := kvServer{node: &n}
+	ns := nodeServer{node: &n}
+	kv := kvServer{node: &n}
 
-		lis, err := net.Listen("tcp", *cp)
-		if err != nil {
-			log.Fatalf("failed to listen: %v", err)
-		}
-		log.Printf("grpc control plane listening on %q", *cp)
+	lis, err := net.Listen("tcp", *addr)
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
+	}
+	log.Printf("control plane listening on %q", *addr)
 
-		var opts []grpc.ServerOption
-		s := grpc.NewServer(opts...)
-		pb.RegisterNodeServer(s, &ns)
-		pb2.RegisterKVServer(s, &kv)
+	var opts []grpc.ServerOption
+	s := grpc.NewServer(opts...)
+	pb.RegisterNodeServer(s, &ns)
+	pb2.RegisterKVServer(s, &kv)
 
-		// Register reflection service, so client can introspect (for debugging).
-		reflection.Register(s)
+	// Register reflection service, so client can introspect (for debugging).
+	reflection.Register(s)
 
-		if err := s.Serve(lis); err != nil {
-			log.Fatalf("failed to listen: %v", err)
-		}
-	}()
-
-	// init http data plane
-	go func() {
-		gh := getHandler{node: &n}
-		ph := putHandler{node: &n}
-		r := mux.NewRouter()
-		r.Handle("/{key}", &gh).Methods("GET")
-		r.Handle("/{key}", &ph).Methods("PUT")
-		log.Printf("http data plane listening on %q", *dp)
-		http.ListenAndServe(*dp, r)
-	}()
+	if err := s.Serve(lis); err != nil {
+		log.Fatalf("failed to listen: %v", err)
+	}
 
 	// block forever.
 	select {}
