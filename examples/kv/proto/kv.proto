@@ -11,7 +11,7 @@ message Ident {
 }
 
 message GetRequest {
-  string key = 1;
+  bytes key = 1;
 }
 
 message GetResponse {
@@ -19,7 +19,7 @@ message GetResponse {
 }
 
 message PutRequest {
-  string key = 1;
+  bytes key = 1;
   bytes value = 2;
 }
 
@@ -31,7 +31,7 @@ message DumpRequest {
 }
 
 message Pair {
-  string key = 1;
+  bytes key = 1;
   bytes value = 2;
 }
 

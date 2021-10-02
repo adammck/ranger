@@ -222,8 +222,8 @@ func (rd *RangeData) fetchOne(ctx context.Context, mu *sync.Mutex, dest RangeMet
 	for _, pair := range res.Pairs {
 
 		// TODO: Untangle []byte vs string mess
-		if dest.Contains([]byte(pair.Key)) {
-			rd.data[pair.Key] = pair.Value
+		if dest.Contains(pair.Key) {
+			rd.data[string(pair.Key)] = pair.Value
 			c += 1
 		} else {
 			s += 1
@@ -420,7 +420,7 @@ func (s *kvServer) Dump(ctx context.Context, req *pb2.DumpRequest) (*pb2.DumpRes
 
 	res := &pb2.DumpResponse{}
 	for k, v := range rd.data {
-		res.Pairs = append(res.Pairs, &pb2.Pair{Key: k, Value: v})
+		res.Pairs = append(res.Pairs, &pb2.Pair{Key: []byte(k), Value: v})
 	}
 
 	log.Printf("Dumped: %s", ident)
@@ -428,7 +428,7 @@ func (s *kvServer) Dump(ctx context.Context, req *pb2.DumpRequest) (*pb2.DumpRes
 }
 
 func (s *kvServer) Get(ctx context.Context, req *pb2.GetRequest) (*pb2.GetResponse, error) {
-	k := req.Key
+	k := string(req.Key)
 	if k == "" {
 		return nil, status.Error(codes.InvalidArgument, "missing: key")
 	}
@@ -462,7 +462,7 @@ func (s *kvServer) Get(ctx context.Context, req *pb2.GetRequest) (*pb2.GetRespon
 }
 
 func (s *kvServer) Put(ctx context.Context, req *pb2.PutRequest) (*pb2.PutResponse, error) {
-	k := req.Key
+	k := string(req.Key)
 	if k == "" {
 		return nil, status.Error(codes.InvalidArgument, "missing: key")
 	}
