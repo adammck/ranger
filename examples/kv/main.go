@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/reflection"
@@ -143,11 +144,52 @@ type RangeData struct {
 	state RangeState // TODO: guard this
 }
 
-func (rd *RangeData) fetch(addr string, ident rangeIdent) {
-	log.Printf("Fetching: %s from: %s", ident, addr)
+func (rd *RangeData) fetchMany(ident rangeIdent, parents []*pb.RangeNode) {
+
+	// Parse all the parents before spawning threads. This is fast and failure
+	// indicates a bug more than a transient problem.
+	idents := make([]*rangeIdent, len(parents))
+	for i, p := range parents {
+		rm, err := parseRangeMeta(p.Range)
+		if err != nil {
+			log.Printf("FetchMany failed fast: %s", err)
+			rd.state = rsFetchFailed
+			return
+		}
+		idents[i] = &rm.ident
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+
+	mu := sync.Mutex{}
+
+	// Fetch each source range in parallel.
+	g, ctx := errgroup.WithContext(ctx)
+	for i := range parents {
+		// lol, golang
+		// https://golang.org/doc/faq#closures_and_goroutines
+		i := i
+
+		g.Go(func() error {
+			return rd.fetchOne(ctx, &mu, ident, parents[i].Node, idents[i])
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		rd.state = rsFetchFailed
+		return
+	}
+
+	// Can't go straight into rsReady, because that allows writes. The source
+	// node(s) are still serving reads, and if we start writing, they'll be
+	// wrong. We can only serve reads until the assigner tells them to stop,
+	// which will redirect all reads to us. Then we can start writing.
+	rd.state = rsFetched
+}
+
+func (rd *RangeData) fetchOne(ctx context.Context, mu *sync.Mutex, destIdent rangeIdent, addr string, srcIdent *rangeIdent) error {
+	log.Printf("FetchOne: %s from: %s", srcIdent, addr)
 
 	conn, err := grpc.DialContext(
 		ctx,
@@ -160,22 +202,40 @@ func (rd *RangeData) fetch(addr string, ident rangeIdent) {
 
 	client := pb2.NewKVClient(conn)
 
-	scope, key := ident.Decode()
+	scope, key := srcIdent.Decode()
 	res, err := client.Dump(ctx, &pb2.DumpRequest{Range: &pb2.Ident{Scope: scope, Key: key}})
+	if err != nil {
+		log.Printf("FetchOne failed: %s from: %s: %s", srcIdent, addr, err)
+
+		return err
+	}
+
+	c := 0
+	mu.Lock()
+	// TODO: Filter data which is outside of the dest range.
+	for _, pair := range res.Pairs {
+		rd.data[pair.Key] = pair.Value
+		c += 1
+	}
+	mu.Unlock()
+	log.Printf("Inserted %d keys from range %s via node %s", c, srcIdent, addr)
+
+	return nil
+}
+
+func (rd *RangeData) fetchSource(addr string, ident rangeIdent) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	mu := sync.Mutex{}
+	err := rd.fetchOne(ctx, &mu, rangeIdent{}, addr, &ident)
+
 	if err != nil {
 		log.Printf("Fetch failed: %s from: %s: %s", ident, addr, err)
 		rd.state = rsFetchFailed
 		return
 	}
 
-	for _, pair := range res.Pairs {
-		rd.data[pair.Key] = pair.Value
-	}
-
-	// Can't go straight into rsReady, because that allows writes. The source
-	// node(s) are still serving reads, and if we start writing, they'll be
-	// wrong. We can only serve reads until the assigner tells them to stop,
-	// which will redirect all reads to us. Then we can start writing.
 	rd.state = rsFetched
 }
 
@@ -232,10 +292,10 @@ func (n *nodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveRes
 
 		// It's okay if this completes (somehow) before the lock is released.
 		// Just means that the range will be available for rw immediately.
-		go rd.fetch(req.Source, rm.ident)
+		go rd.fetchSource(req.Source, rm.ident)
 
 	} else if req.Parents != nil && len(req.Parents) > 0 {
-		panic("not implemented")
+		go rd.fetchMany(rm.ident, req.Parents)
 
 	} else {
 		// No current host nor parents. This is a brand new range. We're
