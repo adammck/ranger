@@ -81,6 +81,10 @@ func parseRangeMeta(pbr *pb.Range) (RangeMeta, error) {
 	}, nil
 }
 
+func (rm *RangeMeta) Contains(k key) bool {
+	return bytes.Compare(k, rm.start) >= 0 && bytes.Compare(k, rm.end) < 0
+}
+
 // Doesn't have a mutex, since that probably happens outside, to synchronize with other structures.
 type Ranges struct {
 	ranges []RangeMeta
@@ -118,9 +122,9 @@ func (rs *Ranges) Remove(ident rangeIdent) {
 }
 
 func (rs *Ranges) Find(k key) (rangeIdent, bool) {
-	for _, r := range rs.ranges {
-		if bytes.Compare(k, r.start) >= 0 && bytes.Compare(k, r.end) < 0 {
-			return r.ident, true
+	for _, rm := range rs.ranges {
+		if rm.Contains(k) {
+			return rm.ident, true
 		}
 	}
 
@@ -144,11 +148,11 @@ type RangeData struct {
 	state RangeState // TODO: guard this
 }
 
-func (rd *RangeData) fetchMany(ident rangeIdent, parents []*pb.RangeNode) {
+func (rd *RangeData) fetchMany(dest RangeMeta, parents []*pb.RangeNode) {
 
 	// Parse all the parents before spawning threads. This is fast and failure
 	// indicates a bug more than a transient problem.
-	idents := make([]*rangeIdent, len(parents))
+	rms := make([]*RangeMeta, len(parents))
 	for i, p := range parents {
 		rm, err := parseRangeMeta(p.Range)
 		if err != nil {
@@ -156,7 +160,7 @@ func (rd *RangeData) fetchMany(ident rangeIdent, parents []*pb.RangeNode) {
 			rd.state = rsFetchFailed
 			return
 		}
-		idents[i] = &rm.ident
+		rms[i] = &rm
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -172,7 +176,7 @@ func (rd *RangeData) fetchMany(ident rangeIdent, parents []*pb.RangeNode) {
 		i := i
 
 		g.Go(func() error {
-			return rd.fetchOne(ctx, &mu, ident, parents[i].Node, idents[i])
+			return rd.fetchOne(ctx, &mu, dest, parents[i].Node, rms[i])
 		})
 	}
 
@@ -188,8 +192,8 @@ func (rd *RangeData) fetchMany(ident rangeIdent, parents []*pb.RangeNode) {
 	rd.state = rsFetched
 }
 
-func (rd *RangeData) fetchOne(ctx context.Context, mu *sync.Mutex, destIdent rangeIdent, addr string, srcIdent *rangeIdent) error {
-	log.Printf("FetchOne: %s from: %s", srcIdent, addr)
+func (rd *RangeData) fetchOne(ctx context.Context, mu *sync.Mutex, dest RangeMeta, addr string, src *RangeMeta) error {
+	log.Printf("FetchOne: %s from: %s", src.ident, addr)
 
 	conn, err := grpc.DialContext(
 		ctx,
@@ -202,41 +206,33 @@ func (rd *RangeData) fetchOne(ctx context.Context, mu *sync.Mutex, destIdent ran
 
 	client := pb2.NewKVClient(conn)
 
-	scope, key := srcIdent.Decode()
+	scope, key := src.ident.Decode()
 	res, err := client.Dump(ctx, &pb2.DumpRequest{Range: &pb2.Ident{Scope: scope, Key: key}})
 	if err != nil {
-		log.Printf("FetchOne failed: %s from: %s: %s", srcIdent, addr, err)
+		log.Printf("FetchOne failed: %s from: %s: %s", src.ident, addr, err)
 
 		return err
 	}
 
+	// TODO: Optimize loading by including range start and end in the Dump response. If they match, can skip filtering.
+
 	c := 0
+	s := 0
 	mu.Lock()
-	// TODO: Filter data which is outside of the dest range.
 	for _, pair := range res.Pairs {
-		rd.data[pair.Key] = pair.Value
-		c += 1
+
+		// TODO: Untangle []byte vs string mess
+		if dest.Contains([]byte(pair.Key)) {
+			rd.data[pair.Key] = pair.Value
+			c += 1
+		} else {
+			s += 1
+		}
 	}
 	mu.Unlock()
-	log.Printf("Inserted %d keys from range %s via node %s", c, srcIdent, addr)
+	log.Printf("Inserted %d keys from range %s via node %s (skipped %d)", c, src.ident, addr, s)
 
 	return nil
-}
-
-func (rd *RangeData) fetchSource(addr string, ident rangeIdent) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	mu := sync.Mutex{}
-	err := rd.fetchOne(ctx, &mu, rangeIdent{}, addr, &ident)
-
-	if err != nil {
-		log.Printf("Fetch failed: %s from: %s: %s", ident, addr, err)
-		rd.state = rsFetchFailed
-		return
-	}
-
-	rd.state = rsFetched
 }
 
 type Node struct {
@@ -286,16 +282,8 @@ func (n *nodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveRes
 		state: rsUnknown,
 	}
 
-	if req.Source != "" {
-		// This range is being moved as-is from another host.
-		rd.state = rsFetching
-
-		// It's okay if this completes (somehow) before the lock is released.
-		// Just means that the range will be available for rw immediately.
-		go rd.fetchSource(req.Source, rm.ident)
-
-	} else if req.Parents != nil && len(req.Parents) > 0 {
-		go rd.fetchMany(rm.ident, req.Parents)
+	if req.Parents != nil && len(req.Parents) > 0 {
+		go rd.fetchMany(rm, req.Parents)
 
 	} else {
 		// No current host nor parents. This is a brand new range. We're

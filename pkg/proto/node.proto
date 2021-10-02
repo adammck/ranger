@@ -33,10 +33,6 @@ service Node {
 message GiveRequest {
   Range range = 1;
 
-  // The node which this range is currently assigned to, if applicable.
-  // TODO: This can probably be subsumed by parents.
-  string source = 2;
-
   // The range(s) which this range was created from, and the nodes where they
   // can currently be found. This is empty is the range is brand new. Nodes may
   // use this info to restore the current state of the range when accepting it.

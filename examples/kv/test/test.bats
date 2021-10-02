@@ -118,17 +118,11 @@ teardown() {
 
     # ---- setup
 
-    # Assign the range [a,b) to node 1.
-    run bin/client.sh 8001 ranger.Node.Give '{"range": {"ident": {"key": 1}, "start": "'$a'", "end": "'$b'"}}'
-    assert_success
-
-    # Write a key to node 1.
-    run bin/client.sh 8001 kv.KV.Put '{"key": "a", "value": "'$aaa'"}'
-    assert_success
-
-    # Take the range from node 1, so it can be given to node 2.
-    run bin/client.sh 8001 ranger.Node.Take '{"range": {"key": 1}}'
-    assert_success
+    # Give the range [a,b) to node 1, Put some keys, and Take it.
+    r1='{"ident": {"key": 1}, "start": "'$a'", "end": "'$b'"}'
+    bin/client.sh 8001 ranger.Node.Give '{"range": '"$r1"'}'
+    bin/client.sh 8001 kv.KV.Put '{"key": "a", "value": "'$aaa'"}'
+    bin/client.sh 8001 ranger.Node.Take '{"range": {"key": 1}}'
 
     # ---- test
 
@@ -136,7 +130,7 @@ teardown() {
     # TODO: This succeeds even if node 1 refuses to dump it, because the
     #       transfer starts asynchronously after this rpc has returned. That
     #       doesn't seem ideal.
-    run bin/client.sh 8002 ranger.Node.Give '{"range": {"ident": {"key": 1}, "start": "'$a'", "end": "'$b'"}, "source": "localhost:8001"}'
+    run bin/client.sh 8002 ranger.Node.Give '{"range": {"ident": {"key": 1}, "start": "'$a'", "end": "'$b'"}, "parents": [{"range": '"$r1"', "node": "localhost:8001"}]}'
     assert_success
 
     # Read the key from node 1. This still works!
@@ -235,6 +229,10 @@ teardown() {
 
     # ---- test
 
+    # TODO: Test joining a range where one of the parents is already on the
+    #       destination node. Think it should Just Work but things might get
+    #       weird when serving reads during the transition.
+
     # Move both ranges to a single new range on node 3
     run bin/client.sh 8003 ranger.Node.Give '{"range": {"ident": {"key": 3}, "start": "'$a'", "end": "'$c'"}, "parents": [{"range": '"$r1"', "node": "localhost:8001"}, {"range": '"$r2"', "node": "localhost:8002"}]}'
     assert_success
@@ -257,4 +255,69 @@ teardown() {
     assert_line -n 0 '{'
     assert_line -n 1 '  "value": "'$ccc'"'
     assert_line -n 2 '}'
+}
+
+@test "split ranges" {
+    a=$(echo -n a | base64)
+    b=$(echo -n b | base64)
+    c=$(echo -n c | base64)
+    aaa=$(echo -n aaa | base64)
+    bbb=$(echo -n bbb | base64)
+    ccc=$(echo -n ccc | base64)
+    ddd=$(echo -n ddd | base64)
+
+    # ---- setup
+
+    # Assign a range and write some keys.                                                                                                                                                                                                                                                                             
+    # Node 1: range [a,c)
+    r1='{"ident": {"key": 1}, "start": "'$a'", "end": "'$c'"}'
+    bin/client.sh 8001 ranger.Node.Give '{"range": '"$r1"'}'
+    bin/client.sh 8001 kv.KV.Put '{"key": "a1", "value": "'$aaa'"}'
+    bin/client.sh 8001 kv.KV.Put '{"key": "a2", "value": "'$bbb'"}'
+    bin/client.sh 8001 kv.KV.Put '{"key": "b1", "value": "'$ccc'"}'
+    bin/client.sh 8001 kv.KV.Put '{"key": "b2", "value": "'$ddd'"}'
+    bin/client.sh 8001 ranger.Node.Take '{"range": {"key": 1}}'
+
+    # ---- test
+
+    # Move half of the range to n2
+    run bin/client.sh 8002 ranger.Node.Give '{"range": {"ident": {"key": 2}, "start": "'$a'", "end": "'$b'"}, "parents": [{"range": '"$r1"', "node": "localhost:8001"}]}'
+    assert_success
+
+    # Move the other half to n3
+    run bin/client.sh 8003 ranger.Node.Give '{"range": {"ident": {"key": 3}, "start": "'$b'", "end": "'$c'"}, "parents": [{"range": '"$r1"', "node": "localhost:8001"}]}'
+    assert_success
+
+    # TODO: Can be arbitrary delay here because Give returns before range
+    #       recovery is finished (or even started). Need some rpc to wait for
+    #       the recovery to succeed or fail. Probably just for testing.
+    sleep 0.5
+
+    # Read a key that should have made it to n2 / [a,b)
+    run bin/client.sh 8002 kv.KV.Get '{"key": "a1"}'
+    assert_success
+    assert_line -n 0 '{'
+    assert_line -n 1 '  "value": "'$aaa'"'
+    assert_line -n 2 '}'
+
+    # Read a key that was in the parent range, but should NOT have made it to n2
+    run bin/client.sh 8002 kv.KV.Get '{"key": "b1"}'
+    assert_failure
+    assert_line -n 0 'ERROR:'
+    assert_line -n 1 '  Code: FailedPrecondition'
+    assert_line -n 2 '  Message: no valid range'
+
+    # Read a key that should have made it to n3 / [b,c)
+    run bin/client.sh 8003 kv.KV.Get '{"key": "b1"}'
+    assert_success
+    assert_line -n 0 '{'
+    assert_line -n 1 '  "value": "'$ccc'"'
+    assert_line -n 2 '}'
+
+    # Read a key that was in the parent range, but should NOT have made it to n3
+    run bin/client.sh 8003 kv.KV.Get '{"key": "a1"}'
+    assert_failure
+    assert_line -n 0 'ERROR:'
+    assert_line -n 1 '  Code: FailedPrecondition'
+    assert_line -n 2 '  Message: no valid range'
 }
