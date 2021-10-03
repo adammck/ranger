@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -19,6 +20,9 @@ import (
 
 	pbkv "github.com/adammck/ranger/examples/kv/proto/gen"
 	pbr "github.com/adammck/ranger/pkg/proto/gen"
+	consul "github.com/hashicorp/consul/api"
+	"google.golang.org/grpc/health"
+	hv1 "google.golang.org/grpc/health/grpc_health_v1"
 )
 
 type key []byte
@@ -238,6 +242,12 @@ type Node struct {
 	data   map[rangeIdent]*RangeData
 	ranges Ranges
 	mu     sync.Mutex // guards data and ranges, todo: split into one for ranges, and one for each range in data
+
+	// Probably okay to move this into the lib and use grpc health-checking every time.
+	hs *health.Server
+
+	// Don't always want Consul for discovery though. Need to abstract this.
+	ca *consul.Agent
 }
 
 // ---- control plane
@@ -504,29 +514,64 @@ func init() {
 
 }
 
-func Serve(addr string) error {
-	n := Node{
+func Build() (*Node, *grpc.Server) {
+	n := &Node{
 		data:   make(map[rangeIdent]*RangeData),
 		ranges: NewRanges(),
+		hs:     health.NewServer(),
 	}
 
-	ns := nodeServer{node: &n}
-	kv := kvServer{node: &n}
+	ns := nodeServer{node: n}
+	kv := kvServer{node: n}
+
+	var opts []grpc.ServerOption
+	srv := grpc.NewServer(opts...)
+
+	pbr.RegisterNodeServer(srv, &ns)
+	pbkv.RegisterKVServer(srv, &kv)
+
+	// start healthy?
+	n.hs.SetServingStatus("", hv1.HealthCheckResponse_SERVING)
+	hv1.RegisterHealthServer(srv, n.hs)
+
+	// Register reflection service, so client can introspect (for debugging).
+	reflection.Register(srv)
+
+	return n, srv
+}
+
+func Start(addr string) error {
+	node, srv := Build()
 
 	lis, err := net.Listen("tcp", addr)
+
 	if err != nil {
 		return err
 	}
 
+	// Add Consul agent so controller can find this node.
+
+	cc, err := consul.NewClient(consul.DefaultConfig())
+	if err != nil {
+		//return err
+		panic(err)
+	}
+	node.ca = cc.Agent()
+
+	def := &consul.AgentServiceRegistration{
+		Name: "node",
+		ID:   fmt.Sprintf("node-%d", os.Getpid()),
+
+		Check: &consul.AgentServiceCheck{
+			GRPC:     addr, //"localhost:9000",
+			Interval: (3 * time.Second).String(),
+		},
+	}
+
+	if err := node.ca.ServiceRegister(def); err != nil {
+		return err
+	}
+
 	log.Printf("listening on: %s", addr)
-
-	var opts []grpc.ServerOption
-	s := grpc.NewServer(opts...)
-	pbr.RegisterNodeServer(s, &ns)
-	pbkv.RegisterKVServer(s, &kv)
-
-	// Register reflection service, so client can introspect (for debugging).
-	reflection.Register(s)
-
-	return s.Serve(lis)
+	return srv.Serve(lis)
 }
