@@ -18,8 +18,8 @@ import (
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 
-	pb2 "github.com/adammck/ranger/examples/kv/proto/gen"
-	pb "github.com/adammck/ranger/pkg/proto/gen"
+	pbkv "github.com/adammck/ranger/examples/kv/proto/gen"
+	pbr "github.com/adammck/ranger/pkg/proto/gen"
 )
 
 type key []byte
@@ -29,7 +29,7 @@ type key []byte
 type rangeIdent [40]byte
 
 // TODO: move this to the lib
-func parseIdent(pbid *pb.Ident) (rangeIdent, error) {
+func parseIdent(pbid *pbr.Ident) (rangeIdent, error) {
 	ident := [40]byte{}
 
 	s := []byte(pbid.GetScope())
@@ -68,16 +68,16 @@ type RangeMeta struct {
 	end   []byte
 }
 
-func parseRangeMeta(pbr *pb.Range) (RangeMeta, error) {
-	ident, err := parseIdent(pbr.Ident)
+func parseRangeMeta(r *pbr.Range) (RangeMeta, error) {
+	ident, err := parseIdent(r.Ident)
 	if err != nil {
 		return RangeMeta{}, err
 	}
 
 	return RangeMeta{
 		ident: ident,
-		start: pbr.Start,
-		end:   pbr.End,
+		start: r.Start,
+		end:   r.End,
 	}, nil
 }
 
@@ -148,7 +148,7 @@ type RangeData struct {
 	state RangeState // TODO: guard this
 }
 
-func (rd *RangeData) fetchMany(dest RangeMeta, parents []*pb.RangeNode) {
+func (rd *RangeData) fetchMany(dest RangeMeta, parents []*pbr.RangeNode) {
 
 	// Parse all the parents before spawning threads. This is fast and failure
 	// indicates a bug more than a transient problem.
@@ -204,10 +204,10 @@ func (rd *RangeData) fetchOne(ctx context.Context, mu *sync.Mutex, dest RangeMet
 		log.Fatalf("fail to dial: %v", err)
 	}
 
-	client := pb2.NewKVClient(conn)
+	client := pbkv.NewKVClient(conn)
 
 	scope, key := src.ident.Decode()
-	res, err := client.Dump(ctx, &pb2.DumpRequest{Range: &pb2.Ident{Scope: scope, Key: key}})
+	res, err := client.Dump(ctx, &pbkv.DumpRequest{Range: &pbkv.Ident{Scope: scope, Key: key}})
 	if err != nil {
 		log.Printf("FetchOne failed: %s from: %s: %s", src.ident, addr, err)
 
@@ -244,18 +244,18 @@ type Node struct {
 // ---- control plane
 
 type nodeServer struct {
-	pb.UnimplementedNodeServer
+	pbr.UnimplementedNodeServer
 	node *Node
 }
 
 // TODO: most of this can be moved into the lib?
-func (n *nodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveResponse, error) {
-	pbr := req.Range
-	if pbr == nil {
+func (n *nodeServer) Give(ctx context.Context, req *pbr.GiveRequest) (*pbr.GiveResponse, error) {
+	r := req.Range
+	if r == nil {
 		return nil, status.Error(codes.InvalidArgument, "missing: range")
 	}
 
-	rm, err := parseRangeMeta(pbr)
+	rm, err := parseRangeMeta(r)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -295,10 +295,10 @@ func (n *nodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveRes
 	n.node.data[rm.ident] = rd
 
 	log.Printf("Given: %s", rm.ident)
-	return &pb.GiveResponse{}, nil
+	return &pbr.GiveResponse{}, nil
 }
 
-func (s *nodeServer) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.ServeResponse, error) {
+func (s *nodeServer) Serve(ctx context.Context, req *pbr.ServeRequest) (*pbr.ServeResponse, error) {
 	// lol
 	s.node.mu.Lock()
 	defer s.node.mu.Unlock()
@@ -315,10 +315,10 @@ func (s *nodeServer) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.Serve
 	rd.state = rsReady
 
 	log.Printf("Serving: %s", ident)
-	return &pb.ServeResponse{}, nil
+	return &pbr.ServeResponse{}, nil
 }
 
-func (s *nodeServer) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeResponse, error) {
+func (s *nodeServer) Take(ctx context.Context, req *pbr.TakeRequest) (*pbr.TakeResponse, error) {
 	// lol
 	s.node.mu.Lock()
 	defer s.node.mu.Unlock()
@@ -335,10 +335,10 @@ func (s *nodeServer) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeRes
 	rd.state = rsTaken
 
 	log.Printf("Taken: %s", ident)
-	return &pb.TakeResponse{}, nil
+	return &pbr.TakeResponse{}, nil
 }
 
-func (s *nodeServer) Drop(ctx context.Context, req *pb.DropRequest) (*pb.DropResponse, error) {
+func (s *nodeServer) Drop(ctx context.Context, req *pbr.DropRequest) (*pbr.DropResponse, error) {
 	// lol
 	s.node.mu.Lock()
 	defer s.node.mu.Unlock()
@@ -361,16 +361,16 @@ func (s *nodeServer) Drop(ctx context.Context, req *pb.DropRequest) (*pb.DropRes
 	s.node.ranges.Remove(ident)
 
 	log.Printf("Dropped: %s", ident)
-	return &pb.DropResponse{}, nil
+	return &pbr.DropResponse{}, nil
 }
 
 // Does not lock range map! You have do to that!
-func (s *nodeServer) getRangeData(pbr *pb.Ident) (rangeIdent, *RangeData, error) {
-	if pbr == nil {
+func (s *nodeServer) getRangeData(pbi *pbr.Ident) (rangeIdent, *RangeData, error) {
+	if pbi == nil {
 		return rangeIdent{}, nil, status.Error(codes.InvalidArgument, "missing: range")
 	}
 
-	ident, err := parseIdent(pbr)
+	ident, err := parseIdent(pbi)
 	if err != nil {
 		return ident, nil, status.Errorf(codes.InvalidArgument, "error parsing range ident: %v", err)
 	}
@@ -386,18 +386,18 @@ func (s *nodeServer) getRangeData(pbr *pb.Ident) (rangeIdent, *RangeData, error)
 // ---- data plane
 
 type kvServer struct {
-	pb2.UnimplementedKVServer
+	pbkv.UnimplementedKVServer
 	node *Node
 }
 
-func (s *kvServer) Dump(ctx context.Context, req *pb2.DumpRequest) (*pb2.DumpResponse, error) {
-	pbr := req.Range
-	if pbr == nil {
+func (s *kvServer) Dump(ctx context.Context, req *pbkv.DumpRequest) (*pbkv.DumpResponse, error) {
+	r := req.Range
+	if r == nil {
 		return nil, status.Error(codes.InvalidArgument, "missing: range")
 	}
 
 	// TODO: Import the proto properly instead of casting like this!
-	ident, err := parseIdent(&pb.Ident{
+	ident, err := parseIdent(&pbr.Ident{
 		Scope: req.Range.Scope,
 		Key:   req.Range.Key,
 	})
@@ -418,16 +418,16 @@ func (s *kvServer) Dump(ctx context.Context, req *pb2.DumpRequest) (*pb2.DumpRes
 		return nil, status.Error(codes.FailedPrecondition, "can only dump ranges in the TAKEN state")
 	}
 
-	res := &pb2.DumpResponse{}
+	res := &pbkv.DumpResponse{}
 	for k, v := range rd.data {
-		res.Pairs = append(res.Pairs, &pb2.Pair{Key: []byte(k), Value: v})
+		res.Pairs = append(res.Pairs, &pbkv.Pair{Key: []byte(k), Value: v})
 	}
 
 	log.Printf("Dumped: %s", ident)
 	return res, nil
 }
 
-func (s *kvServer) Get(ctx context.Context, req *pb2.GetRequest) (*pb2.GetResponse, error) {
+func (s *kvServer) Get(ctx context.Context, req *pbkv.GetRequest) (*pbkv.GetResponse, error) {
 	k := string(req.Key)
 	if k == "" {
 		return nil, status.Error(codes.InvalidArgument, "missing: key")
@@ -456,12 +456,12 @@ func (s *kvServer) Get(ctx context.Context, req *pb2.GetRequest) (*pb2.GetRespon
 	}
 
 	log.Printf("get %q", k)
-	return &pb2.GetResponse{
+	return &pbkv.GetResponse{
 		Value: v,
 	}, nil
 }
 
-func (s *kvServer) Put(ctx context.Context, req *pb2.PutRequest) (*pb2.PutResponse, error) {
+func (s *kvServer) Put(ctx context.Context, req *pbkv.PutRequest) (*pbkv.PutResponse, error) {
 	k := string(req.Key)
 	if k == "" {
 		return nil, status.Error(codes.InvalidArgument, "missing: key")
@@ -491,17 +491,17 @@ func (s *kvServer) Put(ctx context.Context, req *pb2.PutRequest) (*pb2.PutRespon
 	}
 
 	log.Printf("put %q", k)
-	return &pb2.PutResponse{}, nil
+	return &pbkv.PutResponse{}, nil
 }
 
 func init() {
 	// Ensure that nodeServer implements the NodeServer interface
 	var ns *nodeServer = nil
-	var _ pb.NodeServer = ns
+	var _ pbr.NodeServer = ns
 
 	// Ensure that kvServer implements the KVServer interface
 	var kvs *kvServer = nil
-	var _ pb2.KVServer = kvs
+	var _ pbkv.KVServer = kvs
 
 }
 
@@ -511,6 +511,7 @@ func main() {
 		ranges: NewRanges(),
 	}
 
+	//controller := flag.String("controller", ":9000", "address to listen on")
 	addr := flag.String("addr", ":9000", "address to listen on")
 	flag.Parse()
 
@@ -521,12 +522,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
-	log.Printf("control plane listening on %q", *addr)
+	log.Printf("listening on: %s", *addr)
 
 	var opts []grpc.ServerOption
 	s := grpc.NewServer(opts...)
-	pb.RegisterNodeServer(s, &ns)
-	pb2.RegisterKVServer(s, &kv)
+	pbr.RegisterNodeServer(s, &ns)
+	pbkv.RegisterKVServer(s, &kv)
 
 	// Register reflection service, so client can introspect (for debugging).
 	reflection.Register(s)
