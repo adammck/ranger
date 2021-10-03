@@ -22,13 +22,13 @@ setup() {
     load '/Users/adammck/code/src/github.com/bats-core/bats-support/load.bash'
     load '/Users/adammck/code/src/github.com/bats-core/bats-assert/load.bash'
 
-    ./kv -addr ":8001" >$BATS_TMPDIR/kv-8001.log 2>&1 &
+    ./kv -node -addr ":8001" >$BATS_TMPDIR/kv-8001.log 2>&1 &
     PID_8001=$!
 
-    ./kv -addr ":8002" >$BATS_TMPDIR/kv-8002.log 2>&1 &
+    ./kv -node -addr ":8002" >$BATS_TMPDIR/kv-8002.log 2>&1 &
     PID_8002=$!
 
-    ./kv -addr ":8003" >$BATS_TMPDIR/kv-8003.log 2>&1 &
+    ./kv -node -addr ":8003" >$BATS_TMPDIR/kv-8003.log 2>&1 &
     PID_8003=$!
 
     # TODO: Move wait-port tool into a func in this file.
