@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"os"
-	"strconv"
 	"sync"
 	"time"
 
@@ -20,10 +18,10 @@ import (
 	"google.golang.org/grpc/status"
 
 	pbkv "github.com/adammck/ranger/examples/kv/proto/gen"
+	"github.com/adammck/ranger/pkg/discovery"
+	consuldisc "github.com/adammck/ranger/pkg/discovery/consul"
 	pbr "github.com/adammck/ranger/pkg/proto/gen"
-	consul "github.com/hashicorp/consul/api"
-	"google.golang.org/grpc/health"
-	hv1 "google.golang.org/grpc/health/grpc_health_v1"
+	consulapi "github.com/hashicorp/consul/api"
 )
 
 type key []byte
@@ -243,12 +241,7 @@ type Node struct {
 	data   map[rangeIdent]*RangeData
 	ranges Ranges
 	mu     sync.Mutex // guards data and ranges, todo: split into one for ranges, and one for each range in data
-
-	// Probably okay to move this into the lib and use grpc health-checking every time.
-	hs *health.Server
-
-	// Don't always want Consul for discovery though. Need to abstract this.
-	ca *consul.Agent
+	disc   discovery.Discoverable
 }
 
 // ---- control plane
@@ -519,7 +512,6 @@ func Build() (*Node, *grpc.Server) {
 	n := &Node{
 		data:   make(map[rangeIdent]*RangeData),
 		ranges: NewRanges(),
-		hs:     health.NewServer(),
 	}
 
 	ns := nodeServer{node: n}
@@ -527,60 +519,13 @@ func Build() (*Node, *grpc.Server) {
 
 	var opts []grpc.ServerOption
 	srv := grpc.NewServer(opts...)
-
 	pbr.RegisterNodeServer(srv, &ns)
 	pbkv.RegisterKVServer(srv, &kv)
-
-	// start healthy?
-	n.hs.SetServingStatus("", hv1.HealthCheckResponse_SERVING)
-	hv1.RegisterHealthServer(srv, n.hs)
 
 	// Register reflection service, so client can introspect (for debugging).
 	reflection.Register(srv)
 
 	return n, srv
-}
-
-func join(node *Node, addrPub string) error {
-
-	// Add Consul agent so controller can find this node.
-
-	cc, err := consul.NewClient(consul.DefaultConfig())
-	if err != nil {
-		return err
-	}
-	node.ca = cc.Agent()
-
-	// TODO: Move this outwards?
-	host, sPort, err := net.SplitHostPort(addrPub)
-	if err != nil {
-		panic(err)
-	}
-	nPort, err := strconv.Atoi(sPort)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Printf("addrPub: host=%+v, port=%+v\n", host, nPort)
-
-	def := &consul.AgentServiceRegistration{
-		Name:    "node",
-		ID:      fmt.Sprintf("node-%d", os.Getpid()),
-		Address: host,
-		Port:    nPort,
-
-		Check: &consul.AgentServiceCheck{
-			GRPC:     addrPub, //"localhost:9000",
-			Interval: (3 * time.Second).String(),
-			Timeout:  (10 * time.Second).String(),
-		},
-	}
-
-	err = node.ca.ServiceRegister(def)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func Start(addrLis, addrPub string) error {
@@ -591,7 +536,14 @@ func Start(addrLis, addrPub string) error {
 		return err
 	}
 
-	err = join(node, addrPub)
+	disc, err := consuldisc.New("node", addrPub, consulapi.DefaultConfig(), srv)
+	if err != nil {
+		return err
+	}
+	node.disc = disc
+
+	// Register with service discovery
+	err = node.disc.Start()
 	if err != nil {
 		return err
 	}
