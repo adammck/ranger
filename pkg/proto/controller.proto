@@ -1,0 +1,6 @@
+syntax = "proto3";
+
+option go_package = "github.com/adammck/ranger/pkg/proto";
+
+package ranger;
+

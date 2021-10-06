@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -540,38 +541,61 @@ func Build() (*Node, *grpc.Server) {
 	return n, srv
 }
 
-func Start(addr string) error {
-	node, srv := Build()
-
-	lis, err := net.Listen("tcp", addr)
-
-	if err != nil {
-		return err
-	}
+func join(node *Node, addrPub string) error {
 
 	// Add Consul agent so controller can find this node.
 
 	cc, err := consul.NewClient(consul.DefaultConfig())
 	if err != nil {
-		//return err
-		panic(err)
+		return err
 	}
 	node.ca = cc.Agent()
 
+	// TODO: Move this outwards?
+	host, sPort, err := net.SplitHostPort(addrPub)
+	if err != nil {
+		panic(err)
+	}
+	nPort, err := strconv.Atoi(sPort)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("addrPub: host=%+v, port=%+v\n", host, nPort)
+
 	def := &consul.AgentServiceRegistration{
-		Name: "node",
-		ID:   fmt.Sprintf("node-%d", os.Getpid()),
+		Name:    "node",
+		ID:      fmt.Sprintf("node-%d", os.Getpid()),
+		Address: host,
+		Port:    nPort,
 
 		Check: &consul.AgentServiceCheck{
-			GRPC:     addr, //"localhost:9000",
+			GRPC:     addrPub, //"localhost:9000",
 			Interval: (3 * time.Second).String(),
+			Timeout:  (10 * time.Second).String(),
 		},
 	}
 
-	if err := node.ca.ServiceRegister(def); err != nil {
+	err = node.ca.ServiceRegister(def)
+	if err != nil {
 		return err
 	}
 
-	log.Printf("listening on: %s", addr)
+	return nil
+}
+
+func Start(addrLis, addrPub string) error {
+	node, srv := Build()
+
+	lis, err := net.Listen("tcp", addrLis)
+	if err != nil {
+		return err
+	}
+
+	err = join(node, addrPub)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("listening on: %s", addrLis)
 	return srv.Serve(lis)
 }
