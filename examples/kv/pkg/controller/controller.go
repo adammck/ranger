@@ -3,9 +3,12 @@ package controller
 import (
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/adammck/ranger/pkg/discovery"
 	consuldisc "github.com/adammck/ranger/pkg/discovery/consul"
+	"github.com/adammck/ranger/pkg/keyspace"
+	"github.com/adammck/ranger/pkg/roster"
 	consulapi "github.com/hashicorp/consul/api"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -17,6 +20,8 @@ type Controller struct {
 	addrPub string // do we actually need this? maybe only discovery does.
 	srv     *grpc.Server
 	disc    discovery.Discoverable
+	ks      *keyspace.Keyspace
+	rost    *roster.Roster
 }
 
 func New(addrLis, addrPub string) (*Controller, error) {
@@ -38,8 +43,21 @@ func New(addrLis, addrPub string) (*Controller, error) {
 		addrPub: addrPub,
 		srv:     srv,
 		disc:    disc,
+		ks:      keyspace.New(),
+		rost:    roster.New(disc),
 	}, nil
 }
+
+// func (c *Controller) MainLoop() {
+
+// 	ticker := time.NewTicker(5 * time.Second)
+
+// 	go roster.Heartbeat(ticker)
+// }
+
+// func (c *Controller) Tick() {
+
+// }
 
 func (c *Controller) Run(done chan bool) error {
 
@@ -66,8 +84,14 @@ func (c *Controller) Run(done chan bool) error {
 		return err
 	}
 
-	//???
-	listNodes(c)
+	// TODO: Read assignment history from database
+	// TODO: Connect to all nodes
+	// TODO: Fetch current assignment status from nodes
+	// TODO: Reconcile divergence etc
+
+	// rebalancing loop
+	ticker := time.NewTicker(time.Second)
+	go c.rost.Run(ticker)
 
 	// Block until channel closes, indicating that caller wants shutdown.
 	<-done
@@ -92,13 +116,3 @@ func (c *Controller) Run(done chan bool) error {
 }
 
 // TODO: Remove this
-func listNodes(c *Controller) {
-	res, err := c.disc.Get("node")
-	if err != nil {
-		panic(err)
-	}
-
-	for _, r := range res {
-		fmt.Printf("node: %v\n", r)
-	}
-}

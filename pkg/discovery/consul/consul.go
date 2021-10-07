@@ -2,12 +2,12 @@ package consul
 
 import (
 	"fmt"
-	"os"
+	"net"
+	"strconv"
 	"time"
 
 	discovery "github.com/adammck/ranger/pkg/discovery"
 	"github.com/hashicorp/consul/api"
-	consul "github.com/hashicorp/consul/api"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	hv1 "google.golang.org/grpc/health/grpc_health_v1"
@@ -16,13 +16,36 @@ import (
 type Discovery struct {
 	svcName string
 	addrPub string
-	consul  *consul.Client
+	ident   string
+	consul  *api.Client
 	srv     *grpc.Server
 	hs      *health.Server
 }
 
-func New(serviceName, addrPub string, cfg *consul.Config, srv *grpc.Server) (*Discovery, error) {
-	client, err := consul.NewClient(cfg)
+func getIdent(addr string) (string, error) {
+	host, sPort, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", err
+	}
+	nPort, err := strconv.Atoi(sPort)
+	if err != nil {
+		return "", err
+	}
+
+	if host == "" || host == "localhost" || host == "127.0.0.1" {
+		return fmt.Sprintf("%d", nPort), nil
+	}
+
+	return fmt.Sprintf("%s:%d", host, nPort), nil
+}
+
+func New(serviceName, addrPub string, cfg *api.Config, srv *grpc.Server) (*Discovery, error) {
+	client, err := api.NewClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	ident, err := getIdent(addrPub)
 	if err != nil {
 		return nil, err
 	}
@@ -30,6 +53,7 @@ func New(serviceName, addrPub string, cfg *consul.Config, srv *grpc.Server) (*Di
 	d := &Discovery{
 		svcName: serviceName,
 		addrPub: addrPub,
+		ident:   ident,
 
 		consul: client,
 		srv:    srv,
@@ -43,25 +67,24 @@ func New(serviceName, addrPub string, cfg *consul.Config, srv *grpc.Server) (*Di
 }
 
 func (d *Discovery) Start() error {
-	// lis, err := net.Listen("tcp", d.addrLis)
-	// if err != nil {
-	// 	return err
-	// }
-
-	// go func() {
-	// 	// Blocks until GracefulStop is called by d.Stop
-	// 	// TODO: Do something with the return value?
-	// 	d.srv.Serve(lis)
-	// }()
-
-	def := &consul.AgentServiceRegistration{
+	def := &api.AgentServiceRegistration{
 		Name: d.svcName,
-		ID:   fmt.Sprintf("%s-%d", d.svcName, os.Getpid()), // ???
+		ID:   d.ident,
 
-		Check: &consul.AgentServiceCheck{
-			GRPC:     d.addrPub,
+		Check: &api.AgentServiceCheck{
+			GRPC: d.addrPub,
+
+			// How long to wait between checks.
 			Interval: (3 * time.Second).String(),
-			Timeout:  (10 * time.Second).String(),
+
+			// How long to wait for a response before giving up.
+			Timeout: (1 * time.Second).String(),
+
+			// How long to wait after a service becomes critical (i.e. starts
+			// returning error, unhealthy responses, or timing out) before
+			// removing it from service discovery. Might actually take longer
+			// than this because of Consul implementation.
+			DeregisterCriticalServiceAfter: (10 * time.Second).String(),
 		},
 	}
 
@@ -79,10 +102,6 @@ func (d *Discovery) Stop() error {
 		return err
 	}
 
-	// Allows RPCs to complete before closing.
-	// Can't return error.
-	//d.srv.GracefulStop()
-
 	return nil
 }
 
@@ -94,7 +113,6 @@ func (d *Discovery) Get(name string) ([]discovery.Remote, error) {
 
 	output := make([]discovery.Remote, len(res))
 	for i, r := range res {
-		//fmt.Printf("%d: %+v\n", i, r)
 		output[i] = discovery.Remote{
 			Ident: r.ServiceID,
 			Host:  r.Address,

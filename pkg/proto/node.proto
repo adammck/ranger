@@ -2,12 +2,9 @@ syntax = "proto3";
 
 option go_package = "github.com/adammck/ranger/pkg/proto";
 
-package ranger;
+import "ident.proto";
 
-message Ident {
-  string scope = 1;
-  uint64 key = 2;
-}
+package ranger;
 
 message Range {
   // Unique for every range.
@@ -23,11 +20,37 @@ message RangeNode {
   string node = 2;
 }
 
+message RangeInfo {
+  Range range = 1;
+
+  // Keep synced with RangeState (in node.go for now)
+  enum State {
+    UNKNOWN = 0;
+    FETCHING = 1;
+    FETCHED = 2;
+    FETCH_FAILED = 3;
+    READY = 4;
+    TAKEN = 5;
+  }
+
+  // The state which the range is currently in.
+  State state = 2;
+
+  // Number of keys which this range contains.
+  // Just for reporting? Not balancing?
+  uint64 keys = 3;
+
+  // TODO: Generic load info? cpu/ram/network/disk?
+  // TODO: Extra domain-specific info?
+  // TODO: Suggested split point(s)
+}
+
 service Node {
   rpc Give (GiveRequest) returns (GiveResponse) {}
   rpc Serve (ServeRequest) returns (ServeResponse) {}
   rpc Take (TakeRequest) returns (TakeResponse) {}
   rpc Drop (DropRequest) returns (DropResponse) {}
+  rpc Info (InfoRequest) returns (InfoResponse) {}
 }
 
 message GiveRequest {
@@ -63,4 +86,11 @@ message DropRequest {
 }
 
 message DropResponse {
+}
+
+message InfoRequest {
+}
+
+message InfoResponse {
+  repeated RangeInfo ranges = 1;
 }
