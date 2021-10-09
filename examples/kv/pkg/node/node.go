@@ -144,9 +144,28 @@ const (
 	rsTaken
 )
 
+func (rs RangeState) ToProto() pbr.RangeInfo_State {
+	switch rs {
+	case rsFetching:
+		return pbr.RangeInfo_FETCHING
+	case rsFetched:
+		return pbr.RangeInfo_FETCHED
+	case rsFetchFailed:
+		return pbr.RangeInfo_FETCH_FAILED
+	case rsReady:
+		return pbr.RangeInfo_READY
+	case rsTaken:
+		return pbr.RangeInfo_TAKEN
+	}
+
+	return pbr.RangeInfo_UNKNOWN
+}
+
 // This is all specific to the kv example. Nothing generic in here.
 type RangeData struct {
-	data  map[string][]byte
+	data map[string][]byte
+
+	// TODO: Move this to the rangemeta!!
 	state RangeState // TODO: guard this
 }
 
@@ -365,6 +384,35 @@ func (s *nodeServer) Drop(ctx context.Context, req *pbr.DropRequest) (*pbr.DropR
 
 	log.Printf("Dropped: %s", ident)
 	return &pbr.DropResponse{}, nil
+}
+
+func (n *nodeServer) Info(ctx context.Context, req *pbr.InfoRequest) (*pbr.InfoResponse, error) {
+	res := &pbr.InfoResponse{}
+
+	// lol
+	n.node.mu.Lock()
+	defer n.node.mu.Unlock()
+
+	// iterate range metadata
+	for _, r := range n.node.ranges.ranges {
+		scope, key := r.ident.Decode()
+		d := n.node.data[r.ident]
+
+		res.Ranges = append(res.Ranges, &pbr.RangeInfo{
+			Range: &pbr.Range{
+				Ident: &pbr.Ident{
+					Scope: scope,
+					Key:   key,
+				},
+				Start: r.start,
+				End:   r.end,
+			},
+			State: d.state.ToProto(),
+			Keys:  uint64(len(d.data)),
+		})
+	}
+
+	return res, nil
 }
 
 // Does not lock range map! You have do to that!

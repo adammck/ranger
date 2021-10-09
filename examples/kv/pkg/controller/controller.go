@@ -5,6 +5,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/adammck/ranger/pkg/balancer"
 	"github.com/adammck/ranger/pkg/discovery"
 	consuldisc "github.com/adammck/ranger/pkg/discovery/consul"
 	"github.com/adammck/ranger/pkg/keyspace"
@@ -22,6 +23,7 @@ type Controller struct {
 	disc    discovery.Discoverable
 	ks      *keyspace.Keyspace
 	rost    *roster.Roster
+	bal     *balancer.Balancer
 }
 
 func New(addrLis, addrPub string) (*Controller, error) {
@@ -37,14 +39,18 @@ func New(addrLis, addrPub string) (*Controller, error) {
 		return nil, err
 	}
 
+	ks := keyspace.New()
+	rost := roster.New(disc)
+
 	return &Controller{
 		name:    "controller",
 		addrLis: addrLis,
 		addrPub: addrPub,
 		srv:     srv,
 		disc:    disc,
-		ks:      keyspace.New(),
-		rost:    roster.New(disc),
+		ks:      ks,
+		rost:    rost,
+		bal:     balancer.New(ks, rost),
 	}, nil
 }
 
@@ -78,7 +84,7 @@ func (c *Controller) Run(done chan bool) error {
 	}()
 
 	// Make the controller discoverable.
-	// TODO: Do we actually need this?
+	// TODO: Do we actually need this? Can move disc into Roster if not.
 	err = c.disc.Start()
 	if err != nil {
 		return err
@@ -89,9 +95,12 @@ func (c *Controller) Run(done chan bool) error {
 	// TODO: Fetch current assignment status from nodes
 	// TODO: Reconcile divergence etc
 
-	// rebalancing loop
+	// Start roster. Periodically probes all nodes to get their state.
 	ticker := time.NewTicker(time.Second)
 	go c.rost.Run(ticker)
+
+	// Start rebalancing loop.
+	go c.bal.Run(time.NewTicker(3 * time.Second))
 
 	// Block until channel closes, indicating that caller wants shutdown.
 	<-done
@@ -114,5 +123,3 @@ func (c *Controller) Run(done chan bool) error {
 
 	return nil
 }
-
-// TODO: Remove this

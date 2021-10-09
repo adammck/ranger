@@ -15,45 +15,42 @@ import (
 
 type Discovery struct {
 	svcName string
-	addrPub string
-	ident   string
+	host    string
+	port    int
 	consul  *api.Client
 	srv     *grpc.Server
 	hs      *health.Server
 }
 
-func getIdent(addr string) (string, error) {
-	host, sPort, err := net.SplitHostPort(addr)
-	if err != nil {
-		return "", err
-	}
-	nPort, err := strconv.Atoi(sPort)
-	if err != nil {
-		return "", err
+func (d *Discovery) getIdent() string {
+	if d.host == "" || d.host == "localhost" || d.host == "127.0.0.1" {
+		return fmt.Sprintf("%d", d.port)
 	}
 
-	if host == "" || host == "localhost" || host == "127.0.0.1" {
-		return fmt.Sprintf("%d", nPort), nil
-	}
-
-	return fmt.Sprintf("%s:%d", host, nPort), nil
+	return fmt.Sprintf("%s:%d", d.host, d.port)
 }
 
-func New(serviceName, addrPub string, cfg *api.Config, srv *grpc.Server) (*Discovery, error) {
+func New(serviceName, addr string, cfg *api.Config, srv *grpc.Server) (*Discovery, error) {
 	client, err := api.NewClient(cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	ident, err := getIdent(addrPub)
+	// Extract host:port from the given address.
+	// TODO: Maybe better to do this outside?
+	host, sPort, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	nPort, err := strconv.Atoi(sPort)
 	if err != nil {
 		return nil, err
 	}
 
 	d := &Discovery{
 		svcName: serviceName,
-		addrPub: addrPub,
-		ident:   ident,
+		host:    host,
+		port:    nPort,
 
 		consul: client,
 		srv:    srv,
@@ -69,10 +66,14 @@ func New(serviceName, addrPub string, cfg *api.Config, srv *grpc.Server) (*Disco
 func (d *Discovery) Start() error {
 	def := &api.AgentServiceRegistration{
 		Name: d.svcName,
-		ID:   d.ident,
+		ID:   d.getIdent(),
+
+		// How other nodes should call the service.
+		Address: d.host,
+		Port:    d.port,
 
 		Check: &api.AgentServiceCheck{
-			GRPC: d.addrPub,
+			GRPC: fmt.Sprintf("%s:%d", d.host, d.port),
 
 			// How long to wait between checks.
 			Interval: (3 * time.Second).String(),
@@ -115,7 +116,7 @@ func (d *Discovery) Get(name string) ([]discovery.Remote, error) {
 	for i, r := range res {
 		output[i] = discovery.Remote{
 			Ident: r.ServiceID,
-			Host:  r.Address,
+			Host:  r.Address, // https://github.com/hashicorp/consul/issues/2076
 			Port:  r.ServicePort,
 		}
 	}

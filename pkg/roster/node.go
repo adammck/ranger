@@ -13,10 +13,6 @@ import (
 	"google.golang.org/grpc"
 )
 
-const (
-	probeTimeout = 3 * time.Second
-)
-
 type Node struct {
 	host string
 	port int
@@ -31,7 +27,8 @@ type Node struct {
 	client pb.NodeClient
 	muConn sync.RWMutex
 
-	ranges map[ident.Ident]*keyspace.Range
+	// The ranges that this node has. Populated via Probe.
+	ranges map[ident.Ident]*Info
 
 	// TODO: Figure out what to do with these. They shouldn't exist, and indicate a state bug. But ignoring them probably isn't right.
 	unexpectedRanges map[ident.Ident]*pb.Range
@@ -66,13 +63,26 @@ func (n *Node) addr() string {
 	return fmt.Sprintf("%s:%d", n.host, n.port)
 }
 
+func (n *Node) Give(id ident.Ident, r *keyspace.Range) error {
+	_, ok := n.ranges[id]
+	if ok {
+		// Note that this doesn't check the *other* nodes, only this one
+		return fmt.Errorf("range already given to node %s: %s", n.addr(), id.String())
+	}
+
+	n.ranges[id] = &Info{
+		R: r,
+		S: rsUnknown,
+		K: 0,
+	}
+
+	return nil
+}
+
 // Probe updates current state of the node via RPC.
 // Returns error if the RPC fails or if a probe is already in progess.
-func (n *Node) Probe() error {
+func (n *Node) Probe(ctx context.Context) error {
 	// TODO: Abort if probe in progress.
-
-	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
-	defer cancel()
 
 	res, err := n.client.Info(ctx, &pb.InfoRequest{})
 	if err != nil {
@@ -91,12 +101,20 @@ func (n *Node) Probe() error {
 		rrr, ok := n.ranges[id]
 
 		if !ok {
-			fmt.Printf("Got unexpected range from node %s: %s\n", n.addr(), id)
+			fmt.Printf("Got unexpected range from node %s: %s\n", n.addr(), id.String())
 			n.unexpectedRanges[id] = rr
 			continue
 		}
 
-		_ = rrr
+		// TODO: We compare the Ident here even though we just fetched the assignment by ID. Is that... why
+		if !rrr.R.SameMeta(id, rr.Start, rr.End) {
+			fmt.Printf("Remote range did not match local range with same ident: %s\n", id.String())
+			continue
+		}
+
+		// Finally update the remote info
+		rrr.K = r.Keys
+		rrr.S = FromProto(r.State)
 	}
 
 	return nil

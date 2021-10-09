@@ -3,18 +3,26 @@ package keyspace
 import (
 	"fmt"
 
+	"github.com/adammck/ranger/pkg/ident"
 	"github.com/adammck/ranger/pkg/keyspace/fsm"
 )
+
+// type Meta struct {
+// 	ident ident.Ident
+// 	start Key // inclusive
+// 	end   Key // exclusive
+// }
 
 // Range is a range of keys in the keyspace.
 // These should probably only be instantiated by Keyspace? No sanity checks, so be careful.
 type Range struct {
+	// TODO: Replace these with a Meta
 	ident int
-
 	start Key // inclusive
 	end   Key // exclusive
-	state fsm.State
+	// END TODO
 
+	state    fsm.State
 	parents  []*Range
 	children []*Range
 }
@@ -36,6 +44,11 @@ func (r *Range) Contains(k Key) bool {
 	}
 
 	return true
+}
+
+func (r *Range) SameMeta(id ident.Ident, start, end []byte) bool {
+	// TODO: This method is batshit
+	return uint64(r.ident) == id.Key && r.start == Key(start) && r.end == Key(end)
 }
 
 func (r *Range) String() string {

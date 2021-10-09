@@ -15,8 +15,26 @@ const (
 	Unknown State = iota
 
 	// Pending: The default state. The range is known (by the controller) but
-	// hasn't been assigned to any node.
+	// hasn't been assigned to any node. When a range is in this state, the
+	// controller should find a node and Give the range to it asap.
+	//
+	// -> Ready: The node accepted it, and didn't need to do anything to become
+	//           ready. Maybe it was a genesis range?
+	//
+	// -> Fetching: The node accepted it, and is getting ready to serve it. The
+	//              controller should wait.
 	Pending
+
+	// Fetching: The range is assigned to a node, and the node is getting ready
+	// to serve it. The controller should keep probing for updates.
+	//
+	// -> FetchFailed: The node tried to fetch the range, but couldn't, for
+	//                 whatever reason.
+	//
+	// -> FetchRevoked: The controller lost contact with the node while it was
+	//                  fetching the range. Maybe it OOMed?
+	//
+	//Fetching -- TODO
 
 	// Ready: The range is owned by a node, and is in the steady state.
 	Ready
