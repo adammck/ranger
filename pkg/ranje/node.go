@@ -1,4 +1,4 @@
-package roster
+package ranje
 
 import (
 	"context"
@@ -7,10 +7,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adammck/ranger/pkg/keyspace"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
-	"github.com/adammck/ranger/pkg/ranje"
 	"google.golang.org/grpc"
+)
+
+const (
+	staleTimer = 10 * time.Second
 )
 
 type Node struct {
@@ -28,10 +30,10 @@ type Node struct {
 	muConn sync.RWMutex
 
 	// The ranges that this node has. Populated via Probe.
-	ranges map[ranje.Ident]*Info
+	ranges map[Ident]*Placement
 
 	// TODO: Figure out what to do with these. They shouldn't exist, and indicate a state bug. But ignoring them probably isn't right.
-	unexpectedRanges map[ranje.Ident]*pb.RangeMeta
+	unexpectedRanges map[Ident]*pb.RangeMeta
 }
 
 func NewNode(host string, port int) *Node {
@@ -59,21 +61,31 @@ func NewNode(host string, port int) *Node {
 	return &n
 }
 
+// Seen tells us that the node is still in service discovery.
+func (n *Node) Seen(t time.Time) {
+	n.seen = t
+}
+
+func (n *Node) IsStale(now time.Time) bool {
+	return n.seen.Before(now.Add(-staleTimer))
+}
+
 func (n *Node) addr() string {
 	return fmt.Sprintf("%s:%d", n.host, n.port)
 }
 
-func (n *Node) Give(id ranje.Ident, r *keyspace.Range) error {
+func (n *Node) Give(id Ident, r *Range) error {
 	_, ok := n.ranges[id]
 	if ok {
 		// Note that this doesn't check the *other* nodes, only this one
 		return fmt.Errorf("range already given to node %s: %s", n.addr(), id.String())
 	}
 
-	n.ranges[id] = &Info{
-		R: r,
-		S: ranje.StateUnknown,
-		K: 0,
+	n.ranges[id] = &Placement{
+		rang:  r,
+		node:  n,
+		state: StateUnknown,
+		K:     0,
 	}
 
 	return nil
@@ -97,7 +109,7 @@ func (n *Node) Probe(ctx context.Context) error {
 			continue
 		}
 
-		id, err := ranje.IdentFromProto(rr.Ident)
+		id, err := IdentFromProto(rr.Ident)
 		if err != nil {
 			fmt.Printf("Got malformed ident from node %s: %s\n", n.addr(), err.Error())
 			continue
@@ -112,14 +124,14 @@ func (n *Node) Probe(ctx context.Context) error {
 		}
 
 		// TODO: We compare the Ident here even though we just fetched the assignment by ID. Is that... why
-		if !rrr.R.SameMeta(*id, rr.Start, rr.End) {
+		if !rrr.rang.SameMeta(*id, rr.Start, rr.End) {
 			fmt.Printf("Remote range did not match local range with same ident: %s\n", id.String())
 			continue
 		}
 
 		// Finally update the remote info
 		rrr.K = r.Keys
-		rrr.S = ranje.RemoteStateFromProto(r.State)
+		rrr.state = RemoteStateFromProto(r.State)
 	}
 
 	return nil

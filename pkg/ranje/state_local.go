@@ -1,4 +1,4 @@
-package fsm
+package ranje
 
 import (
 	"fmt"
@@ -6,13 +6,13 @@ import (
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 )
 
-type State uint8
+type StateLocal uint8
 
 // TODO: Is joining and splitting the same state?
 
 const (
 	// ???
-	Unknown State = iota
+	Unknown StateLocal = iota
 
 	// Pending: The default state. The range is known (by the controller) but
 	// hasn't been assigned to any node. When a range is in this state, the
@@ -55,7 +55,7 @@ const (
 
 //go:generate stringer -type=State
 
-func FromProto(s *pb.RangeNodeState) State {
+func FromProto(s *pb.RangeNodeState) StateLocal {
 	// switch *s {
 	// case pb.RangeInfo_UNKNOWN:
 	// 	return Unknown
@@ -75,6 +75,6 @@ func FromProto(s *pb.RangeNodeState) State {
 	return Unknown
 }
 
-func (s *State) ToProto() pb.RangeNodeState {
+func (s *StateLocal) ToProto() pb.RangeNodeState {
 	return pb.RangeNodeState_UNKNOWN
 }

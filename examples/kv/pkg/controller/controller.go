@@ -8,7 +8,7 @@ import (
 	"github.com/adammck/ranger/pkg/balancer"
 	"github.com/adammck/ranger/pkg/discovery"
 	consuldisc "github.com/adammck/ranger/pkg/discovery/consul"
-	"github.com/adammck/ranger/pkg/keyspace"
+	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
 	consulapi "github.com/hashicorp/consul/api"
 	"google.golang.org/grpc"
@@ -21,7 +21,7 @@ type Controller struct {
 	addrPub string // do we actually need this? maybe only discovery does.
 	srv     *grpc.Server
 	disc    discovery.Discoverable
-	ks      *keyspace.Keyspace
+	ks      *ranje.Keyspace
 	rost    *roster.Roster
 	bal     *balancer.Balancer
 }
@@ -39,7 +39,7 @@ func New(addrLis, addrPub string) (*Controller, error) {
 		return nil, err
 	}
 
-	ks := keyspace.New()
+	ks := ranje.New()
 	rost := roster.New(disc)
 
 	return &Controller{

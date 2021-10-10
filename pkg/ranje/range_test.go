@@ -1,9 +1,8 @@
-package keyspace
+package ranje
 
 import (
 	"testing"
 
-	"github.com/adammck/ranger/pkg/keyspace/fsm"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -24,7 +23,7 @@ func TestString(t *testing.T) {
 func TestState(t *testing.T) {
 	r := Range{}
 
-	err := r.State(fsm.Pending)
+	err := r.State(Pending)
 	if assert.Error(t, err) {
 		assert.EqualError(t, err, "invalid state transition: Pending -> Pending")
 	}
@@ -33,15 +32,15 @@ func TestState(t *testing.T) {
 }
 
 func TestSplitState(t *testing.T) {
-	r0 := Range{state: fsm.Splitting}
-	r1 := Range{state: fsm.Pending, parents: []*Range{&r0}}
-	r2 := Range{state: fsm.Pending, parents: []*Range{&r0}}
+	r0 := Range{state: Splitting}
+	r1 := Range{state: Pending, parents: []*Range{&r0}}
+	r2 := Range{state: Pending, parents: []*Range{&r0}}
 
 	r0.children = []*Range{&r1, &r2}
 
-	assert.NoError(t, r1.State(fsm.Ready))
-	assert.Equal(t, r0.state, fsm.Splitting)
+	assert.NoError(t, r1.State(Ready))
+	assert.Equal(t, r0.state, Splitting)
 
-	assert.NoError(t, r2.State(fsm.Ready))
-	assert.Equal(t, r0.state, fsm.Obsolete)
+	assert.NoError(t, r2.State(Ready))
+	assert.Equal(t, r0.state, Obsolete)
 }

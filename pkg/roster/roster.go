@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/adammck/ranger/pkg/discovery"
+	"github.com/adammck/ranger/pkg/ranje"
 )
 
 const (
@@ -15,7 +16,7 @@ const (
 )
 
 type Roster struct {
-	nodes map[string]*Node
+	nodes map[string]*ranje.Node
 	mu    sync.Mutex
 
 	disc discovery.Discoverable
@@ -23,7 +24,7 @@ type Roster struct {
 
 func New(disc discovery.Discoverable) *Roster {
 	return &Roster{
-		nodes: make(map[string]*Node),
+		nodes: make(map[string]*ranje.Node),
 		disc:  disc,
 	}
 }
@@ -39,20 +40,20 @@ func (ros *Roster) discover() {
 
 		// New Node?
 		if !ok {
-			n = NewNode(r.Host, r.Port)
+			n = ranje.NewNode(r.Host, r.Port)
 			fmt.Printf("new node: %v\n", r.Ident)
 			ros.nodes[r.Ident] = n
 		}
 
-		n.seen = time.Now()
+		n.Seen(time.Now())
 	}
 }
 
 func (ros *Roster) expire() {
-	staleTime := time.Now().Add(-10 * time.Second)
+	now := time.Now()
 
 	for k, v := range ros.nodes {
-		if v.seen.Before(staleTime) {
+		if v.IsStale(now) {
 			fmt.Printf("expiring node: %v\n", v)
 			delete(ros.nodes, k)
 		}
@@ -75,7 +76,7 @@ func (ros *Roster) probe() {
 
 		// Copy node since it changes between iterations.
 		// https://golang.org/doc/faq#closures_and_goroutines
-		go func(n *Node) {
+		go func(n *ranje.Node) {
 			defer wg.Done()
 			err := n.Probe(ctx)
 			if err != nil {
@@ -94,7 +95,7 @@ func (ros *Roster) probe() {
 }
 
 // Probe sends a heartbeat RPC to the given addr, and updates the node seen time.
-//func (r *Roster) ProbeOne(n *Node) {
+//func (r *Roster) ProbeOne(n *ranje.Node) {
 // 	//zap.L().Info("probe", zap.String("addr", n.addr))
 
 // 	conn, err := n.Conn()

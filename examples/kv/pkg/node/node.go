@@ -139,7 +139,7 @@ type RangeData struct {
 	data map[string][]byte
 
 	// TODO: Move this to the rangemeta!!
-	state ranje.RemoteState // TODO: guard this
+	state ranje.StateRemote // TODO: guard this
 }
 
 func (rd *RangeData) fetchMany(dest RangeMeta, parents []*pbr.RangeNode) {

@@ -5,10 +5,10 @@ import (
 )
 
 // See: ranger/pkg/proto/node.proto:RangeInfo.State
-type RemoteState uint8
+type StateRemote uint8
 
 const (
-	StateUnknown RemoteState = iota
+	StateUnknown StateRemote = iota
 	StateFetching
 	StateFetched
 	StateFetchFailed
@@ -16,7 +16,7 @@ const (
 	StateTaken
 )
 
-func RemoteStateFromProto(s pb.RangeNodeState) RemoteState {
+func RemoteStateFromProto(s pb.RangeNodeState) StateRemote {
 	switch s {
 	case pb.RangeNodeState_FETCHING:
 		return StateFetching
@@ -33,7 +33,7 @@ func RemoteStateFromProto(s pb.RangeNodeState) RemoteState {
 	return StateUnknown
 }
 
-func (rs RemoteState) ToProto() pb.RangeNodeState {
+func (rs StateRemote) ToProto() pb.RangeNodeState {
 	switch rs {
 	case StateFetching:
 		return pb.RangeNodeState_FETCHING

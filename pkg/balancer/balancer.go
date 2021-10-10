@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/adammck/ranger/pkg/keyspace"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
@@ -12,13 +11,13 @@ import (
 )
 
 type Balancer struct {
-	ks   *keyspace.Keyspace
+	ks   *ranje.Keyspace
 	rost *roster.Roster
 	srv  *grpc.Server
 	bs   *balancerServer
 }
 
-func New(ks *keyspace.Keyspace, rost *roster.Roster, srv *grpc.Server) *Balancer {
+func New(ks *ranje.Keyspace, rost *roster.Roster, srv *grpc.Server) *Balancer {
 	b := &Balancer{
 		ks:   ks,
 		rost: rost,

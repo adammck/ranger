@@ -1,13 +1,10 @@
-package keyspace
+package ranje
 
 import (
 	"errors"
 	"fmt"
 	"strings"
 	"sync"
-
-	"github.com/adammck/ranger/pkg/keyspace/fsm"
-	"github.com/adammck/ranger/pkg/ranje"
 )
 
 // Keyspace is an overlapping set of ranges which cover all of the possible
@@ -33,18 +30,18 @@ func NewWithSplits(splits []string) *Keyspace {
 	// TODO: Should we sort the splits here? Or panic? We currently assume they're sorted.
 
 	for i := range rs {
-		var s, e ranje.Key
+		var s, e Key
 
 		if i > 0 {
 			s = rs[i-1].end
 		} else {
-			s = ranje.ZeroKey
+			s = ZeroKey
 		}
 
 		if i < len(splits) {
-			e = ranje.Key(splits[i])
+			e = Key(splits[i])
 		} else {
-			e = ranje.ZeroKey
+			e = ZeroKey
 		}
 
 		r := ks.Range()
@@ -80,7 +77,7 @@ func (ks *Keyspace) Dump() string {
 }
 
 // Get returns a range by its ident, or an error if no such range exists.
-func (ks *Keyspace) GetByIdent(id ranje.Ident) (*Range, error) {
+func (ks *Keyspace) GetByIdent(id Ident) (*Range, error) {
 	for _, r := range ks.ranges {
 		if r.Ident == int(id.Key) {
 			return r, nil
@@ -109,15 +106,15 @@ func (ks *Keyspace) Len() int {
 }
 
 // TODO: Rename to Split once the old one is gone
-func (ks *Keyspace) DoSplit(r *Range, k ranje.Key) error {
+func (ks *Keyspace) DoSplit(r *Range, k Key) error {
 	ks.mu.Lock()
 	defer ks.mu.Unlock()
 
-	if k == ranje.ZeroKey {
+	if k == ZeroKey {
 		return fmt.Errorf("can't split on zero key")
 	}
 
-	if r.state != fsm.Ready {
+	if r.state != Ready {
 		return errors.New("can't split non-ready range")
 	}
 
@@ -134,7 +131,7 @@ func (ks *Keyspace) DoSplit(r *Range, k ranje.Key) error {
 		return fmt.Errorf("range %s starts with key: %s", r, k)
 	}
 
-	err := r.State(fsm.Splitting)
+	err := r.State(Splitting)
 	if err != nil {
 		// The error is clear enough, no need to wrap it.
 		return err
@@ -167,7 +164,7 @@ func (ks *Keyspace) JoinTwo(one *Range, two *Range) (*Range, error) {
 	defer ks.mu.Unlock()
 
 	for _, r := range []*Range{one, two} {
-		if r.state != fsm.Ready {
+		if r.state != Ready {
 			return nil, errors.New("can't join non-ready ranges")
 		}
 
@@ -182,7 +179,7 @@ func (ks *Keyspace) JoinTwo(one *Range, two *Range) (*Range, error) {
 	}
 
 	for _, r := range []*Range{one, two} {
-		err := r.State(fsm.Joining)
+		err := r.State(Joining)
 		if err != nil {
 			// The error is clear enough, no need to wrap it.
 			return nil, err
@@ -224,7 +221,7 @@ func (ks *Keyspace) Discard(r *Range) error {
 	ks.mu.Lock()
 	defer ks.mu.Unlock()
 
-	if r.state != fsm.Obsolete {
+	if r.state != Obsolete {
 		return errors.New("can't discard non-obsolete range")
 	}
 

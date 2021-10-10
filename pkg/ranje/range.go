@@ -1,10 +1,7 @@
-package keyspace
+package ranje
 
 import (
 	"fmt"
-
-	"github.com/adammck/ranger/pkg/keyspace/fsm"
-	"github.com/adammck/ranger/pkg/ranje"
 )
 
 // type Meta struct {
@@ -18,13 +15,17 @@ import (
 type Range struct {
 	// TODO: Replace these with a Meta
 	Ident int
-	start ranje.Key // inclusive
-	end   ranje.Key // exclusive
+	start Key // inclusive
+	end   Key // exclusive
 	// END TODO
 
-	state    fsm.State
+	state    StateLocal
 	parents  []*Range
 	children []*Range
+
+	// Which nodes currently have this range, and what state are they in? May be
+	// empty or have n entries, depending on the local state of the range.
+	placements []*Placement
 
 	// Hints
 	// Public so the balancer can mess with them.
@@ -34,14 +35,14 @@ type Range struct {
 
 // Contains returns true if the given key is within the range.
 // TODO: Test this.
-func (r *Range) Contains(k ranje.Key) bool {
-	if r.start != ranje.ZeroKey {
+func (r *Range) Contains(k Key) bool {
+	if r.start != ZeroKey {
 		if k < r.start {
 			return false
 		}
 	}
 
-	if r.end != ranje.ZeroKey {
+	if r.end != ZeroKey {
 		// Note that the range end is exclusive!
 		if k >= r.end {
 			return false
@@ -51,21 +52,21 @@ func (r *Range) Contains(k ranje.Key) bool {
 	return true
 }
 
-func (r *Range) SameMeta(id ranje.Ident, start, end []byte) bool {
+func (r *Range) SameMeta(id Ident, start, end []byte) bool {
 	// TODO: This method is batshit
-	return uint64(r.Ident) == id.Key && r.start == ranje.Key(start) && r.end == ranje.Key(end)
+	return uint64(r.Ident) == id.Key && r.start == Key(start) && r.end == Key(end)
 }
 
 func (r *Range) String() string {
 	var s, e string
 
-	if r.start == ranje.ZeroKey {
+	if r.start == ZeroKey {
 		s = "[-inf"
 	} else {
 		s = fmt.Sprintf("(%s", r.start)
 	}
 
-	if r.end == ranje.ZeroKey {
+	if r.end == ZeroKey {
 		e = "+inf]"
 	} else {
 		e = fmt.Sprintf("%s]", r.end)
@@ -74,25 +75,25 @@ func (r *Range) String() string {
 	return fmt.Sprintf("{%d %s %s, %s}", r.Ident, r.state, s, e)
 }
 
-func (r *Range) State(s fsm.State) error {
+func (r *Range) State(s StateLocal) error {
 	old := r.state
 	new := s
 	ok := false
 
-	if old == fsm.Pending && new == fsm.Ready {
+	if old == Pending && new == Ready {
 		ok = true
 	}
 
-	if old == fsm.Ready && new == fsm.Splitting {
+	if old == Ready && new == Splitting {
 		ok = true
 	}
 
-	if old == fsm.Ready && new == fsm.Joining {
+	if old == Ready && new == Joining {
 		ok = true
 	}
 
 	// This transition should only happen via CheckState.
-	if (old == fsm.Splitting || old == fsm.Joining) && new == fsm.Obsolete {
+	if (old == Splitting || old == Joining) && new == Obsolete {
 		if !r.childrenReady() {
 			return fmt.Errorf("invalid state transition: %s -> %s; children not ready", old, new)
 		}
@@ -128,9 +129,9 @@ func (r *Range) State(s fsm.State) error {
 func (r *Range) CheckState() error {
 
 	// Splitting and joining ranges become obsolete once their children become ready.
-	if r.state == fsm.Splitting || r.state == fsm.Joining {
+	if r.state == Splitting || r.state == Joining {
 		if r.childrenReady() {
-			return r.State(fsm.Obsolete)
+			return r.State(Obsolete)
 		}
 	}
 
@@ -141,7 +142,7 @@ func (r *Range) CheckState() error {
 // care if the range has no children.)
 func (r *Range) childrenReady() bool {
 	for _, rr := range r.children {
-		if rr.state != fsm.Ready {
+		if rr.state != Ready {
 			return false
 		}
 	}
