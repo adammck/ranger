@@ -29,6 +29,14 @@ func New(disc discovery.Discoverable) *Roster {
 	}
 }
 
+// TODO: Replace this with a statusz-type page
+func (ros *Roster) DumpForDebug() {
+	for nid, n := range ros.nodes {
+		fmt.Printf(" - %s\n", nid)
+		n.DumpForDebug()
+	}
+}
+
 func (ros *Roster) discover() {
 	res, err := ros.disc.Get("node")
 	if err != nil {
@@ -55,6 +63,7 @@ func (ros *Roster) expire() {
 	for k, v := range ros.nodes {
 		if v.IsStale(now) {
 			fmt.Printf("expiring node: %v\n", v)
+			// TODO: Don't do this! Mark it as expired instead. There might still be ranges placed on it which need cleaning up.
 			delete(ros.nodes, k)
 		}
 	}

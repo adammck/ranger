@@ -103,6 +103,20 @@ func (c *Controller) Run(done chan bool) error {
 	// TODO: This should probably be reactive rather than running in a loop. Could run after probes complete.
 	go c.bal.Run(time.NewTicker(3 * time.Second))
 
+	// Dump range state periodically
+	// TODO: Move this to a statusz type page
+	go func() {
+		t := time.NewTicker(time.Second)
+		for ; true; <-t.C {
+			fmt.Println("nodes:")
+			c.rost.DumpForDebug()
+
+			fmt.Println("ranges:")
+			c.ks.DumpForDebug()
+
+		}
+	}()
+
 	// Block until channel closes, indicating that caller wants shutdown.
 	<-done
 

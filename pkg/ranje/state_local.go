@@ -53,7 +53,7 @@ const (
 	// Discarding
 )
 
-//go:generate stringer -type=State
+//go:generate stringer -type=StateLocal -output=zzz_state_local_string.go
 
 func FromProto(s *pb.RangeNodeState) StateLocal {
 	// switch *s {

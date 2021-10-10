@@ -76,6 +76,13 @@ func (ks *Keyspace) Dump() string {
 	return strings.Join(s, " ")
 }
 
+// TODO: Replace this with a statusz-type page
+func (ks *Keyspace) DumpForDebug() {
+	for _, r := range ks.ranges {
+		fmt.Printf(" - %s\n", r.String())
+	}
+}
+
 // Get returns a range by its ident, or an error if no such range exists.
 func (ks *Keyspace) GetByIdent(id Ident) (*Range, error) {
 	for _, r := range ks.ranges {

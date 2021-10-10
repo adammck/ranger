@@ -16,6 +16,8 @@ const (
 	StateTaken
 )
 
+//go:generate stringer -type=StateRemote -output=zzz_state_remote_string.go
+
 func RemoteStateFromProto(s pb.RangeNodeState) StateRemote {
 	switch s {
 	case pb.RangeNodeState_FETCHING:

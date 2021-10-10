@@ -61,6 +61,13 @@ func NewNode(host string, port int) *Node {
 	return &n
 }
 
+// TODO: Replace this with a statusz-type page
+func (n *Node) DumpForDebug() {
+	for id, p := range n.ranges {
+		fmt.Printf("   - %s %s\n", id, p.state.String())
+	}
+}
+
 // Seen tells us that the node is still in service discovery.
 func (n *Node) Seen(t time.Time) {
 	n.seen = t
