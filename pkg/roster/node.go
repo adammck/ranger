@@ -97,17 +97,22 @@ func (n *Node) Probe(ctx context.Context) error {
 			continue
 		}
 
-		id := ranje.IdentFromProto(rr.Ident)
-		rrr, ok := n.ranges[id]
+		id, err := ranje.IdentFromProto(rr.Ident)
+		if err != nil {
+			fmt.Printf("Got malformed ident from node %s: %s\n", n.addr(), err.Error())
+			continue
+		}
+
+		rrr, ok := n.ranges[*id]
 
 		if !ok {
 			fmt.Printf("Got unexpected range from node %s: %s\n", n.addr(), id.String())
-			n.unexpectedRanges[id] = rr
+			n.unexpectedRanges[*id] = rr
 			continue
 		}
 
 		// TODO: We compare the Ident here even though we just fetched the assignment by ID. Is that... why
-		if !rrr.R.SameMeta(id, rr.Start, rr.End) {
+		if !rrr.R.SameMeta(*id, rr.Start, rr.End) {
 			fmt.Printf("Remote range did not match local range with same ident: %s\n", id.String())
 			continue
 		}

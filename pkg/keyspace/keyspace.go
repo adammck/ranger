@@ -21,7 +21,7 @@ type Keyspace struct {
 }
 
 func New() *Keyspace {
-	ks := &Keyspace{}
+	ks := &Keyspace{nextIdent: 1}
 	ks.ranges = []*Range{ks.Range()}
 	return ks
 }
@@ -61,7 +61,7 @@ func NewWithSplits(splits []string) *Keyspace {
 // way that a Range should be constructed.
 func (ks *Keyspace) Range() *Range {
 	r := &Range{
-		ident: ks.nextIdent,
+		Ident: ks.nextIdent,
 	}
 
 	ks.nextIdent += 1
@@ -79,10 +79,21 @@ func (ks *Keyspace) Dump() string {
 	return strings.Join(s, " ")
 }
 
+// Get returns a range by its ident, or an error if no such range exists.
+func (ks *Keyspace) GetByIdent(id ranje.Ident) (*Range, error) {
+	for _, r := range ks.ranges {
+		if r.Ident == int(id.Key) {
+			return r, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no such range: %s", id.String())
+}
+
 // Get returns a range by its index.
 func (ks *Keyspace) Get(ident int) *Range {
 	for _, r := range ks.ranges {
-		if r.ident == ident {
+		if r.Ident == ident {
 			return r
 		}
 	}

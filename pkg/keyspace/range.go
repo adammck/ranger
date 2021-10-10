@@ -17,7 +17,7 @@ import (
 // These should probably only be instantiated by Keyspace? No sanity checks, so be careful.
 type Range struct {
 	// TODO: Replace these with a Meta
-	ident int
+	Ident int
 	start ranje.Key // inclusive
 	end   ranje.Key // exclusive
 	// END TODO
@@ -25,6 +25,11 @@ type Range struct {
 	state    fsm.State
 	parents  []*Range
 	children []*Range
+
+	// Hints
+	// Public so the balancer can mess with them.
+	// TODO: Should that happen via accessors instead?
+	ForceNodeIdent string
 }
 
 // Contains returns true if the given key is within the range.
@@ -48,7 +53,7 @@ func (r *Range) Contains(k ranje.Key) bool {
 
 func (r *Range) SameMeta(id ranje.Ident, start, end []byte) bool {
 	// TODO: This method is batshit
-	return uint64(r.ident) == id.Key && r.start == ranje.Key(start) && r.end == ranje.Key(end)
+	return uint64(r.Ident) == id.Key && r.start == ranje.Key(start) && r.end == ranje.Key(end)
 }
 
 func (r *Range) String() string {
@@ -66,7 +71,7 @@ func (r *Range) String() string {
 		e = fmt.Sprintf("%s]", r.end)
 	}
 
-	return fmt.Sprintf("{%d %s %s, %s}", r.ident, r.state, s, e)
+	return fmt.Sprintf("{%d %s %s, %s}", r.Ident, r.state, s, e)
 }
 
 func (r *Range) State(s fsm.State) error {

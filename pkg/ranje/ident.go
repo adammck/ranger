@@ -1,6 +1,7 @@
 package ranje
 
 import (
+	"errors"
 	"fmt"
 
 	pb "github.com/adammck/ranger/pkg/proto/gen"
@@ -19,11 +20,21 @@ func (id *Ident) String() string {
 	return fmt.Sprintf("%#v", id)
 }
 
-func IdentFromProto(p *pb.Ident) Ident {
-	return Ident{
+func IdentFromProto(p *pb.Ident) (*Ident, error) {
+	id := &Ident{
 		Scope: p.Scope,
 		Key:   p.Key,
 	}
+
+	// Empty scope is fine.
+	// if p.Scope == "" {
+	// 	return id, errors.New("missing: scope")
+	// }
+	if p.Key == 0 {
+		return id, errors.New("missing: key")
+	}
+
+	return id, nil
 }
 
 func (id *Ident) ToProto() *pb.Ident {

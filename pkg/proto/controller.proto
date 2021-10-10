@@ -2,5 +2,23 @@ syntax = "proto3";
 
 option go_package = "github.com/adammck/ranger/pkg/proto";
 
+import "ranje.proto";
+
 package ranger;
 
+message ForceRequest {
+  Ident range = 1;
+
+  // The ident of the node to assign the range to.
+  // TODO: Does this need its own message type?
+  string node = 2;
+}
+
+message ForceResponse {
+}
+
+service Balancer {
+
+  // Tell the balancer to assign a range to a specific node ASAP.
+  rpc Force (ForceRequest) returns (ForceResponse) {}
+}

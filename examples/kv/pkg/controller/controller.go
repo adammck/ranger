@@ -50,7 +50,7 @@ func New(addrLis, addrPub string) (*Controller, error) {
 		disc:    disc,
 		ks:      ks,
 		rost:    rost,
-		bal:     balancer.New(ks, rost),
+		bal:     balancer.New(ks, rost, srv),
 	}, nil
 }
 
