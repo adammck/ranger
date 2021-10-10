@@ -100,6 +100,7 @@ func (c *Controller) Run(done chan bool) error {
 	go c.rost.Run(ticker)
 
 	// Start rebalancing loop.
+	// TODO: This should probably be reactive rather than running in a loop. Could run after probes complete.
 	go c.bal.Run(time.NewTicker(3 * time.Second))
 
 	// Block until channel closes, indicating that caller wants shutdown.

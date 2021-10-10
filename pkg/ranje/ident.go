@@ -1,4 +1,4 @@
-package ident
+package ranje
 
 import (
 	"fmt"
@@ -7,6 +7,8 @@ import (
 )
 
 // Ident is the unique identity of a range.
+
+// See: ranger/pkg/proto/models.Ident
 type Ident struct {
 	Scope string
 	Key   uint64
@@ -17,7 +19,7 @@ func (id *Ident) String() string {
 	return fmt.Sprintf("%#v", id)
 }
 
-func FromProto(p *pb.Ident) Ident {
+func IdentFromProto(p *pb.Ident) Ident {
 	return Ident{
 		Scope: p.Scope,
 		Key:   p.Key,

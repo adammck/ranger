@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/adammck/ranger/pkg/keyspace/fsm"
+	"github.com/adammck/ranger/pkg/ranje"
 )
 
 // Keyspace is an overlapping set of ranges which cover all of the possible
@@ -32,18 +33,18 @@ func NewWithSplits(splits []string) *Keyspace {
 	// TODO: Should we sort the splits here? Or panic? We currently assume they're sorted.
 
 	for i := range rs {
-		var s, e Key
+		var s, e ranje.Key
 
 		if i > 0 {
 			s = rs[i-1].end
 		} else {
-			s = ZeroKey
+			s = ranje.ZeroKey
 		}
 
 		if i < len(splits) {
-			e = Key(splits[i])
+			e = ranje.Key(splits[i])
 		} else {
-			e = ZeroKey
+			e = ranje.ZeroKey
 		}
 
 		r := ks.Range()
@@ -97,11 +98,11 @@ func (ks *Keyspace) Len() int {
 }
 
 // TODO: Rename to Split once the old one is gone
-func (ks *Keyspace) DoSplit(r *Range, k Key) error {
+func (ks *Keyspace) DoSplit(r *Range, k ranje.Key) error {
 	ks.mu.Lock()
 	defer ks.mu.Unlock()
 
-	if k == ZeroKey {
+	if k == ranje.ZeroKey {
 		return fmt.Errorf("can't split on zero key")
 	}
 

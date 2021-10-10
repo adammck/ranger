@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adammck/ranger/pkg/ident"
 	"github.com/adammck/ranger/pkg/keyspace"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
+	"github.com/adammck/ranger/pkg/ranje"
 	"google.golang.org/grpc"
 )
 
@@ -28,10 +28,10 @@ type Node struct {
 	muConn sync.RWMutex
 
 	// The ranges that this node has. Populated via Probe.
-	ranges map[ident.Ident]*Info
+	ranges map[ranje.Ident]*Info
 
 	// TODO: Figure out what to do with these. They shouldn't exist, and indicate a state bug. But ignoring them probably isn't right.
-	unexpectedRanges map[ident.Ident]*pb.Range
+	unexpectedRanges map[ranje.Ident]*pb.RangeMeta
 }
 
 func NewNode(host string, port int) *Node {
@@ -63,7 +63,7 @@ func (n *Node) addr() string {
 	return fmt.Sprintf("%s:%d", n.host, n.port)
 }
 
-func (n *Node) Give(id ident.Ident, r *keyspace.Range) error {
+func (n *Node) Give(id ranje.Ident, r *keyspace.Range) error {
 	_, ok := n.ranges[id]
 	if ok {
 		// Note that this doesn't check the *other* nodes, only this one
@@ -72,7 +72,7 @@ func (n *Node) Give(id ident.Ident, r *keyspace.Range) error {
 
 	n.ranges[id] = &Info{
 		R: r,
-		S: rsUnknown,
+		S: ranje.StateUnknown,
 		K: 0,
 	}
 
@@ -97,7 +97,7 @@ func (n *Node) Probe(ctx context.Context) error {
 			continue
 		}
 
-		id := ident.FromProto(rr.Ident)
+		id := ranje.IdentFromProto(rr.Ident)
 		rrr, ok := n.ranges[id]
 
 		if !ok {
@@ -114,7 +114,7 @@ func (n *Node) Probe(ctx context.Context) error {
 
 		// Finally update the remote info
 		rrr.K = r.Keys
-		rrr.S = FromProto(r.State)
+		rrr.S = ranje.RemoteStateFromProto(r.State)
 	}
 
 	return nil

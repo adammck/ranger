@@ -21,6 +21,7 @@ import (
 	"github.com/adammck/ranger/pkg/discovery"
 	consuldisc "github.com/adammck/ranger/pkg/discovery/consul"
 	pbr "github.com/adammck/ranger/pkg/proto/gen"
+	"github.com/adammck/ranger/pkg/ranje"
 	consulapi "github.com/hashicorp/consul/api"
 )
 
@@ -70,7 +71,7 @@ type RangeMeta struct {
 	end   []byte
 }
 
-func parseRangeMeta(r *pbr.Range) (RangeMeta, error) {
+func parseRangeMeta(r *pbr.RangeMeta) (RangeMeta, error) {
 	ident, err := parseIdent(r.Ident)
 	if err != nil {
 		return RangeMeta{}, err
@@ -133,40 +134,12 @@ func (rs *Ranges) Find(k key) (rangeIdent, bool) {
 	return rangeIdent{}, false
 }
 
-type RangeState uint8
-
-const (
-	rsUnknown RangeState = iota
-	rsFetching
-	rsFetched
-	rsFetchFailed
-	rsReady
-	rsTaken
-)
-
-func (rs RangeState) ToProto() pbr.RangeInfo_State {
-	switch rs {
-	case rsFetching:
-		return pbr.RangeInfo_FETCHING
-	case rsFetched:
-		return pbr.RangeInfo_FETCHED
-	case rsFetchFailed:
-		return pbr.RangeInfo_FETCH_FAILED
-	case rsReady:
-		return pbr.RangeInfo_READY
-	case rsTaken:
-		return pbr.RangeInfo_TAKEN
-	}
-
-	return pbr.RangeInfo_UNKNOWN
-}
-
 // This is all specific to the kv example. Nothing generic in here.
 type RangeData struct {
 	data map[string][]byte
 
 	// TODO: Move this to the rangemeta!!
-	state RangeState // TODO: guard this
+	state ranje.RemoteState // TODO: guard this
 }
 
 func (rd *RangeData) fetchMany(dest RangeMeta, parents []*pbr.RangeNode) {
@@ -178,7 +151,7 @@ func (rd *RangeData) fetchMany(dest RangeMeta, parents []*pbr.RangeNode) {
 		rm, err := parseRangeMeta(p.Range)
 		if err != nil {
 			log.Printf("FetchMany failed fast: %s", err)
-			rd.state = rsFetchFailed
+			rd.state = ranje.StateFetchFailed
 			return
 		}
 		rms[i] = &rm
@@ -202,7 +175,7 @@ func (rd *RangeData) fetchMany(dest RangeMeta, parents []*pbr.RangeNode) {
 	}
 
 	if err := g.Wait(); err != nil {
-		rd.state = rsFetchFailed
+		rd.state = ranje.StateFetchFailed
 		return
 	}
 
@@ -210,7 +183,7 @@ func (rd *RangeData) fetchMany(dest RangeMeta, parents []*pbr.RangeNode) {
 	// node(s) are still serving reads, and if we start writing, they'll be
 	// wrong. We can only serve reads until the assigner tells them to stop,
 	// which will redirect all reads to us. Then we can start writing.
-	rd.state = rsFetched
+	rd.state = ranje.StateFetched
 }
 
 func (rd *RangeData) fetchOne(ctx context.Context, mu *sync.Mutex, dest RangeMeta, addr string, src *RangeMeta) error {
@@ -291,7 +264,7 @@ func (n *nodeServer) Give(ctx context.Context, req *pbr.GiveRequest) (*pbr.GiveR
 		// Special case: We already have this range, but gave up on fetching it.
 		// To keep things simple, delete it. it'll be added again (while still
 		// holding the lock) below.
-		if rd.state == rsFetchFailed {
+		if rd.state == ranje.StateFetchFailed {
 			delete(n.node.data, rm.ident)
 			n.node.ranges.Remove(rm.ident)
 		} else {
@@ -301,7 +274,7 @@ func (n *nodeServer) Give(ctx context.Context, req *pbr.GiveRequest) (*pbr.GiveR
 
 	rd = &RangeData{
 		data:  make(map[string][]byte),
-		state: rsUnknown,
+		state: ranje.StateUnknown,
 	}
 
 	if req.Parents != nil && len(req.Parents) > 0 {
@@ -310,7 +283,7 @@ func (n *nodeServer) Give(ctx context.Context, req *pbr.GiveRequest) (*pbr.GiveR
 	} else {
 		// No current host nor parents. This is a brand new range. We're
 		// probably initializing a new empty scope.
-		rd.state = rsReady
+		rd.state = ranje.StateReady
 	}
 
 	n.node.ranges.Add(rm)
@@ -330,11 +303,11 @@ func (s *nodeServer) Serve(ctx context.Context, req *pbr.ServeRequest) (*pbr.Ser
 		return nil, err
 	}
 
-	if rd.state != rsFetched && !req.Force {
+	if rd.state != ranje.StateFetched && !req.Force {
 		return nil, status.Error(codes.Aborted, "won't serve ranges not in the FETCHED state without FORCE")
 	}
 
-	rd.state = rsReady
+	rd.state = ranje.StateReady
 
 	log.Printf("Serving: %s", ident)
 	return &pbr.ServeResponse{}, nil
@@ -350,11 +323,11 @@ func (s *nodeServer) Take(ctx context.Context, req *pbr.TakeRequest) (*pbr.TakeR
 		return nil, err
 	}
 
-	if rd.state != rsReady {
+	if rd.state != ranje.StateReady {
 		return nil, status.Error(codes.FailedPrecondition, "can only take ranges in the READY state")
 	}
 
-	rd.state = rsTaken
+	rd.state = ranje.StateTaken
 
 	log.Printf("Taken: %s", ident)
 	return &pbr.TakeResponse{}, nil
@@ -371,11 +344,11 @@ func (s *nodeServer) Drop(ctx context.Context, req *pbr.DropRequest) (*pbr.DropR
 	}
 
 	// Skipping this for now; we'll need to cancel via a context in rd.
-	if rd.state == rsFetching {
+	if rd.state == ranje.StateFetching {
 		return nil, status.Error(codes.Unimplemented, "dropping ranges in the FETCHING state is not supported yet")
 	}
 
-	if rd.state != rsTaken && !req.Force {
+	if rd.state != ranje.StateTaken && !req.Force {
 		return nil, status.Error(codes.Aborted, "won't drop ranges not in the TAKEN state without FORCE")
 	}
 
@@ -399,7 +372,7 @@ func (n *nodeServer) Info(ctx context.Context, req *pbr.InfoRequest) (*pbr.InfoR
 		d := n.node.data[r.ident]
 
 		res.Ranges = append(res.Ranges, &pbr.RangeInfo{
-			Range: &pbr.Range{
+			Range: &pbr.RangeMeta{
 				Ident: &pbr.Ident{
 					Scope: scope,
 					Key:   key,
@@ -465,7 +438,7 @@ func (s *kvServer) Dump(ctx context.Context, req *pbkv.DumpRequest) (*pbkv.DumpR
 		return nil, status.Error(codes.InvalidArgument, "range not found")
 	}
 
-	if rd.state != rsTaken {
+	if rd.state != ranje.StateTaken {
 		return nil, status.Error(codes.FailedPrecondition, "can only dump ranges in the TAKEN state")
 	}
 
@@ -497,7 +470,7 @@ func (s *kvServer) Get(ctx context.Context, req *pbkv.GetRequest) (*pbkv.GetResp
 		panic("range found in map but no data?!")
 	}
 
-	if rd.state != rsReady && rd.state != rsFetched && rd.state != rsTaken {
+	if rd.state != ranje.StateReady && rd.state != ranje.StateFetched && rd.state != ranje.StateTaken {
 		return nil, status.Error(codes.FailedPrecondition, "can only GET from ranges in the READY, FETCHED, and TAKEN states")
 	}
 
@@ -531,7 +504,7 @@ func (s *kvServer) Put(ctx context.Context, req *pbkv.PutRequest) (*pbkv.PutResp
 		panic("range found in map but no data?!")
 	}
 
-	if rd.state != rsReady {
+	if rd.state != ranje.StateReady {
 		return nil, status.Error(codes.FailedPrecondition, "can only PUT to ranges in the READY state")
 	}
 

@@ -2,39 +2,20 @@ syntax = "proto3";
 
 option go_package = "github.com/adammck/ranger/pkg/proto";
 
-import "ident.proto";
+import "ranje.proto";
 
 package ranger;
 
-message Range {
-  // Unique for every range.
-  Ident ident = 1;
-
-  // Range of the keys in this range.
-  bytes start = 2; // inclusive
-  bytes end = 3; // exclusive
-}
-
 message RangeNode {
-  Range range = 1;
+  RangeMeta range = 1;
   string node = 2;
 }
 
 message RangeInfo {
-  Range range = 1;
+  RangeMeta range = 1;
 
-  // Keep synced with RangeState (in node.go for now)
-  enum State {
-    UNKNOWN = 0;
-    FETCHING = 1;
-    FETCHED = 2;
-    FETCH_FAILED = 3;
-    READY = 4;
-    TAKEN = 5;
-  }
-
-  // The state which the range is currently in.
-  State state = 2;
+  // The state which the range is currently in, according to the node.
+  RangeNodeState state = 2;
 
   // Number of keys which this range contains.
   // Just for reporting? Not balancing?
@@ -54,7 +35,7 @@ service Node {
 }
 
 message GiveRequest {
-  Range range = 1;
+  RangeMeta range = 1;
 
   // The range(s) which this range was created from, and the nodes where they
   // can currently be found. This is empty is the range is brand new. Nodes may

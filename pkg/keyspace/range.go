@@ -3,8 +3,8 @@ package keyspace
 import (
 	"fmt"
 
-	"github.com/adammck/ranger/pkg/ident"
 	"github.com/adammck/ranger/pkg/keyspace/fsm"
+	"github.com/adammck/ranger/pkg/ranje"
 )
 
 // type Meta struct {
@@ -18,8 +18,8 @@ import (
 type Range struct {
 	// TODO: Replace these with a Meta
 	ident int
-	start Key // inclusive
-	end   Key // exclusive
+	start ranje.Key // inclusive
+	end   ranje.Key // exclusive
 	// END TODO
 
 	state    fsm.State
@@ -29,14 +29,14 @@ type Range struct {
 
 // Contains returns true if the given key is within the range.
 // TODO: Test this.
-func (r *Range) Contains(k Key) bool {
-	if r.start != ZeroKey {
+func (r *Range) Contains(k ranje.Key) bool {
+	if r.start != ranje.ZeroKey {
 		if k < r.start {
 			return false
 		}
 	}
 
-	if r.end != ZeroKey {
+	if r.end != ranje.ZeroKey {
 		// Note that the range end is exclusive!
 		if k >= r.end {
 			return false
@@ -46,21 +46,21 @@ func (r *Range) Contains(k Key) bool {
 	return true
 }
 
-func (r *Range) SameMeta(id ident.Ident, start, end []byte) bool {
+func (r *Range) SameMeta(id ranje.Ident, start, end []byte) bool {
 	// TODO: This method is batshit
-	return uint64(r.ident) == id.Key && r.start == Key(start) && r.end == Key(end)
+	return uint64(r.ident) == id.Key && r.start == ranje.Key(start) && r.end == ranje.Key(end)
 }
 
 func (r *Range) String() string {
 	var s, e string
 
-	if r.start == ZeroKey {
+	if r.start == ranje.ZeroKey {
 		s = "[-inf"
 	} else {
 		s = fmt.Sprintf("(%s", r.start)
 	}
 
-	if r.end == ZeroKey {
+	if r.end == ranje.ZeroKey {
 		e = "+inf]"
 	} else {
 		e = fmt.Sprintf("%s]", r.end)

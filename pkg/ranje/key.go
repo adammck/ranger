@@ -1,4 +1,4 @@
-package keyspace
+package ranje
 
 // Key is a point in the keyspace.
 type Key string

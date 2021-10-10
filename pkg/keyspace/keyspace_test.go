@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/adammck/ranger/pkg/keyspace/fsm"
+	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -15,8 +16,8 @@ func TestInitial(t *testing.T) {
 
 	r := ks.Get(0)
 	assert.NotNil(t, r)
-	assert.Equal(t, ZeroKey, r.start, "range should start at ZeroKey")
-	assert.Equal(t, ZeroKey, r.end, "range should end at ZeroKey")
+	assert.Equal(t, ranje.ZeroKey, r.start, "range should start at ZeroKey")
+	assert.Equal(t, ranje.ZeroKey, r.end, "range should end at ZeroKey")
 }
 
 func TestNewWithSplits(t *testing.T) {
@@ -77,7 +78,7 @@ func TestSplit(t *testing.T) {
 	r0 := ks.Get(0)
 
 	// The zero key (infinity) can only be the outer edges of the range.
-	err := ks.DoSplit(r0, ZeroKey)
+	err := ks.DoSplit(r0, ranje.ZeroKey)
 	assert.EqualError(t, err, "can't split on zero key")
 
 	// Ranges start life as PENDING, and can't be split until they are READY.

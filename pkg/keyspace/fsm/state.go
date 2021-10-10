@@ -55,7 +55,7 @@ const (
 
 //go:generate stringer -type=State
 
-func FromProto(s *pb.RangeInfo_State) State {
+func FromProto(s *pb.RangeNodeState) State {
 	// switch *s {
 	// case pb.RangeInfo_UNKNOWN:
 	// 	return Unknown
@@ -75,6 +75,6 @@ func FromProto(s *pb.RangeInfo_State) State {
 	return Unknown
 }
 
-func (s *State) ToProto() pb.RangeInfo_State {
-	return pb.RangeInfo_UNKNOWN
+func (s *State) ToProto() pb.RangeNodeState {
+	return pb.RangeNodeState_UNKNOWN
 }
