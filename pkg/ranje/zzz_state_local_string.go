@@ -10,15 +10,18 @@ func _() {
 	var x [1]struct{}
 	_ = x[Unknown-0]
 	_ = x[Pending-1]
-	_ = x[Ready-2]
-	_ = x[Splitting-3]
-	_ = x[Joining-4]
-	_ = x[Obsolete-5]
+	_ = x[Placing-2]
+	_ = x[PlaceError-3]
+	_ = x[Quarantined-4]
+	_ = x[Ready-5]
+	_ = x[Splitting-6]
+	_ = x[Joining-7]
+	_ = x[Obsolete-8]
 }
 
-const _StateLocal_name = "UnknownPendingReadySplittingJoiningObsolete"
+const _StateLocal_name = "UnknownPendingPlacingPlaceErrorQuarantinedReadySplittingJoiningObsolete"
 
-var _StateLocal_index = [...]uint8{0, 7, 14, 19, 28, 35, 43}
+var _StateLocal_index = [...]uint8{0, 7, 14, 21, 31, 42, 47, 56, 63, 71}
 
 func (i StateLocal) String() string {
 	if i >= StateLocal(len(_StateLocal_index)-1) {

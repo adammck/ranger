@@ -274,11 +274,12 @@ func (n *nodeServer) Give(ctx context.Context, req *pbr.GiveRequest) (*pbr.GiveR
 
 	rd = &RangeData{
 		data:  make(map[string][]byte),
-		state: ranje.StateUnknown,
+		state: ranje.StateUnknown, // default
 	}
 
 	if req.Parents != nil && len(req.Parents) > 0 {
-		go rd.fetchMany(rm, req.Parents)
+		rd.state = ranje.StateFetching
+		rd.fetchMany(rm, req.Parents)
 
 	} else {
 		// No current host nor parents. This is a brand new range. We're
@@ -290,7 +291,9 @@ func (n *nodeServer) Give(ctx context.Context, req *pbr.GiveRequest) (*pbr.GiveR
 	n.node.data[rm.ident] = rd
 
 	log.Printf("Given: %s", rm.ident)
-	return &pbr.GiveResponse{}, nil
+	return &pbr.GiveResponse{
+		State: rd.state.ToProto(),
+	}, nil
 }
 
 func (s *nodeServer) Serve(ctx context.Context, req *pbr.ServeRequest) (*pbr.ServeResponse, error) {

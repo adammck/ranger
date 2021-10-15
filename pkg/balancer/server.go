@@ -25,7 +25,12 @@ func (bs *balancerServer) Force(ctx context.Context, req *pb.ForceRequest) (*pb.
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	err = bs.bal.Force(id, req.Node)
+	n := req.Node
+	if n == "" {
+		return nil, status.Error(codes.InvalidArgument, "missing: range")
+	}
+
+	err = bs.bal.Force(id, n)
 	if err != nil {
 		return nil, status.Error(codes.Unknown, err.Error())
 	}

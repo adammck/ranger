@@ -11,6 +11,9 @@ import (
 // values in the space. Any value is covered by either one or two ranges: one
 // range in the steady-state, where nothing is being moved around, and two
 // ranges while rebalancing is in progress.
+//
+// TODO: Move this out of 'ranje' package; it's stateful.
+//
 type Keyspace struct {
 	ranges    []*Range // TODO: don't be dumb, use an interval tree
 	mu        sync.Mutex
@@ -19,7 +22,12 @@ type Keyspace struct {
 
 func New() *Keyspace {
 	ks := &Keyspace{nextIdent: 1}
-	ks.ranges = []*Range{ks.Range()}
+
+	// Start with one range that covers all keys.
+	r := ks.Range()
+	r.state = Pending
+
+	ks.ranges = []*Range{r}
 	return ks
 }
 
@@ -66,6 +74,34 @@ func (ks *Keyspace) Range() *Range {
 	return r
 }
 
+func (ks *Keyspace) RangesByState(s StateLocal) []*Range {
+	out := []*Range{}
+
+	for _, r := range ks.ranges {
+		if r.state == s {
+			out = append(out, r)
+		}
+	}
+
+	return out
+}
+
+// RangesForcing returns the ranges which are currently marked to be forced onto
+// a specific node, and in a valid state to do so.
+func (ks *Keyspace) RangesForcing() []*Range {
+	out := []*Range{}
+
+	for _, r := range ks.ranges {
+		if r.ForceNodeIdent != "" {
+			if r.state == Pending || r.state == Ready || r.state == Quarantined {
+				out = append(out, r)
+			}
+		}
+	}
+
+	return out
+}
+
 func (ks *Keyspace) Dump() string {
 	s := make([]string, len(ks.ranges))
 
@@ -79,11 +115,13 @@ func (ks *Keyspace) Dump() string {
 // TODO: Replace this with a statusz-type page
 func (ks *Keyspace) DumpForDebug() {
 	for _, r := range ks.ranges {
-		fmt.Printf(" - %s\n", r.String())
+		//fmt.Printf(" - %s\n", r.String())
+		r.DumpForDebug()
 	}
 }
 
 // Get returns a range by its ident, or an error if no such range exists.
+// TODO: Allow getting by other things.
 func (ks *Keyspace) GetByIdent(id Ident) (*Range, error) {
 	for _, r := range ks.ranges {
 		if r.Ident == int(id.Key) {

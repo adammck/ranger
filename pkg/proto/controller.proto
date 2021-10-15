@@ -10,6 +10,7 @@ message ForceRequest {
   Ident range = 1;
 
   // The ident of the node to assign the range to.
+  // TODO: Also allow nodes to identified by other features.
   // TODO: Does this need its own message type?
   string node = 2;
 }

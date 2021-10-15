@@ -19,9 +19,10 @@ message RangeMeta {
   bytes end = 3; // exclusive
 }
 
+// TODO: Is this used?
 message RangePlacement {
   Ident ident = 1;
-  node string = 2;
+  string node = 2;
 }
 
 // Keep synced with RangeState (in node.go for now)

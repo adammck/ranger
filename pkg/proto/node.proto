@@ -44,6 +44,9 @@ message GiveRequest {
 }
 
 message GiveResponse {
+  // The state that the given range is now in on the node. Most likely one of
+  // READY or FETCHING, but an in-progress 
+  RangeNodeState state = 1;
 }
 
 message ServeRequest {

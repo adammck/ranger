@@ -27,6 +27,10 @@ type Range struct {
 	// empty or have n entries, depending on the local state of the range.
 	placements []*Placement
 
+	// The number of times this range has failed to be placed since it was last
+	// Ready. Incremented by State.
+	placeErrorCount int
+
 	// Hints
 	// Public so the balancer can mess with them.
 	// TODO: Should that happen via accessors instead?
@@ -52,6 +56,12 @@ func (r *Range) Contains(k Key) bool {
 	return true
 }
 
+func (r *Range) AssertState(s StateLocal) {
+	if r.state != s {
+		panic(fmt.Sprintf("range failed state assertion %s != %s %s", r.state.String(), s.String(), r))
+	}
+}
+
 func (r *Range) SameMeta(id Ident, start, end []byte) bool {
 	// TODO: This method is batshit
 	return uint64(r.Ident) == id.Key && r.start == Key(start) && r.end == Key(end)
@@ -75,12 +85,56 @@ func (r *Range) String() string {
 	return fmt.Sprintf("{%d %s %s, %s}", r.Ident, r.state, s, e)
 }
 
+// TODO: Replace this with a statusz-type page
+func (r *Range) DumpForDebug() {
+	f := ""
+	if r.ForceNodeIdent != "" {
+		f = fmt.Sprintf(" (forcing to: %s)", r.ForceNodeIdent)
+	}
+	fmt.Printf(" - %s%s\n", r.String(), f)
+}
+
+// MustState attempts to change the state of the range to s, and panics if the
+// transition is invalid. Callers should only ever attempt valid state changes
+// anyway, but...
+func (r *Range) MustState(s StateLocal) {
+	err := r.State(s)
+	if err != nil {
+		panic(fmt.Sprintf("MustState: %s", err.Error()))
+	}
+}
+
+// State change the state of the range to s or returns an error.
 func (r *Range) State(s StateLocal) error {
+	// TODO: Lock the range while in this function
+
 	old := r.state
 	new := s
 	ok := false
 
-	if old == Pending && new == Ready {
+	if old == Pending && new == Placing {
+		ok = true
+	}
+
+	if old == Placing && new == Ready {
+		r.placeErrorCount = 0
+		ok = true
+	}
+
+	if old == Placing && new == PlaceError {
+		r.placeErrorCount += 1
+		ok = true
+	}
+
+	if old == PlaceError && new == Pending {
+		ok = true
+	}
+
+	if old == PlaceError && new == Quarantined {
+		ok = true
+	}
+
+	if old == Ready && new == Placing {
 		ok = true
 	}
 
@@ -89,6 +143,10 @@ func (r *Range) State(s StateLocal) error {
 	}
 
 	if old == Ready && new == Joining {
+		ok = true
+	}
+
+	if old == Quarantined && new == Placing {
 		ok = true
 	}
 
@@ -122,7 +180,7 @@ func (r *Range) State(s StateLocal) error {
 		}
 	}
 
-	//fmt.Printf("%s -> %s\n", old, new)
+	fmt.Printf("%s %s -> %s\n", r.String(), old, new)
 	return nil
 }
 
@@ -148,4 +206,8 @@ func (r *Range) childrenReady() bool {
 	}
 
 	return true
+}
+
+func (r *Range) NeedsQuarantine() bool {
+	return r.placeErrorCount >= 3
 }

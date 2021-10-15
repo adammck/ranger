@@ -12,9 +12,11 @@ import (
 )
 
 const (
-	staleTimer = 10 * time.Second
+	staleTimer  = 10 * time.Second
+	giveTimeout = 3 * time.Second
 )
 
+// TODO: Add the ident in here?
 type Node struct {
 	host string
 	port int
@@ -38,10 +40,12 @@ type Node struct {
 
 func NewNode(host string, port int) *Node {
 	n := Node{
-		host: host,
-		port: port,
-		init: time.Now(),
-		seen: time.Time{}, // never
+		host:             host,
+		port:             port,
+		init:             time.Now(),
+		seen:             time.Time{}, // never
+		ranges:           map[Ident]*Placement{},
+		unexpectedRanges: map[Ident]*pb.RangeMeta{},
 	}
 
 	// start dialling in background
@@ -64,7 +68,7 @@ func NewNode(host string, port int) *Node {
 // TODO: Replace this with a statusz-type page
 func (n *Node) DumpForDebug() {
 	for id, p := range n.ranges {
-		fmt.Printf("   - %s %s\n", id, p.state.String())
+		fmt.Printf("   - %s %s\n", id.String(), p.state.String())
 	}
 }
 
@@ -88,12 +92,54 @@ func (n *Node) Give(id Ident, r *Range) error {
 		return fmt.Errorf("range already given to node %s: %s", n.addr(), id.String())
 	}
 
-	n.ranges[id] = &Placement{
+	// TODO: Give Range a Meta and use that here!
+	rm := &pb.RangeMeta{
+		Ident: &pb.Ident{
+			Scope: "", // TODO
+			Key:   uint64(r.Ident),
+		},
+		Start: []byte(r.start),
+		End:   []byte(r.end),
+	}
+
+	// Build a list of other nodes that currently have this range.
+	// TODO: Something about remote state here, not all are valid.
+	parents := []*pb.RangeNode{}
+	for _, p := range r.placements {
+		if p.state != StateTaken {
+			panic("can't give range when non-taken placements exist!")
+		}
+		parents = append(parents, &pb.RangeNode{
+			Range: rm,
+			Node:  p.Addr(),
+		})
+	}
+
+	req := &pb.GiveRequest{
+		Range:   rm,
+		Parents: parents,
+	}
+
+	// TODO: Move outside?
+	ctx, cancel := context.WithTimeout(context.Background(), giveTimeout)
+	defer cancel()
+
+	_, err := n.client.Give(ctx, req)
+	if err != nil {
+		return err
+	}
+
+	// TODO: Extract current state from Give response.
+
+	pp := &Placement{
 		rang:  r,
 		node:  n,
 		state: StateUnknown,
 		K:     0,
 	}
+
+	n.ranges[id] = pp
+	r.placements = append(r.placements, pp)
 
 	return nil
 }
@@ -138,6 +184,8 @@ func (n *Node) Probe(ctx context.Context) error {
 
 		// Finally update the remote info
 		rrr.K = r.Keys
+
+		// TODO: Figure out wtf to do when remote state doesn't match local
 		rrr.state = RemoteStateFromProto(r.State)
 	}
 

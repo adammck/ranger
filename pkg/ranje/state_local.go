@@ -25,6 +25,19 @@ const (
 	//              controller should wait.
 	Pending
 
+	// Placing: The balancer is finding a node with capacity to place this
+	//          range, and exchanging RPCs.
+	Placing
+
+	// PlaceError: We tried to place the range on a node, but it failed. It may
+	//             proceed back to Pending, to be placed, or Quarantined, to
+	//             wait for operator intervention.
+	PlaceError
+
+	// Quarantined: The range is not placed on any nodes, and should remain so
+	//              until an operator intervenes. This indicates that the range
+	Quarantined
+
 	// Fetching: The range is assigned to a node, and the node is getting ready
 	// to serve it. The controller should keep probing for updates.
 	//

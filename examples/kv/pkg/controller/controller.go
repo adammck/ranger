@@ -101,19 +101,20 @@ func (c *Controller) Run(done chan bool) error {
 
 	// Start rebalancing loop.
 	// TODO: This should probably be reactive rather than running in a loop. Could run after probes complete.
-	go c.bal.Run(time.NewTicker(3 * time.Second))
+	go c.bal.Run(time.NewTicker(1005 * time.Millisecond))
 
 	// Dump range state periodically
 	// TODO: Move this to a statusz type page
 	go func() {
-		t := time.NewTicker(time.Second)
+		t := time.NewTicker(3 * time.Second)
 		for ; true; <-t.C {
+			fmt.Print("\033[H\033[2J")
+
 			fmt.Println("nodes:")
 			c.rost.DumpForDebug()
-
 			fmt.Println("ranges:")
 			c.ks.DumpForDebug()
-
+			fmt.Println("----")
 		}
 	}()
 

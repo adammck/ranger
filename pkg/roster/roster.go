@@ -16,25 +16,44 @@ const (
 )
 
 type Roster struct {
-	nodes map[string]*ranje.Node
-	mu    sync.Mutex
+	// Public so Balancer can read the Nodes
+	// node ident (not ranje.Ident!!) -> Node
+	Nodes map[string]*ranje.Node
+	sync.RWMutex
 
 	disc discovery.Discoverable
 }
 
 func New(disc discovery.Discoverable) *Roster {
 	return &Roster{
-		nodes: make(map[string]*ranje.Node),
+		Nodes: make(map[string]*ranje.Node),
 		disc:  disc,
 	}
 }
 
 // TODO: Replace this with a statusz-type page
 func (ros *Roster) DumpForDebug() {
-	for nid, n := range ros.nodes {
+	ros.RLock()
+	defer ros.RUnlock()
+
+	for nid, n := range ros.Nodes {
 		fmt.Printf(" - %s\n", nid)
 		n.DumpForDebug()
 	}
+}
+
+//func (ros *Roster) NodeBy(opts... NodeByOpts)
+func (ros *Roster) NodeByIdent(nodeIdent string) *ranje.Node {
+	ros.RLock()
+	defer ros.RUnlock()
+
+	for nid, n := range ros.Nodes {
+		if nid == nodeIdent {
+			return n
+		}
+	}
+
+	return nil
 }
 
 func (ros *Roster) discover() {
@@ -44,13 +63,13 @@ func (ros *Roster) discover() {
 	}
 
 	for _, r := range res {
-		n, ok := ros.nodes[r.Ident]
+		n, ok := ros.Nodes[r.Ident]
 
 		// New Node?
 		if !ok {
 			n = ranje.NewNode(r.Host, r.Port)
 			fmt.Printf("new node: %v\n", r.Ident)
-			ros.nodes[r.Ident] = n
+			ros.Nodes[r.Ident] = n
 		}
 
 		n.Seen(time.Now())
@@ -60,11 +79,11 @@ func (ros *Roster) discover() {
 func (ros *Roster) expire() {
 	now := time.Now()
 
-	for k, v := range ros.nodes {
+	for k, v := range ros.Nodes {
 		if v.IsStale(now) {
 			fmt.Printf("expiring node: %v\n", v)
 			// TODO: Don't do this! Mark it as expired instead. There might still be ranges placed on it which need cleaning up.
-			delete(ros.nodes, k)
+			delete(ros.Nodes, k)
 		}
 	}
 }
@@ -80,7 +99,7 @@ func (ros *Roster) probe() {
 	var success uint64
 
 	// TODO: We already do this in expire, bundle them together.
-	for _, node := range ros.nodes {
+	for _, node := range ros.Nodes {
 		wg.Add(1)
 
 		// Copy node since it changes between iterations.
@@ -182,8 +201,8 @@ func (ros *Roster) probe() {
 
 func (r *Roster) Tick() {
 	// TODO: anything but this
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.Lock()
+	defer r.Unlock()
 
 	// Grab any new nodes from service discovery.
 	r.discover()
