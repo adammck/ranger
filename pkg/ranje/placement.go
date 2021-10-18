@@ -149,6 +149,17 @@ func (p *Placement) ToState(new StatePlacement) error {
 	return nil
 }
 
+func (p *Placement) Give() error {
+	// Build the request here to avoid Node having to reach back through us.
+	// TODO: Not sure if this actually makes sense.
+	req, err := p.rang.GiveRequest(p)
+	if err != nil {
+		return fmt.Errorf("error building GiveRequest: %s", err)
+	}
+
+	return p.node.give(p, req)
+}
+
 func (p *Placement) Take() error {
 	return p.node.take(p)
 }

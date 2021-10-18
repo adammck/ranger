@@ -85,7 +85,8 @@ func parseRangeMeta(r *pbr.RangeMeta) (RangeMeta, error) {
 }
 
 func (rm *RangeMeta) Contains(k key) bool {
-	return bytes.Compare(k, rm.start) >= 0 && bytes.Compare(k, rm.end) < 0
+	return ((ranje.Key(rm.start) == ranje.ZeroKey || bytes.Compare(k, rm.start) >= 0) &&
+		(ranje.Key(rm.end) == ranje.ZeroKey || bytes.Compare(k, rm.end) < 0))
 }
 
 // Doesn't have a mutex, since that probably happens outside, to synchronize with other structures.

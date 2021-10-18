@@ -37,6 +37,7 @@ type Range struct {
 
 // Contains returns true if the given key is within the range.
 // TODO: Test this.
+// TODO: Move this to Meta?
 func (r *Range) Contains(k Key) bool {
 	if r.Meta.Start != ZeroKey {
 		if k < r.Meta.Start {
@@ -103,7 +104,7 @@ func (r *Range) MoveSrc() *Placement {
 	return p
 }
 
-func (r *Range) GiveRequest() (*pb.GiveRequest, error) {
+func (r *Range) GiveRequest(giving *Placement) (*pb.GiveRequest, error) {
 	rm := r.Meta.ToProto()
 
 	// Build a list of the other current placements of this exact range. This
@@ -112,10 +113,18 @@ func (r *Range) GiveRequest() (*pb.GiveRequest, error) {
 	// during normal moves.
 	parents := []*pb.Placement{}
 	for _, p := range r.placements {
+
+		// Ignore the node that we're giving, which is in pending.
+		// TODO: This is ugly enough that it probably doesn't belong here...
+		if p.state == SpPending && p == giving {
+			continue
+		}
+
 		if p.state != SpTaken {
 			return nil, fmt.Errorf("can't give range %s when state of placement on node %s is %s",
 				r.String(), p.node.String(), p.state)
 		}
+
 		parents = append(parents, &pb.Placement{
 			Range: rm,
 			Node:  p.Addr(),

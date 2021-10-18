@@ -141,7 +141,13 @@ func (b *Balancer) Candidate(r *ranje.Range) *ranje.Node {
 func (b *Balancer) Place(r *ranje.Range, n *ranje.Node) {
 	r.AssertState(ranje.Placing)
 
-	_, err := n.Give(r.Meta.Ident, r)
+	dest, err := ranje.NewPlacement(r, n)
+	if err != nil {
+		r.MustState(ranje.PlaceError)
+		return
+	}
+
+	err = dest.Give()
 	if err != nil {
 		fmt.Printf("Give failed: %s\n", err.Error())
 		r.MustState(ranje.PlaceError)
@@ -152,15 +158,23 @@ func (b *Balancer) Place(r *ranje.Range, n *ranje.Node) {
 }
 
 // TODO: Can this be combined with move? Maybe most steps just do nothing.
-func (b *Balancer) Move(r *ranje.Range, src *ranje.Placement, dest *ranje.Node) {
+func (b *Balancer) Move(r *ranje.Range, src *ranje.Placement, destNode *ranje.Node) {
 	r.AssertState(ranje.Moving)
 
 	// TODO: If src and dest are the same node (i.e. the range is moving to the same node, we get stuck in Taken)
 
-	// Could use an extra step here to clear the move with the dest node first.
+	// TODO: Could use an extra step here to clear the move with the dest node first.
+
+	dest, err := ranje.NewPlacement(r, destNode)
+	if err != nil {
+		//return nil, fmt.Errorf("couldn't Give range; error creating placement: %s", err)
+		// TODO: Do something less dumb than this.
+		r.MustState(ranje.Ready)
+		return
+	}
 
 	// 1. Take
-	err := src.Take()
+	err = src.Take()
 	if err != nil {
 		fmt.Printf("Take failed: %s\n", err.Error())
 		r.MustState(ranje.Ready) // ???
@@ -168,7 +182,7 @@ func (b *Balancer) Move(r *ranje.Range, src *ranje.Placement, dest *ranje.Node) 
 	}
 
 	// 2. Give
-	destp, err := dest.Give(r.Meta.Ident, r)
+	err = dest.Give()
 	if err != nil {
 		fmt.Printf("Give failed: %s\n", err.Error())
 		// This is a bad situation; the range has been taken from the src, but
@@ -189,7 +203,7 @@ func (b *Balancer) Move(r *ranje.Range, src *ranje.Placement, dest *ranje.Node) 
 	}
 
 	// Serve
-	err = destp.Serve()
+	err = dest.Serve()
 	if err != nil {
 		fmt.Printf("Serve failed: %s\n", err.Error())
 		// No state change. Stay in Moving.

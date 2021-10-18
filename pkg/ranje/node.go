@@ -184,22 +184,16 @@ func (n *Node) serve(p *Placement) error {
 	return p.ToState(SpReady)
 }
 
-func (n *Node) Give(id Ident, r *Range) (*Placement, error) {
+func (n *Node) give(p *Placement, req *pb.GiveRequest) error {
+	if p.state != SpPending {
+		return fmt.Errorf("can't serve range %s from node %s when state is %s (wanted SpPending)",
+			p.rang.String(), p.node.String(), p.state)
+	}
+
 	// TODO: Is there any point in this?
-	_, ok := n.ranges[id]
-	if ok {
-		// Note that this doesn't check the *other* nodes, only this one
-		return nil, fmt.Errorf("range already given to node %s: %s", n.addr(), id.String())
-	}
-
-	req, err := r.GiveRequest()
-	if err != nil {
-		return nil, fmt.Errorf("error building GiveRequest: %s", err)
-	}
-
-	pp, err := NewPlacement(r, n)
-	if err != nil {
-		return nil, fmt.Errorf("couldn't Give range; error creating placement: %s", err)
+	_, ok := n.ranges[p.rang.Meta.Ident]
+	if !ok {
+		panic("give called but placement not in node ranges!")
 	}
 
 	// TODO: Move outside this func?
@@ -209,34 +203,33 @@ func (n *Node) Give(id Ident, r *Range) (*Placement, error) {
 	// TODO: Retry a few times before giving up.
 	res, err := n.client.Give(ctx, req)
 	if err != nil {
-		pp.Forget()
-		return nil, err
+		return err
 	}
 
 	// TODO: Check the return values of state changes or use MustState!
 	rs := RemoteStateFromProto(res.State)
 	if rs == StateReady {
-		pp.ToState(SpReady)
+		p.ToState(SpReady)
 
 	} else if rs == StateFetching {
-		pp.ToState(SpFetching)
+		p.ToState(SpFetching)
 
 	} else if rs == StateFetched {
 		// The fetch finished before the client returned.
-		pp.ToState(SpFetching)
-		pp.ToState(SpFetched)
+		p.ToState(SpFetching)
+		p.ToState(SpFetched)
 
 	} else if rs == StateFetchFailed {
 		// The fetch failed before the client returned.
-		pp.ToState(SpFetching)
-		pp.ToState(SpFetchFailed)
+		p.ToState(SpFetching)
+		p.ToState(SpFetchFailed)
 
 	} else {
 		// Got either Unknown or Taken
 		panic(fmt.Sprintf("unexpected remote state from Give: %s", rs.String()))
 	}
 
-	return pp, nil
+	return nil
 }
 
 // Probe updates current state of the node via RPC.
