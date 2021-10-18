@@ -31,18 +31,18 @@ func TestHappyPath(t *testing.T) {
 	// Join
 
 	r1 := ks.Get(1)
-	require.NoError(t, r1.State(Ready))
+	require.NoError(t, r1.ToState(Ready))
 	require.Equal(t, "{0 Pending [-inf, a]} {1 Ready (a, b]} {2 Pending (b, c]} {3 Pending (c, +inf]}", ks.Dump())
 
 	r2 := ks.Get(2)
-	require.NoError(t, r2.State(Ready))
+	require.NoError(t, r2.ToState(Ready))
 	require.Equal(t, "{0 Pending [-inf, a]} {1 Ready (a, b]} {2 Ready (b, c]} {3 Pending (c, +inf]}", ks.Dump())
 
 	r4, err := ks.JoinTwo(r1, r2)
 	require.NoError(t, err)
 	require.Equal(t, "{0 Pending [-inf, a]} {1 Joining (a, b]} {2 Joining (b, c]} {3 Pending (c, +inf]} {4 Pending (a, c]}", ks.Dump())
 
-	require.NoError(t, r4.State(Ready))
+	require.NoError(t, r4.ToState(Ready))
 	require.Equal(t, "{0 Pending [-inf, a]} {1 Obsolete (a, b]} {2 Obsolete (b, c]} {3 Pending (c, +inf]} {4 Ready (a, c]}", ks.Dump())
 
 	require.NoError(t, ks.Discard(r1))
@@ -52,18 +52,18 @@ func TestHappyPath(t *testing.T) {
 	// Split
 
 	r0 := ks.Get(0)
-	require.NoError(t, r0.State(Ready))
+	require.NoError(t, r0.ToState(Ready))
 	require.Equal(t, "{0 Ready [-inf, a]} {3 Pending (c, +inf]} {4 Ready (a, c]}", ks.Dump())
 
 	require.NoError(t, ks.DoSplit(r0, "1"))
 	require.Equal(t, "{0 Splitting [-inf, a]} {3 Pending (c, +inf]} {4 Ready (a, c]} {5 Pending [-inf, 1]} {6 Pending (1, a]}", ks.Dump())
 
 	r5 := ks.Get(5)
-	require.NoError(t, r5.State(Ready))
+	require.NoError(t, r5.ToState(Ready))
 	require.Equal(t, "{0 Splitting [-inf, a]} {3 Pending (c, +inf]} {4 Ready (a, c]} {5 Ready [-inf, 1]} {6 Pending (1, a]}", ks.Dump())
 
 	r6 := ks.Get(6)
-	require.NoError(t, r6.State(Ready))
+	require.NoError(t, r6.ToState(Ready))
 	require.Equal(t, "{0 Obsolete [-inf, a]} {3 Pending (c, +inf]} {4 Ready (a, c]} {5 Ready [-inf, 1]} {6 Ready (1, a]}", ks.Dump())
 
 	require.NoError(t, ks.Discard(r0))
@@ -86,7 +86,7 @@ func TestSplit(t *testing.T) {
 	// Mark as READY, so the split can proceed. In production this would be
 	// called by some other component after receiving the ack from the node(s)
 	// assigned the ranges.
-	assert.NoError(t, r0.State(Ready))
+	assert.NoError(t, r0.ToState(Ready))
 
 	// Split one range results in THREE ranges.
 	err = ks.DoSplit(r0, "a")
@@ -108,7 +108,7 @@ func TestSplit(t *testing.T) {
 	// Mark the two new ranges as READY, so the predecesor becomes OBSOLETE and
 	// can be discarded.
 	for _, rr := range r0.children {
-		assert.NoError(t, rr.State(Ready))
+		assert.NoError(t, rr.ToState(Ready))
 	}
 
 	// Discarding should succeed this time, leaving TWO ranges.
@@ -147,8 +147,8 @@ func TestJoin(t *testing.T) {
 	require.Nil(t, xx)
 
 	// Mark them as ready so the join can proceed.
-	require.NoError(t, xa.State(Ready))
-	require.NoError(t, ax.State(Ready))
+	require.NoError(t, xa.ToState(Ready))
+	require.NoError(t, ax.ToState(Ready))
 
 	// Joining succeeds, resulting in THREE ranges.
 	xx, err = ks.JoinTwo(xa, ax)
@@ -163,7 +163,7 @@ func TestJoin(t *testing.T) {
 	}
 
 	// The child becomes ready.
-	require.NoError(t, xx.State(Ready))
+	require.NoError(t, xx.ToState(Ready))
 
 	// Discarding works this time, leaving only the child.
 	for _, r := range []*Range{xa, ax} {

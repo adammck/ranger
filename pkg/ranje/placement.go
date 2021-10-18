@@ -17,7 +17,7 @@ type Placement struct {
 	// Warning! This may not be accurate! The range may have changed state on
 	// the remote node since the last successful probe, or the node may have
 	// gone away. This is what we *think* the state is.
-	remoteState StateRemote
+	//remoteState StateRemote
 
 	// loadinfo?
 	// The number of keys that the range has.
@@ -63,6 +63,28 @@ func NewPlacement(r *Range, n *Node) (*Placement, error) {
 	return p, nil
 }
 
+// Forget removes this placement from the associated node and range.
+func (p *Placement) Forget() {
+	p.rang.Lock()
+	defer p.rang.Unlock()
+
+	p.node.muRanges.Lock()
+	defer p.node.muRanges.Unlock()
+
+	// Attempt both whether or not the first one fails.
+	// Either one failing indicates a bug.
+	err1 := p.rang.UnsafeForgetPlacement(p)
+	err2 := p.node.UnsafeForgetPlacement(p)
+
+	// TODO: This is probably a bit excessive.
+	if err1 != nil {
+		panic(fmt.Sprintf("UnsafeForgetPlacement: %s", err1.Error()))
+	}
+	if err2 != nil {
+		panic(fmt.Sprintf("UnsafeForgetPlacement: %s", err2.Error()))
+	}
+}
+
 func (p *Placement) ToState(new StatePlacement) error {
 	p.Lock()
 	defer p.Unlock()
@@ -79,47 +101,41 @@ func (p *Placement) ToState(new StatePlacement) error {
 	}
 
 	if old == SpPending {
-		if new == SpFetching {
+		if new == SpFetching { // 1
 			ok = true
-			panic("not implemented: pending -> fetching") // 1
 
-		} else if new == SpReady {
+		} else if new == SpReady { // 2
 			ok = true
-			panic("not implemented: pending -> ready") // 2
 		}
 
 	} else if old == SpFetching {
-		if new == SpFetched {
+		if new == SpFetched { // 3
 			ok = true
-			panic("not implemented: fetching -> fetched") // 3
 
 		} else if new == SpFetchFailed {
 			ok = true
-			panic("not implemented: fetching -> fetch_failed") // 4
+			panic("placement state transition not implemented: fetching -> fetch_failed") // 4
 		}
 
 	} else if old == SpFetched {
-		if new == SpReady {
+		if new == SpReady { // 5
 			ok = true
-			panic("not implemented: fetched -> ready") // 5
 		}
 
 	} else if old == SpFetchFailed {
 		if new == SpPending {
 			ok = true
-			panic("not implemented: fetch_failed -> pending") // 6
+			panic("placement state transition not implemented: fetch_failed -> pending") // 6
 		}
 
 	} else if old == SpReady {
-		if new == SpTaken {
+		if new == SpTaken { // 7
 			ok = true
-			panic("not implemented: ready -> taken") // 7
 		}
 
 	} else if old == SpTaken {
-		if new == SpDropped {
+		if new == SpDropped { // 8
 			ok = true
-			panic("not implemented: taken -> dropped") // 8
 		}
 	}
 
@@ -129,5 +145,18 @@ func (p *Placement) ToState(new StatePlacement) error {
 
 	p.state = new
 
+	fmt.Printf("P %s -> %s\n", old, new)
 	return nil
+}
+
+func (p *Placement) Take() error {
+	return p.node.take(p)
+}
+
+func (p *Placement) Drop() error {
+	return p.node.drop(p)
+}
+
+func (p *Placement) Serve() error {
+	return p.node.serve(p)
 }

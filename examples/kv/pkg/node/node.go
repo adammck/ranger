@@ -142,7 +142,7 @@ type RangeData struct {
 	state ranje.StateRemote // TODO: guard this
 }
 
-func (rd *RangeData) fetchMany(dest RangeMeta, parents []*pbr.RangeNode) {
+func (rd *RangeData) fetchMany(dest RangeMeta, parents []*pbr.Placement) {
 
 	// Parse all the parents before spawning threads. This is fast and failure
 	// indicates a bug more than a transient problem.

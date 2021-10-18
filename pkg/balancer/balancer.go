@@ -60,6 +60,9 @@ func (b *Balancer) rebalance() {
 	// Find any pending ranges and find any node to assign them to.
 	for _, r := range b.ks.RangesByState(ranje.Pending) {
 		r.MustState(ranje.Placing)
+
+		// TODO: Consider whether the range is being forced onto a specific node
+		// here. could have happened before the initial placement.
 		n := b.Candidate(r)
 
 		// No candidates? That's a problem
@@ -99,8 +102,18 @@ func (b *Balancer) rebalance() {
 		// TODO: Lock the range! This is a mutation!
 		r.ForceNodeIdent = ""
 
-		r.MustState(ranje.Placing)
-		go b.Place(r, n)
+		if r.State() == ranje.Ready {
+			r.MustState(ranje.Moving)
+			go b.Move(r, r.MoveSrc(), n)
+
+		} else if r.State() == ranje.Quarantined {
+			r.MustState(ranje.Placing)
+			go b.Place(r, n)
+
+		} else {
+			panic("force-placing pending ranges not implemented yet")
+		}
+
 	}
 }
 
@@ -128,12 +141,64 @@ func (b *Balancer) Candidate(r *ranje.Range) *ranje.Node {
 func (b *Balancer) Place(r *ranje.Range, n *ranje.Node) {
 	r.AssertState(ranje.Placing)
 
-	err := n.Give(r.Meta.Ident, r)
+	_, err := n.Give(r.Meta.Ident, r)
 	if err != nil {
 		fmt.Printf("Give failed: %s\n", err.Error())
 		r.MustState(ranje.PlaceError)
 		return
 	}
+
+	r.MustState(ranje.Ready)
+}
+
+// TODO: Can this be combined with move? Maybe most steps just do nothing.
+func (b *Balancer) Move(r *ranje.Range, src *ranje.Placement, dest *ranje.Node) {
+	r.AssertState(ranje.Moving)
+
+	// TODO: If src and dest are the same node (i.e. the range is moving to the same node, we get stuck in Taken)
+
+	// Could use an extra step here to clear the move with the dest node first.
+
+	// 1. Take
+	err := src.Take()
+	if err != nil {
+		fmt.Printf("Take failed: %s\n", err.Error())
+		r.MustState(ranje.Ready) // ???
+		return
+	}
+
+	// 2. Give
+	destp, err := dest.Give(r.Meta.Ident, r)
+	if err != nil {
+		fmt.Printf("Give failed: %s\n", err.Error())
+		// This is a bad situation; the range has been taken from the src, but
+		// can't be given to the dest! So we stay in Moving forever.
+		// TODO: Repair the situation somehow.
+		//r.MustState(ranje.MoveError)
+		return
+	}
+
+	// Drop
+	err = src.Drop()
+	if err != nil {
+		fmt.Printf("Drop failed: %s\n", err.Error())
+		// No state change. Stay in Moving.
+		// TODO: Repair the situation somehow.
+		//r.MustState(ranje.MoveError)
+		return
+	}
+
+	// Serve
+	err = destp.Serve()
+	if err != nil {
+		fmt.Printf("Serve failed: %s\n", err.Error())
+		// No state change. Stay in Moving.
+		// TODO: Repair the situation somehow.
+		//r.MustState(ranje.MoveError)
+		return
+	}
+
+	src.Forget()
 
 	r.MustState(ranje.Ready)
 }

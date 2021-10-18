@@ -19,9 +19,10 @@ message RangeMeta {
   bytes end = 3; // exclusive
 }
 
-// TODO: Is this used?
-message RangePlacement {
-  Ident ident = 1;
+message Placement {
+  RangeMeta range = 1;
+
+  // TODO: This should probably be two fields, host and port? Or node ident?
   string node = 2;
 }
 

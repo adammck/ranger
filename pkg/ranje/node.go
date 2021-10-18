@@ -12,8 +12,11 @@ import (
 )
 
 const (
-	staleTimer  = 10 * time.Second
-	giveTimeout = 3 * time.Second
+	staleTimer   = 10 * time.Second
+	giveTimeout  = 3 * time.Second
+	takeTimeout  = 3 * time.Second
+	dropTimeout  = 3 * time.Second
+	serveTimeout = 3 * time.Second
 )
 
 // TODO: Add the ident in here?
@@ -31,7 +34,8 @@ type Node struct {
 	client pb.NodeClient
 	muConn sync.RWMutex
 
-	// The ranges that this node has. Populated via Probe.
+	// The ranges that this node has.
+	// TODO: Should this skip the placement and go straight to the Range?
 	ranges   map[Ident]*Placement
 	muRanges sync.RWMutex
 
@@ -77,6 +81,20 @@ func (n *Node) DumpForDebug() {
 	}
 }
 
+// UnsafeForgetPlacement removes the given placement from the ranges map of this
+// node. Works by address, not value. The caller must hold muRanges for writing.
+func (n *Node) UnsafeForgetPlacement(p *Placement) error {
+	for id, p_ := range n.ranges {
+		if p == p_ {
+			delete(n.ranges, id)
+			return nil
+		}
+	}
+
+	return fmt.Errorf("couldn't forget placement of range %s on node %s; not found",
+		p.rang.String(), n.String())
+}
+
 // Seen tells us that the node is still in service discovery.
 func (n *Node) Seen(t time.Time) {
 	n.seen = t
@@ -90,48 +108,112 @@ func (n *Node) addr() string {
 	return fmt.Sprintf("%s:%d", n.host, n.port)
 }
 
-func (n *Node) Give(id Ident, r *Range) error {
+// Called by Placement to avoid leaking the node pointer.
+func (n *Node) take(p *Placement) error {
+	if p.state != SpReady {
+		return fmt.Errorf("can't take range %s from node %s when state is %s",
+			p.rang.String(), p.node.String(), p.state)
+	}
+
+	req := &pb.TakeRequest{
+		// lol demeter who?
+		Range: p.rang.Meta.Ident.ToProto(),
+	}
+
+	// TODO: Move outside this func?
+	ctx, cancel := context.WithTimeout(context.Background(), takeTimeout)
+	defer cancel()
+
+	// TODO: Retry a few times before giving up.
+	_, err := n.client.Take(ctx, req)
+	if err != nil {
+		// No state change. Placement is still SpReady.
+		return err
+	}
+
+	return p.ToState(SpTaken)
+}
+
+func (n *Node) drop(p *Placement) error {
+	if p.state != SpTaken {
+		return fmt.Errorf("can't drop range %s from node %s when state is %s",
+			p.rang.String(), p.node.String(), p.state)
+	}
+
+	req := &pb.DropRequest{
+		Range: p.rang.Meta.Ident.ToProto(),
+		Force: false,
+	}
+
+	// TODO: Move outside this func?
+	ctx, cancel := context.WithTimeout(context.Background(), dropTimeout)
+	defer cancel()
+
+	// TODO: Retry a few times before giving up.
+	_, err := n.client.Drop(ctx, req)
+	if err != nil {
+		// No state change. Placement is still SpTaken.
+		return err
+	}
+
+	return p.ToState(SpDropped)
+}
+
+func (n *Node) serve(p *Placement) error {
+	if p.state != SpFetched {
+		return fmt.Errorf("can't serve range %s from node %s when state is %s (wanted SpFetched)",
+			p.rang.String(), p.node.String(), p.state)
+	}
+
+	req := &pb.ServeRequest{
+		Range: p.rang.Meta.Ident.ToProto(),
+		Force: false,
+	}
+
+	// TODO: Move outside this func?
+	ctx, cancel := context.WithTimeout(context.Background(), serveTimeout)
+	defer cancel()
+
+	// TODO: Retry a few times before giving up.
+	_, err := n.client.Serve(ctx, req)
+	if err != nil {
+		// No state change. Placement is still SpFetched.
+		return err
+	}
+
+	return p.ToState(SpReady)
+}
+
+func (n *Node) Give(id Ident, r *Range) (*Placement, error) {
 	// TODO: Is there any point in this?
 	_, ok := n.ranges[id]
 	if ok {
 		// Note that this doesn't check the *other* nodes, only this one
-		return fmt.Errorf("range already given to node %s: %s", n.addr(), id.String())
+		return nil, fmt.Errorf("range already given to node %s: %s", n.addr(), id.String())
+	}
+
+	req, err := r.GiveRequest()
+	if err != nil {
+		return nil, fmt.Errorf("error building GiveRequest: %s", err)
 	}
 
 	pp, err := NewPlacement(r, n)
 	if err != nil {
-		return fmt.Errorf("couldn't Give range; error creating placement: %s", err)
+		return nil, fmt.Errorf("couldn't Give range; error creating placement: %s", err)
 	}
 
-	rm := r.Meta.ToProto()
-
-	// Build a list of other nodes that currently have this range.
-	// TODO: Something about remote state here, not all are valid.
-	parents := []*pb.RangeNode{}
-	for _, p := range r.placements {
-		if p.state != SpTaken {
-			panic("can't give range when non-taken placements exist!")
-		}
-		parents = append(parents, &pb.RangeNode{
-			Range: rm,
-			Node:  p.Addr(),
-		})
-	}
-
-	req := &pb.GiveRequest{
-		Range:   rm,
-		Parents: parents,
-	}
-
-	// TODO: Move outside?
+	// TODO: Move outside this func?
 	ctx, cancel := context.WithTimeout(context.Background(), giveTimeout)
 	defer cancel()
 
+	// TODO: Retry a few times before giving up.
 	res, err := n.client.Give(ctx, req)
 	if err != nil {
-		return err
+		pp.Forget()
+		return nil, err
 	}
 
+	// TODO: Check the return values of state changes or use MustState!
 	rs := RemoteStateFromProto(res.State)
 	if rs == StateReady {
 		pp.ToState(SpReady)
@@ -154,7 +236,7 @@ func (n *Node) Give(id Ident, r *Range) error {
 		panic(fmt.Sprintf("unexpected remote state from Give: %s", rs.String()))
 	}
 
-	return nil
+	return pp, nil
 }
 
 // Probe updates current state of the node via RPC.

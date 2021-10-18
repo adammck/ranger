@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+
+	pb "github.com/adammck/ranger/pkg/proto/gen"
 )
 
 // Range is a range of keys in the keyspace.
@@ -17,6 +19,7 @@ type Range struct {
 
 	// Which nodes currently have this range, and what state are they in? May be
 	// empty or have n entries, depending on the local state of the range.
+	// TODO: Might be safer to replace this with a [2], or (before, after) pair.
 	placements []*Placement
 
 	// The number of times this range has failed to be placed since it was last
@@ -75,18 +78,90 @@ func (r *Range) DumpForDebug() {
 	fmt.Printf(" - %s%s\n", r.String(), f)
 }
 
+func (r *Range) MoveSrc() *Placement {
+
+	// This indicates a bug.
+	if len(r.placements) == 0 {
+		panic(fmt.Sprintf("movesrc called on range %s, with 0 placements", r.String()))
+	}
+
+	if len(r.placements) > 1 {
+		// Oh god something is really fucked up
+		panic(fmt.Sprintf("movesrc called on range %s, with > 1 placements", r.String()))
+	}
+
+	// TODO: Only really need RLock here.
+	r.Lock()
+	defer r.Unlock()
+
+	p := r.placements[0]
+
+	if p.state != SpReady {
+		panic(fmt.Sprintf("movesrc called on range %s, where placement is not ready", r.String()))
+	}
+
+	return p
+}
+
+func (r *Range) GiveRequest() (*pb.GiveRequest, error) {
+	rm := r.Meta.ToProto()
+
+	// Build a list of the other current placements of this exact range. This
+	// doesn't include the ranges which this range was split/joined from! It'll
+	// be empty the first time the range is being placed, and have one entry
+	// during normal moves.
+	parents := []*pb.Placement{}
+	for _, p := range r.placements {
+		if p.state != SpTaken {
+			return nil, fmt.Errorf("can't give range %s when state of placement on node %s is %s",
+				r.String(), p.node.String(), p.state)
+		}
+		parents = append(parents, &pb.Placement{
+			Range: rm,
+			Node:  p.Addr(),
+		})
+	}
+
+	return &pb.GiveRequest{
+		Range:   rm,
+		Parents: parents,
+	}, nil
+}
+
+func (r *Range) UnsafeForgetPlacement(p *Placement) error {
+	for i, p_ := range r.placements {
+		if p == p_ {
+
+			// argh, golang, why are you like this
+			// https://github.com/golang/go/wiki/SliceTricks
+			r.placements[i] = r.placements[len(r.placements)-1]
+			r.placements[len(r.placements)-1] = nil
+			r.placements = r.placements[:len(r.placements)-1]
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("couldn't forget placement on node %s of range %s; not found",
+		p.node.String(), r.String())
+}
+
 // MustState attempts to change the state of the range to s, and panics if the
 // transition is invalid. Callers should only ever attempt valid state changes
 // anyway, but...
 func (r *Range) MustState(s StateLocal) {
-	err := r.State(s)
+	err := r.ToState(s)
 	if err != nil {
 		panic(fmt.Sprintf("MustState: %s", err.Error()))
 	}
 }
 
-// State change the state of the range to s or returns an error.
-func (r *Range) State(new StateLocal) error {
+func (r *Range) State() StateLocal {
+	return r.state
+}
+
+// ToState change the state of the range to s or returns an error.
+func (r *Range) ToState(new StateLocal) error {
 	r.Lock()
 	defer r.Unlock()
 	old := r.state
@@ -136,6 +211,14 @@ func (r *Range) State(new StateLocal) error {
 		ok = true
 	}
 
+	if old == Ready && new == Moving { // 7
+		ok = true
+	}
+
+	if old == Moving && new == Ready { // 7
+		ok = true
+	}
+
 	if old == Ready && new == Splitting { // 9
 		ok = true
 	}
@@ -178,7 +261,7 @@ func (r *Range) CheckState() error {
 	// Splitting and joining ranges become obsolete once their children become ready.
 	if r.state == Splitting || r.state == Joining {
 		if r.childrenReady() {
-			return r.State(Obsolete)
+			return r.ToState(Obsolete)
 		}
 	}
 
@@ -200,11 +283,3 @@ func (r *Range) childrenReady() bool {
 func (r *Range) NeedsQuarantine() bool {
 	return r.placeErrorCount >= 3
 }
-
-// func (r *Range) DoPlacement(n *Node) error { // 1
-// 	r.AssertState(Placing)
-
-// 	p := NewPlacement(r, n)
-
-// 	return nil
-// }

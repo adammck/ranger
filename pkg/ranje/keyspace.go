@@ -183,7 +183,7 @@ func (ks *Keyspace) DoSplit(r *Range, k Key) error {
 		return fmt.Errorf("range %s starts with key: %s", r, k)
 	}
 
-	err := r.State(Splitting)
+	err := r.ToState(Splitting)
 	if err != nil {
 		// The error is clear enough, no need to wrap it.
 		return err
@@ -231,7 +231,7 @@ func (ks *Keyspace) JoinTwo(one *Range, two *Range) (*Range, error) {
 	}
 
 	for _, r := range []*Range{one, two} {
-		err := r.State(Joining)
+		err := r.ToState(Joining)
 		if err != nil {
 			// The error is clear enough, no need to wrap it.
 			return nil, err

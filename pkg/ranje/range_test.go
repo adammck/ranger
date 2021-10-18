@@ -23,7 +23,7 @@ func TestString(t *testing.T) {
 func TestState(t *testing.T) {
 	r := Range{}
 
-	err := r.State(Pending)
+	err := r.ToState(Pending)
 	if assert.Error(t, err) {
 		assert.EqualError(t, err, "invalid state transition: Pending -> Pending")
 	}
@@ -38,9 +38,9 @@ func TestSplitState(t *testing.T) {
 
 	r0.children = []*Range{&r1, &r2}
 
-	assert.NoError(t, r1.State(Ready))
+	assert.NoError(t, r1.ToState(Ready))
 	assert.Equal(t, r0.state, Splitting)
 
-	assert.NoError(t, r2.State(Ready))
+	assert.NoError(t, r2.ToState(Ready))
 	assert.Equal(t, r0.state, Obsolete)
 }
