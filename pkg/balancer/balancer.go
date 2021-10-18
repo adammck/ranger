@@ -83,7 +83,7 @@ func (b *Balancer) rebalance() {
 		r.MustState(ranje.Pending)
 	}
 
-	// Find any ranges which have been forced onto a specific node.
+	// Find any ranges which should be forced onto a specific node.
 	for _, r := range b.ks.RangesForcing() {
 		n := b.rost.NodeByIdent(r.ForceNodeIdent)
 
@@ -128,10 +128,7 @@ func (b *Balancer) Candidate(r *ranje.Range) *ranje.Node {
 func (b *Balancer) Place(r *ranje.Range, n *ranje.Node) {
 	r.AssertState(ranje.Placing)
 
-	// TODO: Use r.Meta.Ident once that exists, or maybe remove the id arg?
-	id := ranje.Ident{Key: uint64(r.Ident)}
-
-	err := n.Give(id, r)
+	err := n.Give(r.Meta.Ident, r)
 	if err != nil {
 		fmt.Printf("Give failed: %s\n", err.Error())
 		r.MustState(ranje.PlaceError)

@@ -17,12 +17,6 @@ const (
 	// Pending: The default state. The range is known (by the controller) but
 	// hasn't been assigned to any node. When a range is in this state, the
 	// controller should find a node and Give the range to it asap.
-	//
-	// -> Ready: The node accepted it, and didn't need to do anything to become
-	//           ready. Maybe it was a genesis range?
-	//
-	// -> Fetching: The node accepted it, and is getting ready to serve it. The
-	//              controller should wait.
 	Pending
 
 	// Placing: The balancer is finding a node with capacity to place this
@@ -38,19 +32,12 @@ const (
 	//              until an operator intervenes. This indicates that the range
 	Quarantined
 
-	// Fetching: The range is assigned to a node, and the node is getting ready
-	// to serve it. The controller should keep probing for updates.
-	//
-	// -> FetchFailed: The node tried to fetch the range, but couldn't, for
-	//                 whatever reason.
-	//
-	// -> FetchRevoked: The controller lost contact with the node while it was
-	//                  fetching the range. Maybe it OOMed?
-	//
-	//Fetching -- TODO
-
 	// Ready: The range is owned by a node, and is in the steady state.
 	Ready
+
+	// Moving: The range is moving to a different node. It doesn't need
+	// splitting, but we want to reduce load on the current node.
+	Moving
 
 	// Splitting: The controller has decided to split the range. The child
 	// ranges have been created and are in the process of becoming ready.
@@ -62,8 +49,6 @@ const (
 	// Obsolete: The range was split or joined, and the child ranges are now
 	// ready, so this range can now be unassigned from its node.
 	Obsolete
-
-	// Discarding
 )
 
 //go:generate stringer -type=StateLocal -output=zzz_state_local_string.go

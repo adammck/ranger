@@ -16,8 +16,11 @@ type Ident struct {
 }
 
 func (id *Ident) String() string {
-	//return fmt.Sprintf("Ident{%s:%d}", id.Scope, id.Key)
-	return fmt.Sprintf("%#v", id)
+	if id.Scope == "" {
+		return fmt.Sprintf("I{%d}", id.Key)
+	}
+
+	return fmt.Sprintf("I{%s:%d}", id.Scope, id.Key)
 }
 
 func IdentFromProto(p *pb.Ident) (*Ident, error) {

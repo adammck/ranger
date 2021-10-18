@@ -14,8 +14,8 @@ func TestInitial(t *testing.T) {
 
 	r := ks.Get(0)
 	assert.NotNil(t, r)
-	assert.Equal(t, ZeroKey, r.start, "range should start at ZeroKey")
-	assert.Equal(t, ZeroKey, r.end, "range should end at ZeroKey")
+	assert.Equal(t, ZeroKey, r.Meta.Start, "range should start at ZeroKey")
+	assert.Equal(t, ZeroKey, r.Meta.End, "range should end at ZeroKey")
 }
 
 func TestNewWithSplits(t *testing.T) {
@@ -126,10 +126,10 @@ func TestSplit(t *testing.T) {
 	err = ks.DoSplit(xa, "b")
 	assert.EqualError(t, err, "range {1 Ready [-inf, a]} does not contain key: b")
 
-	err = ks.DoSplit(xa, xa.end)
+	err = ks.DoSplit(xa, xa.Meta.End)
 	assert.EqualError(t, err, "range {1 Ready [-inf, a]} does not contain key: a")
 
-	err = ks.DoSplit(ax, ax.start)
+	err = ks.DoSplit(ax, ax.Meta.Start)
 	assert.EqualError(t, err, "range {2 Ready (a, +inf]} starts with key: a")
 }
 

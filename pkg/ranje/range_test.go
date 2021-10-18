@@ -13,10 +13,10 @@ func TestString(t *testing.T) {
 	assert.Equal(t, "{0 Pending [-inf, +inf]}", r.String())
 
 	// This makes no sense; b>a, so no keys can be in this range
-	r = Range{start: "b", end: "a"}
+	r = Range{Meta: Meta{Start: "b", End: "a"}}
 	assert.Equal(t, "{0 Pending (b, a]}", r.String())
 
-	r = Range{start: "a", end: "b"}
+	r = Range{Meta: Meta{Start: "a", End: "b"}}
 	assert.Equal(t, "{0 Pending (a, b]}", r.String())
 }
 

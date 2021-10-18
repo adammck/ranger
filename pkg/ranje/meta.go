@@ -1,13 +1,35 @@
 package ranje
 
 import (
+	"fmt"
+
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 )
 
+// Meta is a range minus all the state.
+// Should be immutable after construction.
 type Meta struct {
 	Ident Ident
 	Start Key // inclusive
 	End   Key // exclusive
+}
+
+func (m *Meta) String() string {
+	var s, e string
+
+	if m.Start == ZeroKey {
+		s = "[-inf"
+	} else {
+		s = fmt.Sprintf("(%s", m.Start)
+	}
+
+	if m.End == ZeroKey {
+		e = "+inf]"
+	} else {
+		e = fmt.Sprintf("%s]", m.End)
+	}
+
+	return fmt.Sprintf("M{%s %s, %s}", m.Ident.String(), s, e)
 }
 
 func MetaFromProto(p *pb.RangeMeta) (*Meta, error) {

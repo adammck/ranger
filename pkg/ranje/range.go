@@ -1,23 +1,15 @@
 package ranje
 
 import (
+	"errors"
 	"fmt"
+	"sync"
 )
-
-// type Meta struct {
-// 	ident ident.Ident
-// 	start Key // inclusive
-// 	end   Key // exclusive
-// }
 
 // Range is a range of keys in the keyspace.
 // These should probably only be instantiated by Keyspace? No sanity checks, so be careful.
 type Range struct {
-	// TODO: Replace these with a Meta
-	Ident int
-	start Key // inclusive
-	end   Key // exclusive
-	// END TODO
+	Meta Meta
 
 	state    StateLocal
 	parents  []*Range
@@ -35,20 +27,23 @@ type Range struct {
 	// Public so the balancer can mess with them.
 	// TODO: Should that happen via accessors instead?
 	ForceNodeIdent string
+
+	// Guards everything.
+	sync.Mutex
 }
 
 // Contains returns true if the given key is within the range.
 // TODO: Test this.
 func (r *Range) Contains(k Key) bool {
-	if r.start != ZeroKey {
-		if k < r.start {
+	if r.Meta.Start != ZeroKey {
+		if k < r.Meta.Start {
 			return false
 		}
 	}
 
-	if r.end != ZeroKey {
+	if r.Meta.End != ZeroKey {
 		// Note that the range end is exclusive!
-		if k >= r.end {
+		if k >= r.Meta.End {
 			return false
 		}
 	}
@@ -64,25 +59,11 @@ func (r *Range) AssertState(s StateLocal) {
 
 func (r *Range) SameMeta(id Ident, start, end []byte) bool {
 	// TODO: This method is batshit
-	return uint64(r.Ident) == id.Key && r.start == Key(start) && r.end == Key(end)
+	return r.Meta.Ident.Key == id.Key && r.Meta.Start == Key(start) && r.Meta.End == Key(end)
 }
 
 func (r *Range) String() string {
-	var s, e string
-
-	if r.start == ZeroKey {
-		s = "[-inf"
-	} else {
-		s = fmt.Sprintf("(%s", r.start)
-	}
-
-	if r.end == ZeroKey {
-		e = "+inf]"
-	} else {
-		e = fmt.Sprintf("%s]", r.end)
-	}
-
-	return fmt.Sprintf("{%d %s %s, %s}", r.Ident, r.state, s, e)
+	return fmt.Sprintf("R{%s %s}", r.Meta.String(), r.state)
 }
 
 // TODO: Replace this with a statusz-type page
@@ -105,48 +86,61 @@ func (r *Range) MustState(s StateLocal) {
 }
 
 // State change the state of the range to s or returns an error.
-func (r *Range) State(s StateLocal) error {
-	// TODO: Lock the range while in this function
-
+func (r *Range) State(new StateLocal) error {
+	r.Lock()
+	defer r.Unlock()
 	old := r.state
-	new := s
 	ok := false
 
-	if old == Pending && new == Placing {
+	if new == Unknown {
+		return errors.New("can't transition range into Unknown")
+	}
+
+	// Obsolete is terminal. The range should be destroyed.
+	if old == Obsolete {
+		return errors.New("can't transition range out of SpDropped")
+	}
+
+	if old == Pending && new == Placing { // 1
 		ok = true
 	}
 
-	if old == Placing && new == Ready {
+	if old == Placing && new == Ready { // 2
 		r.placeErrorCount = 0
 		ok = true
 	}
 
-	if old == Placing && new == PlaceError {
+	if old == Placing && new == PlaceError { // 3
 		r.placeErrorCount += 1
 		ok = true
 	}
 
+	// WRONG
+	// NOT (4)
+	// THIS SHOULD GO BACK TO PLACING
 	if old == PlaceError && new == Pending {
 		ok = true
 	}
 
-	if old == PlaceError && new == Quarantined {
+	if old == PlaceError && new == Quarantined { // 5
 		ok = true
 	}
 
+	// Doesn't happen automatically. Only when forced by an operator.
+	if old == Quarantined && new == Placing { // 6
+		ok = true
+	}
+
+	// SHOULD THIS GO BACK TO PENDING?
 	if old == Ready && new == Placing {
 		ok = true
 	}
 
-	if old == Ready && new == Splitting {
+	if old == Ready && new == Splitting { // 9
 		ok = true
 	}
 
-	if old == Ready && new == Joining {
-		ok = true
-	}
-
-	if old == Quarantined && new == Placing {
+	if old == Ready && new == Joining { // 10
 		ok = true
 	}
 
@@ -159,16 +153,11 @@ func (r *Range) State(s StateLocal) error {
 		ok = true
 	}
 
-	// TODO Assigned -> Splitting
-	// TODO Assigned -> Merging
-	// TODO Splitting -> Discarding
-	// TODO Merging -> Discarding
-
 	if !ok {
-		return fmt.Errorf("invalid state transition: %s -> %s", old, new)
+		return fmt.Errorf("invalid range state transition: %s -> %s", old, new)
 	}
 
-	r.state = s
+	r.state = new
 
 	// Notify parent(s) of state change, so they can change their own state in
 	// response.
@@ -211,3 +200,11 @@ func (r *Range) childrenReady() bool {
 func (r *Range) NeedsQuarantine() bool {
 	return r.placeErrorCount >= 3
 }
+
+// func (r *Range) DoPlacement(n *Node) error { // 1
+// 	r.AssertState(Placing)
+
+// 	p := NewPlacement(r, n)
+
+// 	return nil
+// }

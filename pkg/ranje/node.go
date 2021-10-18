@@ -32,7 +32,8 @@ type Node struct {
 	muConn sync.RWMutex
 
 	// The ranges that this node has. Populated via Probe.
-	ranges map[Ident]*Placement
+	ranges   map[Ident]*Placement
+	muRanges sync.RWMutex
 
 	// TODO: Figure out what to do with these. They shouldn't exist, and indicate a state bug. But ignoring them probably isn't right.
 	unexpectedRanges map[Ident]*pb.RangeMeta
@@ -65,6 +66,10 @@ func NewNode(host string, port int) *Node {
 	return &n
 }
 
+func (n *Node) String() string {
+	return fmt.Sprintf("N{%s}", n.addr())
+}
+
 // TODO: Replace this with a statusz-type page
 func (n *Node) DumpForDebug() {
 	for id, p := range n.ranges {
@@ -86,27 +91,25 @@ func (n *Node) addr() string {
 }
 
 func (n *Node) Give(id Ident, r *Range) error {
+	// TODO: Is there any point in this?
 	_, ok := n.ranges[id]
 	if ok {
 		// Note that this doesn't check the *other* nodes, only this one
 		return fmt.Errorf("range already given to node %s: %s", n.addr(), id.String())
 	}
 
-	// TODO: Give Range a Meta and use that here!
-	rm := &pb.RangeMeta{
-		Ident: &pb.Ident{
-			Scope: "", // TODO
-			Key:   uint64(r.Ident),
-		},
-		Start: []byte(r.start),
-		End:   []byte(r.end),
+	pp, err := NewPlacement(r, n)
+	if err != nil {
+		return fmt.Errorf("couldn't Give range; error creating placement: %s", err)
 	}
+
+	rm := r.Meta.ToProto()
 
 	// Build a list of other nodes that currently have this range.
 	// TODO: Something about remote state here, not all are valid.
 	parents := []*pb.RangeNode{}
 	for _, p := range r.placements {
-		if p.state != StateTaken {
+		if p.state != SpTaken {
 			panic("can't give range when non-taken placements exist!")
 		}
 		parents = append(parents, &pb.RangeNode{
@@ -124,22 +127,32 @@ func (n *Node) Give(id Ident, r *Range) error {
 	ctx, cancel := context.WithTimeout(context.Background(), giveTimeout)
 	defer cancel()
 
-	_, err := n.client.Give(ctx, req)
+	res, err := n.client.Give(ctx, req)
 	if err != nil {
 		return err
 	}
 
-	// TODO: Extract current state from Give response.
+	rs := RemoteStateFromProto(res.State)
+	if rs == StateReady {
+		pp.ToState(SpReady)
 
-	pp := &Placement{
-		rang:  r,
-		node:  n,
-		state: StateUnknown,
-		K:     0,
+	} else if rs == StateFetching {
+		pp.ToState(SpFetching)
+
+	} else if rs == StateFetched {
+		// The fetch finished before the client returned.
+		pp.ToState(SpFetching)
+		pp.ToState(SpFetched)
+
+	} else if rs == StateFetchFailed {
+		// The fetch failed before the client returned.
+		pp.ToState(SpFetching)
+		pp.ToState(SpFetchFailed)
+
+	} else {
+		// Got either Unknown or Taken
+		panic(fmt.Sprintf("unexpected remote state from Give: %s", rs.String()))
 	}
-
-	n.ranges[id] = pp
-	r.placements = append(r.placements, pp)
 
 	return nil
 }
@@ -186,7 +199,7 @@ func (n *Node) Probe(ctx context.Context) error {
 		rrr.K = r.Keys
 
 		// TODO: Figure out wtf to do when remote state doesn't match local
-		rrr.state = RemoteStateFromProto(r.State)
+		//rrr.state = RemoteStateFromProto(r.State)
 	}
 
 	return nil

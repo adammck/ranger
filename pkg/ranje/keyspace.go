@@ -17,7 +17,7 @@ import (
 type Keyspace struct {
 	ranges    []*Range // TODO: don't be dumb, use an interval tree
 	mu        sync.Mutex
-	nextIdent int
+	nextIdent uint64
 }
 
 func New() *Keyspace {
@@ -41,7 +41,7 @@ func NewWithSplits(splits []string) *Keyspace {
 		var s, e Key
 
 		if i > 0 {
-			s = rs[i-1].end
+			s = rs[i-1].Meta.End
 		} else {
 			s = ZeroKey
 		}
@@ -52,9 +52,10 @@ func NewWithSplits(splits []string) *Keyspace {
 			e = ZeroKey
 		}
 
+		// TODO: Move start/end into params of Range? No sense without them.
 		r := ks.Range()
-		r.start = s
-		r.end = e
+		r.Meta.Start = s
+		r.Meta.End = e
 		rs[i] = r
 	}
 
@@ -66,7 +67,12 @@ func NewWithSplits(splits []string) *Keyspace {
 // way that a Range should be constructed.
 func (ks *Keyspace) Range() *Range {
 	r := &Range{
-		Ident: ks.nextIdent,
+		Meta: Meta{
+			Ident: Ident{
+				Scope: "", // ???
+				Key:   ks.nextIdent,
+			},
+		},
 	}
 
 	ks.nextIdent += 1
@@ -124,7 +130,7 @@ func (ks *Keyspace) DumpForDebug() {
 // TODO: Allow getting by other things.
 func (ks *Keyspace) GetByIdent(id Ident) (*Range, error) {
 	for _, r := range ks.ranges {
-		if r.Ident == int(id.Key) {
+		if r.Meta.Ident == id {
 			return r, nil
 		}
 	}
@@ -133,9 +139,10 @@ func (ks *Keyspace) GetByIdent(id Ident) (*Range, error) {
 }
 
 // Get returns a range by its index.
+// TODO: WTF is this method? Remove it!
 func (ks *Keyspace) Get(ident int) *Range {
 	for _, r := range ks.ranges {
-		if r.Ident == ident {
+		if int(r.Meta.Ident.Key) == ident {
 			return r
 		}
 	}
@@ -172,7 +179,7 @@ func (ks *Keyspace) DoSplit(r *Range, k Key) error {
 		return fmt.Errorf("range %s does not contain key: %s", r, k)
 	}
 
-	if k == r.start {
+	if k == r.Meta.Start {
 		return fmt.Errorf("range %s starts with key: %s", r, k)
 	}
 
@@ -185,13 +192,13 @@ func (ks *Keyspace) DoSplit(r *Range, k Key) error {
 	// TODO: Move this part into Range?
 
 	one := ks.Range()
-	one.start = r.start
-	one.end = k
+	one.Meta.Start = r.Meta.Start
+	one.Meta.End = k
 	one.parents = []*Range{r}
 
 	two := ks.Range()
-	two.start = k
-	two.end = r.end
+	two.Meta.Start = k
+	two.Meta.End = r.Meta.End
 	two.parents = []*Range{r}
 
 	// append to the end of the ranges
@@ -219,7 +226,7 @@ func (ks *Keyspace) JoinTwo(one *Range, two *Range) (*Range, error) {
 		}
 	}
 
-	if one.end != two.start {
+	if one.Meta.End != two.Meta.Start {
 		return nil, fmt.Errorf("not adjacent: %s, %s", one, two)
 	}
 
@@ -234,8 +241,8 @@ func (ks *Keyspace) JoinTwo(one *Range, two *Range) (*Range, error) {
 	// TODO: Move this part into Range?
 
 	three := ks.Range()
-	three.start = one.start
-	three.end = two.end
+	three.Meta.Start = one.Meta.Start
+	three.Meta.End = two.Meta.End
 	three.parents = []*Range{one, two}
 
 	// Insert new range at the end.
