@@ -32,7 +32,6 @@ func (p *Placement) Addr() string {
 	// This should definitely not ever happen
 	if p.node == nil {
 		panic("nil node for placement")
-		//return ""
 	}
 
 	return p.node.addr()

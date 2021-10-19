@@ -54,11 +54,9 @@ func NewNode(host string, port int) *Node {
 	}
 
 	// start dialling in background
-	//zap.L().Info("dialing...", zap.String("addr", n.addr))
 	// todo: inherit context to allow global cancellation
 	conn, err := grpc.DialContext(context.Background(), fmt.Sprintf("%s:%d", n.host, n.port), grpc.WithInsecure())
 	if err != nil {
-		//zap.L().Info("error while dialing", zap.String("addr", n.addr), zap.Error(err))
 		fmt.Printf("error while dialing: %v\n", err)
 	}
 

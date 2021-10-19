@@ -54,17 +54,6 @@ func New(addrLis, addrPub string) (*Controller, error) {
 	}, nil
 }
 
-// func (c *Controller) MainLoop() {
-
-// 	ticker := time.NewTicker(5 * time.Second)
-
-// 	go roster.Heartbeat(ticker)
-// }
-
-// func (c *Controller) Tick() {
-
-// }
-
 func (c *Controller) Run(done chan bool) error {
 
 	// For the gRPC server.

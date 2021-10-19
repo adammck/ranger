@@ -13,7 +13,6 @@ import (
 // ranges while rebalancing is in progress.
 //
 // TODO: Move this out of 'ranje' package; it's stateful.
-//
 type Keyspace struct {
 	ranges    []*Range // TODO: don't be dumb, use an interval tree
 	mu        sync.Mutex

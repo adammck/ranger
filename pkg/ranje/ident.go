@@ -30,9 +30,7 @@ func IdentFromProto(p *pb.Ident) (*Ident, error) {
 	}
 
 	// Empty scope is fine.
-	// if p.Scope == "" {
-	// 	return id, errors.New("missing: scope")
-	// }
+
 	if p.Key == 0 {
 		return id, errors.New("missing: key")
 	}
