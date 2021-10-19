@@ -32,7 +32,7 @@ func New(ks *ranje.Keyspace, rost *roster.Roster, srv *grpc.Server) *Balancer {
 	return b
 }
 
-func (b *Balancer) Force(id *ranje.Ident, node string) error {
+func (b *Balancer) operatorForce(id *ranje.Ident, node string) error {
 	r, err := b.ks.GetByIdent(*id)
 	if err != nil {
 		return err
@@ -43,6 +43,46 @@ func (b *Balancer) Force(id *ranje.Ident, node string) error {
 	// No validation here. The node might not exist yet, or have temporarily
 	// gone away, or who knows what else.
 	r.ForceNodeIdent = node
+
+	return nil
+}
+
+// operatorSplit is called by the balancerServer when a controller.Split RPC is
+// received. An operator wishes for this range to be split, for whatever reason.
+func (b *Balancer) operatorSplit(r *ranje.Range, boundary ranje.Key, left, right string) error {
+	if r.SplitRequest != nil {
+		fmt.Printf("Warning: Replaced operator split\n")
+	}
+
+	r.Lock()
+	defer r.Unlock()
+
+	r.SplitRequest = &ranje.SplitRequest{
+		Boundary:  boundary,
+		NodeLeft:  left,
+		NodeRight: right,
+	}
+
+	fmt.Printf("operator requested range %s split: %s\n", r.String(), r.SplitRequest)
+
+	return nil
+}
+
+// This is only here to proxy Keyspace.GetByIdent.
+func (b *Balancer) getRange(id ranje.Ident) (*ranje.Range, error) {
+	return b.ks.GetByIdent(id)
+}
+
+func (b *Balancer) rangeCanBeSplit(r *ranje.Range) error {
+	// TODO: This isn't right for all cases, only the kv example.
+	// The kv example transfers data directly between nodes (just to be obtuse),
+	// which they're only able to do when the range is ready. In production we'd
+	// more likely be writing to a WAL in some durable store which could be read
+	// from regardless of the state of the source node.
+	// Need some kind of global config here to switch these behaviors.
+	if r.State() != ranje.Ready {
+		return fmt.Errorf("only Ready ranges can be split")
+	}
 
 	return nil
 }

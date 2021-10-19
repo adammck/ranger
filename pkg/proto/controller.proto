@@ -18,8 +18,27 @@ message ForceRequest {
 message ForceResponse {
 }
 
+message SplitRequest {
+  Ident range = 1;
+
+  // The point at which to split the two ranges. This becomes the end key of the
+  // left range, and the start key of the right range.
+  bytes boundary = 2;
+
+  // The ident of the node to assign the two parts to. Can be the same as the
+  // node which the range is currently on.
+  string node_left = 3;
+  string node_right = 4;
+}
+
+message SplitResponse {
+}
+
 service Balancer {
 
   // Tell the balancer to assign a range to a specific node ASAP.
   rpc Force (ForceRequest) returns (ForceResponse) {}
+
+  // Split a range in two.
+  rpc Split (SplitRequest) returns (SplitResponse) {}
 }
