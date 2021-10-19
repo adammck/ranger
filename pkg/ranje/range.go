@@ -63,6 +63,19 @@ func (r *Range) Contains(k Key) bool {
 	return true
 }
 
+func (r *Range) Child(index int) (*Range, error) {
+	// TODO: Locking!
+
+	if index < 0 {
+		return nil, errors.New("negative index")
+	}
+	if index > len(r.children)-1 {
+		return nil, errors.New("invalid index")
+	}
+
+	return r.children[index], nil
+}
+
 func (r *Range) AssertState(s StateLocal) {
 	if r.state != s {
 		panic(fmt.Sprintf("range failed state assertion %s != %s %s", r.state.String(), s.String(), r))

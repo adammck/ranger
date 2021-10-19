@@ -153,8 +153,44 @@ func (b *Balancer) rebalance() {
 		} else {
 			panic("force-placing pending ranges not implemented yet")
 		}
-
 	}
+
+	for _, r := range b.ks.RangesToSplit() {
+
+		// Pop the split request while processing.
+		// Note that this is different from forced range moves, above. But only
+		// because I haven't figured out what I'm doing here yet.
+		r.Lock()
+		s := r.SplitRequest
+		r.SplitRequest = nil
+		r.Unlock()
+
+		// Check again, since we released locks for a bit.
+		if s == nil {
+			fmt.Printf("SplitRequest went away for %s\n", r)
+			continue
+		}
+
+		left := b.rost.NodeByIdent(s.NodeLeft)
+		right := b.rost.NodeByIdent(s.NodeRight)
+
+		if left == nil {
+			fmt.Printf("tried to split range to (left) unknown node: %s\n", left)
+			continue
+		}
+
+		if right == nil {
+			fmt.Printf("tried to split range to (right) unknown node: %s\n", right)
+			continue
+		}
+
+		// This is done by keyspace.DoSplit
+		//r.MustState(ranje.Splitting)
+
+		// TODO: Rename MoveSrc! Clearly it's not just that.
+		go b.Split(r, r.MoveSrc(), s.Boundary, left, right)
+	}
+
 }
 
 func (b *Balancer) Candidate(r *ranje.Range) *ranje.Node {
@@ -232,6 +268,8 @@ func (b *Balancer) Move(r *ranje.Range, src *ranje.Placement, destNode *ranje.No
 		return
 	}
 
+	// TODO: Wait for dest to become ready!
+
 	// Drop
 	err = src.Drop()
 	if err != nil {
@@ -255,6 +293,90 @@ func (b *Balancer) Move(r *ranje.Range, src *ranje.Placement, destNode *ranje.No
 	src.Forget()
 
 	r.MustState(ranje.Ready)
+}
+
+func (b *Balancer) Split(r *ranje.Range, src *ranje.Placement, boundary ranje.Key, nLeft, nRight *ranje.Node) {
+
+	// Moves r into Splitting state
+	err := b.ks.DoSplit(r, boundary)
+	if err != nil {
+		fmt.Printf("DoSplit failed: %s\n", err.Error())
+	}
+
+	// Only exactly two sides of the split for now
+	rLeft, err := r.Child(0)
+	if err != nil {
+		fmt.Printf("DoSplit failed, getting left child: %s\n", err.Error())
+	}
+	rRight, err := r.Child(1)
+	if err != nil {
+		fmt.Printf("DoSplit failed, getting right child: %s\n", err.Error())
+	}
+
+	pLeft, err := ranje.NewPlacement(rLeft, nLeft)
+	if err != nil {
+		// TODO: wtf to do here? the range is fucked
+		return
+	}
+
+	pRight, err := ranje.NewPlacement(rRight, nRight)
+	if err != nil {
+		// TODO: wtf to do here? the range is fucked
+		return
+	}
+
+	// 1. Take
+	err = src.Take()
+	if err != nil {
+		fmt.Printf("Take failed: %s\n", err.Error())
+		return
+	}
+
+	// TODO: Do these two in parallel with a waitgroup
+
+	// 2. Give left
+	// TODO: This doesn't work yet! Give doesn't include parents info.
+	err = pLeft.Give()
+	if err != nil {
+		fmt.Printf("Give left failed: %s\n", err.Error())
+		return
+	}
+
+	// 2. Give right
+	err = pRight.Give()
+	if err != nil {
+		fmt.Printf("Give right failed: %s\n", err.Error())
+		return
+	}
+
+	// TODO: Wait for dest to become ready!
+
+	// Drop
+	err = src.Drop()
+	if err != nil {
+		fmt.Printf("Drop failed: %s\n", err.Error())
+		return
+	}
+
+	// TODO: Do these two in parallel with a waitgroup
+
+	// Serve left
+	err = pLeft.Serve()
+	if err != nil {
+		fmt.Printf("Serve left failed: %s\n", err.Error())
+		return
+	}
+
+	// Serve left
+	err = pRight.Serve()
+	if err != nil {
+		fmt.Printf("Serve left failed: %s\n", err.Error())
+		return
+	}
+
+	src.Forget()
+
+	r.MustState(ranje.Obsolete)
 }
 
 func (b *Balancer) Run(t *time.Ticker) {

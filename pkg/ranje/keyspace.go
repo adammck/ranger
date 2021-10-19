@@ -15,7 +15,7 @@ import (
 // TODO: Move this out of 'ranje' package; it's stateful.
 type Keyspace struct {
 	ranges    []*Range // TODO: don't be dumb, use an interval tree
-	mu        sync.Mutex
+	mu        sync.RWMutex
 	nextIdent uint64
 }
 
@@ -96,12 +96,34 @@ func (ks *Keyspace) RangesByState(s StateLocal) []*Range {
 func (ks *Keyspace) RangesForcing() []*Range {
 	out := []*Range{}
 
+	// TODO: Lock the keyspace!
+	// Actually do this whole stupid thing differently!
+
 	for _, r := range ks.ranges {
 		if r.ForceNodeIdent != "" {
 			if r.state == Pending || r.state == Ready || r.state == Quarantined {
 				out = append(out, r)
 			}
 		}
+	}
+
+	return out
+}
+
+func (ks *Keyspace) RangesToSplit() []*Range {
+	out := []*Range{}
+
+	ks.mu.RLock()
+	defer ks.mu.RUnlock()
+
+	for _, r := range ks.ranges {
+		r.Lock()
+		if r.SplitRequest != nil {
+			if r.state == Ready {
+				out = append(out, r)
+			}
+		}
+		r.Unlock()
 	}
 
 	return out
