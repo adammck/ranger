@@ -234,7 +234,11 @@ type Node struct {
 	data   map[rangeIdent]*RangeData
 	ranges Ranges
 	mu     sync.Mutex // guards data and ranges, todo: split into one for ranges, and one for each range in data
-	disc   discovery.Discoverable
+
+	addrLis string
+	addrPub string
+	srv     *grpc.Server
+	disc    discovery.Discoverable
 }
 
 // ---- control plane
@@ -533,39 +537,55 @@ func init() {
 
 }
 
-func Build() (*Node, *grpc.Server) {
+func New(addrLis, addrPub string) (*Node, error) {
+	var opts []grpc.ServerOption
+	srv := grpc.NewServer(opts...)
+
+	// Register reflection service, so client can introspect (for debugging).
+	// TODO: Make this optional.
+	reflection.Register(srv)
+
+	disc, err := consuldisc.New("node", addrPub, consulapi.DefaultConfig(), srv)
+	if err != nil {
+		return nil, err
+	}
+
 	n := &Node{
 		data:   make(map[rangeIdent]*RangeData),
 		ranges: NewRanges(),
+
+		addrLis: addrLis,
+		addrPub: addrPub,
+		srv:     srv,
+		disc:    disc,
 	}
 
 	ns := nodeServer{node: n}
 	kv := kvServer{node: n}
 
-	var opts []grpc.ServerOption
-	srv := grpc.NewServer(opts...)
 	pbr.RegisterNodeServer(srv, &ns)
 	pbkv.RegisterKVServer(srv, &kv)
 
-	// Register reflection service, so client can introspect (for debugging).
-	reflection.Register(srv)
-
-	return n, srv
+	return n, nil
 }
 
-func Start(addrLis, addrPub string) error {
-	node, srv := Build()
+func (node *Node) Run(done chan bool) error {
 
-	lis, err := net.Listen("tcp", addrLis)
+	// For the gRPC server.
+	lis, err := net.Listen("tcp", node.addrLis)
 	if err != nil {
 		return err
 	}
 
-	disc, err := consuldisc.New("node", addrPub, consulapi.DefaultConfig(), srv)
-	if err != nil {
-		return err
-	}
-	node.disc = disc
+	// Start the gRPC server in a background routine.
+	errChan := make(chan error)
+	go func() {
+		err := node.srv.Serve(lis)
+		if err != nil {
+			errChan <- err
+		}
+		close(errChan)
+	}()
 
 	// Register with service discovery
 	err = node.disc.Start()
@@ -573,6 +593,24 @@ func Start(addrLis, addrPub string) error {
 		return err
 	}
 
-	log.Printf("listening on: %s", addrLis)
-	return srv.Serve(lis)
+	// Block until channel closes, indicating that caller wants shutdown.
+	<-done
+
+	// Let in-flight RPCs finish and then stop. errChan will contain the error
+	// returned by server.Serve (above) or be closed with no error.
+	node.srv.GracefulStop()
+	err = <-errChan
+	if err != nil {
+		fmt.Printf("Error from server.Serve: ")
+		return err
+	}
+
+	// Remove ourselves from service discovery. Not strictly necessary, but lets
+	// the other nodes respond quicker.
+	err = node.disc.Stop()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

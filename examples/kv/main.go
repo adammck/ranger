@@ -36,11 +36,18 @@ func main() {
 	}()
 
 	if *fnod && !*fctl {
-		if err := node.Start(*addrLis, *addrPub); err != nil {
+		n, err := node.New(*addrLis, *addrPub)
+		if err != nil {
+			exit(err)
+		}
+
+		if err := n.Run(done); err != nil {
 			exit(err)
 		}
 
 	} else if *fctl && !*fnod {
+		// TODO: This branch seems very similar to the previous...
+
 		c, err := controller.New(*addrLis, *addrPub)
 		if err != nil {
 			exit(err)
