@@ -98,7 +98,7 @@ func (d *Discovery) Start() error {
 }
 
 func (d *Discovery) Stop() error {
-	err := d.consul.Agent().ServiceDeregister(d.svcName)
+	err := d.consul.Agent().ServiceDeregister(d.getIdent())
 	if err != nil {
 		return err
 	}
