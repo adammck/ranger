@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 )
 
 // Placement represents a pair of range+node.
@@ -24,6 +25,8 @@ type Placement struct {
 	K uint64
 
 	// Guards everything.
+	// TODO: Change into an RWLock, check callers.
+	// TODO: Should this also lock the range and node? I think no?
 	sync.Mutex
 }
 
@@ -44,6 +47,13 @@ func NewPlacement(r *Range, n *Node) (*Placement, error) {
 		state: SpPending,
 	}
 
+	r.Lock()
+	defer r.Unlock()
+
+	if r.next != nil {
+		return nil, fmt.Errorf("range %s already has a next placement: %s", r.String(), r.next.Addr())
+	}
+
 	n.muRanges.Lock()
 	defer n.muRanges.Unlock()
 
@@ -53,11 +63,10 @@ func NewPlacement(r *Range, n *Node) (*Placement, error) {
 		return nil, fmt.Errorf("node %s already has range %s", n.String(), id.String())
 	}
 
-	r.Lock()
-	defer r.Unlock()
-
-	r.placements = append(r.placements, p)
+	r.next = p
 	n.ranges[id] = p
+
+	//r.PlacementStateChanged(p)
 
 	return p, nil
 }
@@ -146,7 +155,7 @@ func (p *Placement) ToState(new StatePlacement) error {
 	fmt.Printf("P %s -> %s\n", old, new)
 
 	// Notify range of state change, so it can change its own state.
-	p.rang.PlacementStateChanged(p)
+	//p.rang.PlacementStateChanged(p)
 
 	// TODO: Should we notify the node, too?
 
@@ -162,6 +171,33 @@ func (p *Placement) Give() error {
 	}
 
 	return p.node.give(p, req)
+}
+
+// FetchWait blocks until the placement becomes SpFetched, which hopefully happens
+// in some other goroutine.
+// TODO: Add a timeout
+func (p *Placement) FetchWait() error {
+	for {
+		p.Lock()
+		s := p.state
+		p.Unlock()
+
+		if s == SpFetched {
+			break
+
+		} else if s == SpFetchFailed {
+			// TODO: Can the client provide any info about why this failed?
+			return fmt.Errorf("placement failed")
+
+		} else if s != SpFetching {
+			return fmt.Errorf("placement became %s, expectd SpFetched", s.String())
+		}
+
+		// s == SpFetching, so keep waiting
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	return nil
 }
 
 func (p *Placement) Take() error {

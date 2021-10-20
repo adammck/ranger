@@ -268,7 +268,13 @@ func (b *Balancer) Move(r *ranje.Range, src *ranje.Placement, destNode *ranje.No
 		return
 	}
 
-	// TODO: Wait for dest to become ready!
+	// Wait for the placement to become Ready (which it might already be).
+	err = dest.FetchWait()
+	if err != nil {
+		// TODO: Provide a more useful error here
+		fmt.Printf("Fetch failed: %s\n", err.Error())
+		return
+	}
 
 	// Drop
 	err = src.Drop()
@@ -313,12 +319,14 @@ func (b *Balancer) Split(r *ranje.Range, src *ranje.Placement, boundary ranje.Ke
 		fmt.Printf("DoSplit failed, getting right child: %s\n", err.Error())
 	}
 
+	rLeft.MustState(ranje.Placing)
 	pLeft, err := ranje.NewPlacement(rLeft, nLeft)
 	if err != nil {
 		// TODO: wtf to do here? the range is fucked
 		return
 	}
 
+	rRight.MustState(ranje.Placing)
 	pRight, err := ranje.NewPlacement(rRight, nRight)
 	if err != nil {
 		// TODO: wtf to do here? the range is fucked
@@ -342,10 +350,26 @@ func (b *Balancer) Split(r *ranje.Range, src *ranje.Placement, boundary ranje.Ke
 		return
 	}
 
+	// Wait for the placement to become Ready (which it might already be).
+	err = pLeft.FetchWait()
+	if err != nil {
+		// TODO: Provide a more useful error here
+		fmt.Printf("Fetch failed: %s\n", err.Error())
+		return
+	}
+
 	// 2. Give right
 	err = pRight.Give()
 	if err != nil {
 		fmt.Printf("Give right failed: %s\n", err.Error())
+		return
+	}
+
+	// Wait for the placement to become Ready (which it might already be).
+	err = pRight.FetchWait()
+	if err != nil {
+		// TODO: Provide a more useful error here
+		fmt.Printf("Fetch failed: %s\n", err.Error())
 		return
 	}
 
@@ -367,16 +391,26 @@ func (b *Balancer) Split(r *ranje.Range, src *ranje.Placement, boundary ranje.Ke
 		return
 	}
 
-	// Serve left
+	rLeft.MustState(ranje.Ready)
+
+	// Serve right
 	err = pRight.Serve()
 	if err != nil {
 		fmt.Printf("Serve left failed: %s\n", err.Error())
 		return
 	}
 
+	rRight.MustState(ranje.Ready)
+
 	src.Forget()
 
+	// Redundant?
 	r.MustState(ranje.Obsolete)
+
+	err = b.ks.Discard(r)
+	if err != nil {
+		fmt.Printf("Discard failed: %s\n", err.Error())
+	}
 }
 
 func (b *Balancer) Run(t *time.Ticker) {

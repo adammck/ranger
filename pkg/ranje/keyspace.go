@@ -66,6 +66,7 @@ func NewWithSplits(splits []string) *Keyspace {
 // way that a Range should be constructed.
 func (ks *Keyspace) Range() *Range {
 	r := &Range{
+		state: Pending,
 		Meta: Meta{
 			Ident: Ident{
 				Scope: "", // ???
@@ -293,6 +294,8 @@ func (ks *Keyspace) index(r *Range) (int, error) {
 func (ks *Keyspace) Discard(r *Range) error {
 	ks.mu.Lock()
 	defer ks.mu.Unlock()
+
+	fmt.Printf("discarding: %s\n", r.String())
 
 	if r.state != Obsolete {
 		return errors.New("can't discard non-obsolete range")

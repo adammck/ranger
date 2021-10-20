@@ -204,6 +204,7 @@ func (n *Node) give(p *Placement, req *pb.GiveRequest) error {
 		return err
 	}
 
+	// TODO: Use updateLocalState here!
 	// TODO: Check the return values of state changes or use MustState!
 	rs := RemoteStateFromProto(res.State)
 	if rs == StateReady {
@@ -230,6 +231,36 @@ func (n *Node) give(p *Placement, req *pb.GiveRequest) error {
 	return nil
 }
 
+func updateLocalState(p *Placement, rns pb.RangeNodeState) {
+	rs := RemoteStateFromProto(rns)
+	switch rs {
+	case StateUnknown:
+		//fmt.Printf("Got range in unexpected state from node %s: %s\n", n.addr(), rr.String())
+
+	case StateFetching:
+		p.ToState(SpFetching)
+
+	case StateFetched:
+		if p.state == SpPending {
+			p.ToState(SpFetching)
+		}
+		p.ToState(SpFetched)
+
+	case StateFetchFailed:
+		// TODO: Can the client provide any info about why this failed?
+		if p.state == SpPending {
+			p.ToState(SpFetching)
+		}
+		p.ToState(SpFetchFailed)
+
+	case StateReady:
+		p.ToState(SpReady)
+
+	case StateTaken:
+		p.ToState(SpTaken)
+	}
+}
+
 // Probe updates current state of the node via RPC.
 // Returns error if the RPC fails or if a probe is already in progess.
 func (n *Node) Probe(ctx context.Context) error {
@@ -254,7 +285,7 @@ func (n *Node) Probe(ctx context.Context) error {
 			continue
 		}
 
-		rrr, ok := n.ranges[*id]
+		p, ok := n.ranges[*id]
 
 		if !ok {
 			fmt.Printf("Got unexpected range from node %s: %s\n", n.addr(), id.String())
@@ -262,14 +293,16 @@ func (n *Node) Probe(ctx context.Context) error {
 			continue
 		}
 
+		updateLocalState(p, r.State)
+
 		// TODO: We compare the Ident here even though we just fetched the assignment by ID. Is that... why
-		if !rrr.rang.SameMeta(*id, rr.Start, rr.End) {
+		if !p.rang.SameMeta(*id, rr.Start, rr.End) {
 			fmt.Printf("Remote range did not match local range with same ident: %s\n", id.String())
 			continue
 		}
 
 		// Finally update the remote info
-		rrr.K = r.Keys
+		p.K = r.Keys
 
 		// TODO: Figure out wtf to do when remote state doesn't match local
 		//rrr.state = RemoteStateFromProto(r.State)

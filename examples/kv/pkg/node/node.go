@@ -188,6 +188,11 @@ func (rd *RangeData) fetchMany(dest RangeMeta, parents []*pbr.Placement) {
 }
 
 func (rd *RangeData) fetchOne(ctx context.Context, mu *sync.Mutex, dest RangeMeta, addr string, src *RangeMeta) error {
+	if addr == "" {
+		log.Printf("FetchOne: %s with no addr", src.ident)
+		return nil
+	}
+
 	log.Printf("FetchOne: %s from: %s", src.ident, addr)
 
 	conn, err := grpc.DialContext(
@@ -196,6 +201,7 @@ func (rd *RangeData) fetchOne(ctx context.Context, mu *sync.Mutex, dest RangeMet
 		grpc.WithInsecure(),
 		grpc.WithBlock())
 	if err != nil {
+		// TODO: Probably a bit excessive
 		log.Fatalf("fail to dial: %v", err)
 	}
 

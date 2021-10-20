@@ -24,10 +24,10 @@ type Range struct {
 	parents  []*Range
 	children []*Range
 
-	// Which nodes currently have this range, and what state are they in? May be
-	// empty or have n entries, depending on the local state of the range.
-	// TODO: Might be safer to replace this with a [2], or (before, after) pair.
-	placements []*Placement
+	// Which node currently has the range, and which it is moving to.
+	// TODO: Each of these are probably only valid in some states. Doc that.
+	curr *Placement
+	next *Placement
 
 	// The number of times this range has failed to be placed since it was last
 	// Ready. Incremented by State.
@@ -103,49 +103,42 @@ func (r *Range) DumpForDebug() {
 	fmt.Printf(" - %s%s\n", r.String(), f)
 }
 
+// TODO: This method is pointless now that we have curr/next; remove it.
 func (r *Range) MoveSrc() *Placement {
-
-	// This indicates a bug.
-	if len(r.placements) == 0 {
-		panic(fmt.Sprintf("movesrc called on range %s, with 0 placements", r.String()))
-	}
-
-	if len(r.placements) > 1 {
-		// Oh god something is really fucked up
-		panic(fmt.Sprintf("movesrc called on range %s, with > 1 placements", r.String()))
-	}
 
 	// TODO: Only really need RLock here.
 	r.Lock()
 	defer r.Unlock()
 
-	p := r.placements[0]
+	if r.curr == nil {
+		return nil
+	}
 
-	if p.state != SpReady {
+	// TODO: Is this necessary?
+	if r.curr.state != SpReady {
 		panic(fmt.Sprintf("movesrc called on range %s, where placement is not ready", r.String()))
 	}
 
-	return p
+	return r.curr
 }
 
 func (r *Range) GiveRequest(giving *Placement) (*pb.GiveRequest, error) {
 	rm := r.Meta.ToProto()
 
-	// Build a list of the other current placements of this exact range. This
+	// Build a list of the other current placement of this exact range. This
 	// doesn't include the ranges which this range was split/joined from! It'll
 	// be empty the first time the range is being placed, and have one entry
 	// during normal moves.
 	parents := []*pb.Placement{}
-	for _, p := range r.placements {
+	if p := r.curr; p != nil {
 
-		// Ignore the node that we're giving, which is in pending.
-		// TODO: This is ugly enough that it probably doesn't belong here...
+		// This indicates that the caller is very confused
 		if p.state == SpPending && p == giving {
-			continue
+			panic("giving current placement??")
 		}
 
 		if p.state != SpTaken {
-			return nil, fmt.Errorf("can't give range %s when state of placement on node %s is %s",
+			return nil, fmt.Errorf("can't give range %s when current placement on node %s is in state %s",
 				r.String(), p.node.String(), p.state)
 		}
 
@@ -168,9 +161,11 @@ func (r *Range) GiveRequest(giving *Placement) (*pb.GiveRequest, error) {
 func addParents(r *Range, parents *[]*pb.Placement) {
 	for _, rr := range r.parents {
 
+		// Include the node where the parent range can currently be found, if
+		// it's still placed, such as during a split. Older ranges might not be.
 		node := ""
-		if len(rr.placements) > 0 {
-			node = rr.placements[0].Addr()
+		if p := rr.curr; p != nil {
+			node = p.Addr()
 		}
 
 		*parents = append(*parents, &pb.Placement{
@@ -182,18 +177,18 @@ func addParents(r *Range, parents *[]*pb.Placement) {
 	}
 }
 
+// Caller must hold the lock for writing.
 func (r *Range) UnsafeForgetPlacement(p *Placement) error {
-	for i, p_ := range r.placements {
-		if p == p_ {
+	// TODO: Surely this is only needed in one of these cases?
 
-			// argh, golang, why are you like this
-			// https://github.com/golang/go/wiki/SliceTricks
-			r.placements[i] = r.placements[len(r.placements)-1]
-			r.placements[len(r.placements)-1] = nil
-			r.placements = r.placements[:len(r.placements)-1]
+	if r.curr == p {
+		r.curr = nil
+		return nil
+	}
 
-			return nil
-		}
+	if r.next == p {
+		r.next = nil
+		return nil
 	}
 
 	return fmt.Errorf("couldn't forget placement on node %s of range %s; not found",
@@ -219,7 +214,11 @@ func (r *Range) ToState(new StateLocal) error {
 	r.Lock()
 	defer r.Unlock()
 	old := r.state
-	ok := false
+
+	if old == new {
+		fmt.Printf("%s %s -> %s REDUNDANT STATE CHANGE\n", r.String(), old, new)
+		return nil
+	}
 
 	if new == Unknown {
 		return errors.New("can't transition range into Unknown")
@@ -230,11 +229,25 @@ func (r *Range) ToState(new StateLocal) error {
 		return errors.New("can't transition range out of SpDropped")
 	}
 
+	ok := false
+
 	if old == Pending && new == Placing { // 1
 		ok = true
 	}
 
 	if old == Placing && new == Ready { // 2
+		// TODO: Is this where we promote next to curr?
+		if r.curr != nil {
+			return errors.New("can't transition from Placing to Ready when r.curr is not nil")
+		}
+		if r.next == nil {
+			return errors.New("can't transition from Placing to Ready when r.next is nil")
+		}
+
+		// Promote next range to current.
+		r.curr = r.next
+		r.next = nil
+
 		r.placeErrorCount = 0
 		ok = true
 	}
@@ -324,6 +337,61 @@ func (r *Range) ChildStateChanged() error {
 
 func (r *Range) PlacementStateChanged(p *Placement) {
 
+	// This will deadlock if we call ToState!
+	// TODO: Must be holding range lock to call?
+	//r.Lock()
+	//defer r.Unlock()
+
+	switch r.state {
+	case Pending:
+		r.assertNoCurr()
+
+		if p == r.next {
+			// TODO: Is SpPending right here?
+			if r.next.state == SpPending || r.next.state == SpFetching || r.next.state == SpFetched {
+				r.MustState(Placing)
+				return
+			}
+		}
+
+	case Placing:
+		r.assertNoCurr()
+
+		// This indicates a bug
+		if r.next == nil {
+			panic(fmt.Sprintf("placing range %s has nil next placement", r.String()))
+		}
+
+		if p == r.next {
+			if r.next.state == SpFetchFailed {
+				// TODO: Is this where we choose PlaceError or Quarantine?
+				r.MustState(PlaceError)
+				return
+			}
+			if r.next.state == SpReady {
+				r.MustState(Ready) // Promotes next to curr
+				return
+			}
+		}
+
+	case PlaceError:
+		r.assertNoCurr()
+		if p == r.next {
+			if r.next.state == SpPending {
+				if r.NeedsQuarantine() {
+					r.MustState(Quarantined)
+				} else {
+					r.MustState(Pending)
+				}
+			}
+		}
+	}
+}
+
+func (r *Range) assertNoCurr() {
+	if r.curr != nil {
+		panic(fmt.Sprintf("pending range %s has non-nil curr placement", r.String()))
+	}
 }
 
 // childrenReady returns true if all of the ranges children are ready. (Doesn't
