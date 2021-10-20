@@ -155,10 +155,31 @@ func (r *Range) GiveRequest(giving *Placement) (*pb.GiveRequest, error) {
 		})
 	}
 
+	// Add one generations of parents
+	// That's all we support right now
+	addParents(r, &parents)
+
 	return &pb.GiveRequest{
 		Range:   rm,
 		Parents: parents,
 	}, nil
+}
+
+func addParents(r *Range, parents *[]*pb.Placement) {
+	for _, rr := range r.parents {
+
+		node := ""
+		if len(rr.placements) > 0 {
+			node = rr.placements[0].Addr()
+		}
+
+		*parents = append(*parents, &pb.Placement{
+			Range: rr.Meta.ToProto(),
+			Node:  node,
+		})
+
+		// TODO: Recurse?
+	}
 }
 
 func (r *Range) UnsafeForgetPlacement(p *Placement) error {
@@ -278,7 +299,7 @@ func (r *Range) ToState(new StateLocal) error {
 	// Notify parent(s) of state change, so they can change their own state in
 	// response.
 	for _, parent := range r.parents {
-		err := parent.CheckState()
+		err := parent.ChildStateChanged()
 		if err != nil {
 			r.state = old
 			return err
@@ -289,7 +310,7 @@ func (r *Range) ToState(new StateLocal) error {
 	return nil
 }
 
-func (r *Range) CheckState() error {
+func (r *Range) ChildStateChanged() error {
 
 	// Splitting and joining ranges become obsolete once their children become ready.
 	if r.state == Splitting || r.state == Joining {
@@ -299,6 +320,10 @@ func (r *Range) CheckState() error {
 	}
 
 	return nil
+}
+
+func (r *Range) PlacementStateChanged(p *Placement) {
+
 }
 
 // childrenReady returns true if all of the ranges children are ready. (Doesn't

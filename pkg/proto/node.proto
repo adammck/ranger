@@ -35,6 +35,7 @@ message GiveRequest {
   // The range(s) which this range was created from, and the nodes where they
   // can currently be found. This is empty is the range is brand new. Nodes may
   // use this info to restore the current state of the range when accepting it.
+  // TODO: Need nested parents here?
   repeated Placement parents = 3;
 }
 

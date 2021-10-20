@@ -19,6 +19,7 @@ message RangeMeta {
   bytes end = 3; // exclusive
 }
 
+// TODO: This is actually not the same as Placement. Only used by GetRequest, and should include recursive parents. Maybe Provenance?
 message Placement {
   RangeMeta range = 1;
 

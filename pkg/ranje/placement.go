@@ -143,8 +143,13 @@ func (p *Placement) ToState(new StatePlacement) error {
 	}
 
 	p.state = new
-
 	fmt.Printf("P %s -> %s\n", old, new)
+
+	// Notify range of state change, so it can change its own state.
+	p.rang.PlacementStateChanged(p)
+
+	// TODO: Should we notify the node, too?
+
 	return nil
 }
 
