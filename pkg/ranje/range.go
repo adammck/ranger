@@ -43,26 +43,6 @@ type Range struct {
 	sync.Mutex
 }
 
-// Contains returns true if the given key is within the range.
-// TODO: Test this.
-// TODO: Move this to Meta?
-func (r *Range) Contains(k Key) bool {
-	if r.Meta.Start != ZeroKey {
-		if k < r.Meta.Start {
-			return false
-		}
-	}
-
-	if r.Meta.End != ZeroKey {
-		// Note that the range end is exclusive!
-		if k >= r.Meta.End {
-			return false
-		}
-	}
-
-	return true
-}
-
 func (r *Range) Child(index int) (*Range, error) {
 	// TODO: Locking!
 

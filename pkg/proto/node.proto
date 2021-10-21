@@ -26,7 +26,12 @@ service Node {
   rpc Serve (ServeRequest) returns (ServeResponse) {}
   rpc Take (TakeRequest) returns (TakeResponse) {}
   rpc Drop (DropRequest) returns (DropResponse) {}
+
+  // Controller wants to know the state of ranges
   rpc Info (InfoRequest) returns (InfoResponse) {}
+
+  // Proxy wants to know what it can forward to this node.
+  rpc Ranges (RangesRequest) returns (RangesResponse) {}
 }
 
 message GiveRequest {
@@ -73,4 +78,20 @@ message InfoRequest {
 
 message InfoResponse {
   repeated RangeInfo ranges = 1;
+}
+
+message RangesRequest {
+  // The requests that the proxy is interested in forwarding. Nodes may filter
+  // out ranges which aren't currently in a state that can serve requests not
+  // in this list. E.g. for the kv example, can't accept writes after Take.
+  repeated string symbols = 1;
+}
+
+message RangeMetaState {
+  RangeMeta meta = 1;
+  RangeNodeState state = 2;
+}
+
+message RangesResponse {
+  repeated RangeMetaState ranges = 1;
 }

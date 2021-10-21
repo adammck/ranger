@@ -402,6 +402,38 @@ func (n *nodeServer) Info(ctx context.Context, req *pbr.InfoRequest) (*pbr.InfoR
 	return res, nil
 }
 
+func (n *nodeServer) Ranges(ctx context.Context, req *pbr.RangesRequest) (*pbr.RangesResponse, error) {
+	res := &pbr.RangesResponse{}
+
+	// lol
+	n.node.mu.Lock()
+	defer n.node.mu.Unlock()
+
+	// TODO: Filter out ranges based on req.Symbols (e.g. KV.Get)
+
+	for _, r := range n.node.ranges.ranges {
+		scope, key := r.ident.Decode()
+		d := n.node.data[r.ident]
+
+		res.Ranges = append(res.Ranges, &pbr.RangeMetaState{
+			Meta: &pbr.RangeMeta{
+				Ident: &pbr.Ident{
+					Scope: scope,
+					Key:   key,
+				},
+				// Empty when infinity
+				Start: r.start,
+				End:   r.end,
+			},
+
+			// TODO: This belongs in the RangeMeta.
+			State: d.state.ToProto(),
+		})
+	}
+
+	return res, nil
+}
+
 // Does not lock range map! You have do to that!
 func (s *nodeServer) getRangeData(pbi *pbr.Ident) (rangeIdent, *RangeData, error) {
 	if pbi == nil {

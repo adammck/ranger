@@ -10,11 +10,13 @@ import (
 
 	"github.com/adammck/ranger/examples/kv/pkg/controller"
 	"github.com/adammck/ranger/examples/kv/pkg/node"
+	"github.com/adammck/ranger/examples/kv/pkg/proxy"
 )
 
 func main() {
-	fnod := flag.Bool("node", false, "start a kv node")
-	fctl := flag.Bool("controller", false, "start a controller node")
+	fnod := flag.Bool("node", false, "start a node")
+	fprx := flag.Bool("proxy", false, "start a proxy")
+	fctl := flag.Bool("controller", false, "start a controller")
 
 	addrLis := flag.String("addr", "localhost:8000", "address to start grpc server on")
 	addrPub := flag.String("pub-addr", "", "address for other nodes to reach this (default: same as -listen)")
@@ -35,7 +37,7 @@ func main() {
 		done <- true
 	}()
 
-	if *fnod && !*fctl {
+	if *fnod && !*fprx && !*fctl {
 		n, err := node.New(*addrLis, *addrPub)
 		if err != nil {
 			exit(err)
@@ -45,7 +47,17 @@ func main() {
 			exit(err)
 		}
 
-	} else if *fctl && !*fnod {
+	} else if !*fnod && *fprx && !*fctl {
+		c, err := proxy.New(*addrLis, *addrPub)
+		if err != nil {
+			exit(err)
+		}
+
+		if err := c.Run(done); err != nil {
+			exit(err)
+		}
+
+	} else if !*fnod && !*fprx && *fctl {
 		// TODO: This branch seems very similar to the previous...
 
 		c, err := controller.New(*addrLis, *addrPub)

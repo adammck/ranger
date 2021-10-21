@@ -44,5 +44,6 @@ service KV {
   rpc Put (PutRequest) returns (PutResponse) {}
 
   // Only used for nodes to transfer state.
+  // Move this to a separate service so the proxy doesn't have to implement it.
   rpc Dump (DumpRequest) returns (DumpResponse) {}
 }

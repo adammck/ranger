@@ -198,7 +198,7 @@ func (ks *Keyspace) DoSplit(r *Range, k Key) error {
 		return fmt.Errorf("range %s already has %d children", r, len(r.children))
 	}
 
-	if !r.Contains(k) {
+	if !r.Meta.Contains(k) {
 		return fmt.Errorf("range %s does not contain key: %s", r, k)
 	}
 

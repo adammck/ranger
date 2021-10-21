@@ -53,6 +53,8 @@ func NewNode(host string, port int) *Node {
 		unexpectedRanges: map[Ident]*pb.RangeMeta{},
 	}
 
+	// TODO: This is repeated in ShortNode now. Probably keep all conn stuff in there?
+
 	// start dialling in background
 	// todo: inherit context to allow global cancellation
 	conn, err := grpc.DialContext(context.Background(), fmt.Sprintf("%s:%d", n.host, n.port), grpc.WithInsecure())
@@ -94,14 +96,17 @@ func (n *Node) UnsafeForgetPlacement(p *Placement) error {
 }
 
 // Seen tells us that the node is still in service discovery.
+// TODO: Combine this with the ShortNode somehow? Maybe it's fine.
 func (n *Node) Seen(t time.Time) {
 	n.seen = t
 }
 
+// TODO: Combine this with the ShortNode somehow? Maybe it's fine.
 func (n *Node) IsStale(now time.Time) bool {
 	return n.seen.Before(now.Add(-staleTimer))
 }
 
+// TODO: Maybe replace host/port with a discovery.Remote and move this there?
 func (n *Node) addr() string {
 	return fmt.Sprintf("%s:%d", n.host, n.port)
 }

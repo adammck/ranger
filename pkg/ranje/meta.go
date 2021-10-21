@@ -32,6 +32,23 @@ func (m *Meta) String() string {
 	return fmt.Sprintf("M{%s %s, %s}", m.Ident.String(), s, e)
 }
 
+func (m *Meta) Contains(k Key) bool {
+	if m.Start != ZeroKey {
+		if k < m.Start {
+			return false
+		}
+	}
+
+	if m.End != ZeroKey {
+		// Note that the range end is exclusive!
+		if k >= m.End {
+			return false
+		}
+	}
+
+	return true
+}
+
 func MetaFromProto(p *pb.RangeMeta) (*Meta, error) {
 	id, err := IdentFromProto(p.Ident)
 	if err != nil {
