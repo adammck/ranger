@@ -8,7 +8,7 @@ import (
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 )
 
-// TODO: Move this somewhere else!
+// TODO: Move this somewhere to balancer/requests.go!
 type SplitRequest struct {
 	Boundary  Key
 	NodeLeft  string

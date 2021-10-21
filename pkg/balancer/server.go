@@ -2,6 +2,7 @@ package balancer
 
 import (
 	"context"
+	"fmt"
 
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
@@ -82,4 +83,48 @@ func (bs *balancerServer) Split(ctx context.Context, req *pb.SplitRequest) (*pb.
 	}
 
 	return &pb.SplitResponse{}, nil
+}
+
+// getRange examines the given range ident and returns the corresponding Range
+// or an error suitable for a gRPC response.
+func getRange(bs *balancerServer, pbid *pb.Ident, field string) (*ranje.Range, error) {
+	if pbid == nil {
+		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("missing: %s", field))
+	}
+
+	id, err := ranje.IdentFromProto(pbid)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("invalid %s: %s", field, err.Error()))
+	}
+
+	r, err := bs.bal.getRange(*id)
+	if err != nil {
+		return nil, status.Error(codes.NotFound, err.Error())
+	}
+
+	return r, nil
+}
+
+func (bs *balancerServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.JoinResponse, error) {
+	left, err := getRange(bs, req.RangeLeft, "range_left")
+	if err != nil {
+		return nil, err
+	}
+
+	right, err := getRange(bs, req.RangeRight, "range_right")
+	if err != nil {
+		return nil, err
+	}
+
+	node := req.Node
+	if node == "" {
+		return nil, status.Error(codes.InvalidArgument, "missing: node")
+	}
+
+	err = bs.bal.operatorJoin(left, right, node)
+	if err != nil {
+		return nil, status.Error(codes.Unknown, err.Error())
+	}
+
+	return &pb.JoinResponse{}, nil
 }

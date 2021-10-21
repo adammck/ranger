@@ -1,12 +1,15 @@
 package balancer
 
 import (
+	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 )
 
@@ -15,6 +18,9 @@ type Balancer struct {
 	rost *roster.Roster
 	srv  *grpc.Server
 	bs   *balancerServer
+
+	joinReqs []JoinRequest
+	reqsMu   sync.Mutex
 }
 
 func New(ks *ranje.Keyspace, rost *roster.Roster, srv *grpc.Server) *Balancer {
@@ -64,6 +70,23 @@ func (b *Balancer) operatorSplit(r *ranje.Range, boundary ranje.Key, left, right
 	}
 
 	fmt.Printf("operator requested range %s split: %s\n", r.String(), r.SplitRequest)
+
+	return nil
+}
+
+// TODO: Just take the ident! Why do we need the whole ranges here?
+func (b *Balancer) operatorJoin(left, right *ranje.Range, node string) error {
+	b.reqsMu.Lock()
+	defer b.reqsMu.Unlock()
+
+	req := JoinRequest{
+		Left:  left.Meta.Ident,
+		Right: right.Meta.Ident,
+		Node:  node,
+	}
+
+	b.joinReqs = append(b.joinReqs, req)
+	fmt.Printf("join request: %v\n", req)
 
 	return nil
 }
@@ -191,6 +214,18 @@ func (b *Balancer) rebalance() {
 		go b.Split(r, r.MoveSrc(), s.Boundary, left, right)
 	}
 
+	// Copy/clear joinReqs and kick off each one
+	// Can we skip the queue and call Join right from operatorJoin? Or Earlier?
+	b.reqsMu.Lock()
+	joinReqs := b.joinReqs
+	b.joinReqs = nil
+	b.reqsMu.Unlock()
+	if len(joinReqs) > 0 {
+		for _, req := range joinReqs {
+			go b.Join(req)
+		}
+	}
+
 }
 
 func (b *Balancer) Candidate(r *ranje.Range) *ranje.Node {
@@ -301,22 +336,144 @@ func (b *Balancer) Move(r *ranje.Range, src *ranje.Placement, destNode *ranje.No
 	r.MustState(ranje.Ready)
 }
 
+func (b *Balancer) Join(req JoinRequest) {
+
+	// TODO: Lock ks.ranges!
+	r1, err := b.ks.GetByIdent(req.Left)
+	if err != nil {
+		fmt.Printf("Join failed: %s\n", err.Error())
+		return
+	}
+
+	// TODO: Lock ks.ranges!
+	r2, err := b.ks.GetByIdent(req.Right)
+	if err != nil {
+		fmt.Printf("Join failed: %s\n", err.Error())
+		return
+	}
+
+	p1 := r1.MoveSrc()
+	p2 := r2.MoveSrc()
+
+	node := b.rost.NodeByIdent(req.Node)
+	if node == nil {
+		fmt.Printf("Join failed: No such node: %s\n", req.Node)
+		return
+	}
+
+	// Moves r1 and r2 into Joining state.
+	// Starts dest in Pending state. (Like all ranges!)
+	// Returns error if either of the ranges aren't ready, or if they're not adjacent.
+	r3, err := b.ks.JoinTwo(r1, r2)
+	if err != nil {
+		fmt.Printf("Join failed: %s\n", err.Error())
+		return
+	}
+
+	fmt.Printf("Joining: %s, %s -> %s\n", r1, r2, r3)
+
+	// 1. Take
+
+	// TODO: Pass the context into Take, to cancel both together.
+	g, _ := errgroup.WithContext(context.Background())
+	g.Go(func() error { return p1.Take() })
+	g.Go(func() error { return p2.Take() })
+	err = g.Wait()
+	if err != nil {
+		fmt.Printf("Join (Take) failed: %s\n", err.Error())
+		return
+	}
+
+	// 2. Give
+
+	r3.MustState(ranje.Placing)
+
+	p3, err := ranje.NewPlacement(r3, node)
+	if err != nil {
+		// TODO: wtf to do here? the range is fucked
+		return
+	}
+
+	err = p3.Give()
+	if err != nil {
+		fmt.Printf("Join (Give) failed: %s\n", err.Error())
+		// This is a bad situation; the range has been taken from the src, but
+		// can't be given to the dest! So we stay in Moving forever.
+		// TODO: Repair the situation somehow.
+		//r.MustState(ranje.MoveError)
+		return
+	}
+
+	// Wait for the placement to become Ready (which it might already be).
+	err = p3.FetchWait()
+	if err != nil {
+		// TODO: Provide a more useful error here
+		fmt.Printf("Join (Fetch) failed: %s\n", err.Error())
+		return
+	}
+
+	// 3. Drop
+
+	g, _ = errgroup.WithContext(context.Background())
+	g.Go(func() error { return p1.Drop() })
+	g.Go(func() error { return p2.Drop() })
+	err = g.Wait()
+	if err != nil {
+		// No state change. Stay in Moving.
+		// TODO: Repair the situation somehow.
+		fmt.Printf("Join (Drop) failed: %s\n", err.Error())
+		return
+	}
+
+	// 4. Serve
+
+	err = p3.Serve()
+	if err != nil {
+		fmt.Printf("Join (Serve) failed: %s\n", err.Error())
+		// No state change. Stay in Moving.
+		// TODO: Repair the situation somehow.
+		//r.MustState(ranje.MoveError)
+		return
+	}
+
+	r3.MustState(ranje.Ready)
+
+	// 5. Cleanup
+
+	for _, p := range []*ranje.Placement{p1, p2} {
+		p.Forget()
+	}
+
+	for _, r := range []*ranje.Range{r1, r2} {
+		r.MustState(ranje.Obsolete)
+
+		// TODO: This part should probably be handled later by some kind of GC.
+		err = b.ks.Discard(r)
+		if err != nil {
+			fmt.Printf("Join (Discard) failed: %s\n", err.Error())
+		}
+	}
+}
+
 func (b *Balancer) Split(r *ranje.Range, src *ranje.Placement, boundary ranje.Key, nLeft, nRight *ranje.Node) {
 
 	// Moves r into Splitting state
 	err := b.ks.DoSplit(r, boundary)
 	if err != nil {
 		fmt.Printf("DoSplit failed: %s\n", err.Error())
+		return
 	}
 
 	// Only exactly two sides of the split for now
 	rLeft, err := r.Child(0)
 	if err != nil {
 		fmt.Printf("DoSplit failed, getting left child: %s\n", err.Error())
+		return
 	}
 	rRight, err := r.Child(1)
 	if err != nil {
 		fmt.Printf("DoSplit failed, getting right child: %s\n", err.Error())
+		return
 	}
 
 	rLeft.MustState(ranje.Placing)

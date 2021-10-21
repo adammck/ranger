@@ -34,6 +34,17 @@ message SplitRequest {
 message SplitResponse {
 }
 
+message JoinRequest {
+  Ident range_left = 1;
+  Ident range_right = 2;
+
+  // The ident of the node to assign the resulting range to.
+  string node = 3;
+}
+
+message JoinResponse {
+}
+
 service Balancer {
 
   // Tell the balancer to assign a range to a specific node ASAP.
@@ -41,4 +52,7 @@ service Balancer {
 
   // Split a range in two.
   rpc Split (SplitRequest) returns (SplitResponse) {}
+
+  // Join two ranges into one.
+  rpc Join (JoinRequest) returns (JoinResponse) {}
 }

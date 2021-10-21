@@ -150,6 +150,7 @@ func (ks *Keyspace) DumpForDebug() {
 
 // Get returns a range by its ident, or an error if no such range exists.
 // TODO: Allow getting by other things.
+// TODO: Should this lock ranges? Or the caller do it?
 func (ks *Keyspace) GetByIdent(id Ident) (*Range, error) {
 	for _, r := range ks.ranges {
 		if r.Meta.Ident == id {
