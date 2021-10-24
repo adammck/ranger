@@ -26,11 +26,6 @@ type Range struct {
 	// Ready. Incremented by State.
 	placeErrorCount int
 
-	// Hints
-	// Public so the balancer can mess with them.
-	// TODO: Should that happen via accessors instead?
-	ForceNodeIdent string
-
 	// Guards everything.
 	sync.Mutex
 }
@@ -71,9 +66,6 @@ func (r *Range) DumpForDebug() {
 	}
 	if r.next != nil {
 		f = fmt.Sprintf("%s (next: %s)", f, r.next.DumpForDebug())
-	}
-	if r.ForceNodeIdent != "" {
-		f = fmt.Sprintf("%s (forcing to: %s)", f, r.ForceNodeIdent)
 	}
 	fmt.Printf(" - %s%s\n", r.String(), f)
 }

@@ -15,7 +15,7 @@ type balancerServer struct {
 	bal *Balancer
 }
 
-func (bs *balancerServer) Force(ctx context.Context, req *pb.ForceRequest) (*pb.ForceResponse, error) {
+func (bs *balancerServer) Move(ctx context.Context, req *pb.MoveRequest) (*pb.MoveResponse, error) {
 	r := req.Range
 	if r == nil {
 		return nil, status.Error(codes.InvalidArgument, "missing: range")
@@ -26,17 +26,17 @@ func (bs *balancerServer) Force(ctx context.Context, req *pb.ForceRequest) (*pb.
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	n := req.Node
-	if n == "" {
+	nid := req.Node
+	if nid == "" {
 		return nil, status.Error(codes.InvalidArgument, "missing: range")
 	}
 
-	err = bs.bal.operatorForce(id, n)
-	if err != nil {
-		return nil, status.Error(codes.Unknown, err.Error())
-	}
+	bs.bal.opMove(MoveRequest{
+		Range: *id,
+		Node:  nid,
+	})
 
-	return &pb.ForceResponse{}, nil
+	return &pb.MoveResponse{}, nil
 }
 
 func (bs *balancerServer) Split(ctx context.Context, req *pb.SplitRequest) (*pb.SplitResponse, error) {

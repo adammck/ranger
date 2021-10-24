@@ -92,25 +92,6 @@ func (ks *Keyspace) RangesByState(s StateLocal) []*Range {
 	return out
 }
 
-// RangesForcing returns the ranges which are currently marked to be forced onto
-// a specific node, and in a valid state to do so.
-func (ks *Keyspace) RangesForcing() []*Range {
-	out := []*Range{}
-
-	// TODO: Lock the keyspace!
-	// Actually do this whole stupid thing differently!
-
-	for _, r := range ks.ranges {
-		if r.ForceNodeIdent != "" {
-			if r.state == Pending || r.state == Ready || r.state == Quarantined {
-				out = append(out, r)
-			}
-		}
-	}
-
-	return out
-}
-
 func (ks *Keyspace) Dump() string {
 	s := make([]string, len(ks.ranges))
 

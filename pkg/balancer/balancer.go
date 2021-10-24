@@ -19,6 +19,7 @@ type Balancer struct {
 	srv  *grpc.Server
 	bs   *balancerServer
 
+	moveReqs  []MoveRequest
 	splitReqs []SplitRequest
 	joinReqs  []JoinRequest
 	reqsMu    sync.Mutex
@@ -39,19 +40,11 @@ func New(ks *ranje.Keyspace, rost *roster.Roster, srv *grpc.Server) *Balancer {
 	return b
 }
 
-func (b *Balancer) operatorForce(id *ranje.Ident, node string) error {
-	r, err := b.ks.GetByIdent(*id)
-	if err != nil {
-		return err
-	}
-
-	// TODO : Maybe reject this if the range is in some states (e.g. obsolete)
-
-	// No validation here. The node might not exist yet, or have temporarily
-	// gone away, or who knows what else.
-	r.ForceNodeIdent = node
-
-	return nil
+func (b *Balancer) opMove(req MoveRequest) {
+	b.reqsMu.Lock()
+	defer b.reqsMu.Unlock()
+	b.moveReqs = append(b.moveReqs, req)
+	fmt.Printf("MoveRequest: %v\n", req)
 }
 
 // operatorSplit is called by the balancerServer when a controller.Split RPC is
@@ -123,22 +116,25 @@ func (b *Balancer) rebalance() {
 
 	// Find any pending ranges and find any node to assign them to.
 	for _, r := range b.ks.RangesByState(ranje.Pending) {
-		r.MustState(ranje.Placing)
+		//r.MustState(ranje.Placing)
 
-		// TODO: Consider whether the range is being forced onto a specific node
-		// here. could have happened before the initial placement.
-		n := b.Candidate(r)
+		// Find a node to place this range on.
+		nid := b.Candidate(r)
 
 		// No candidates? That's a problem
-		// TODO: Will result in quarantine eventually? Might not be range's fault
-		if n == nil {
+		// TODO: Will result in quarantine? Might not be range's fault.
+		if nid == "" {
 			r.MustState(ranje.PlaceError)
 			continue
 		}
 
-		// Perform the placement in a background routine. When it terminates,
-		// the range will be in the Ready or PlaceError states.
-		go b.Place(r, n)
+		// Perform the placement in a background goroutine. (It's just a special
+		// case of moving with no source.) When it terminates, the range will be
+		// in the Ready or PlaceError states.
+		go b.Move(MoveRequest{
+			Range: r.Meta.Ident,
+			Node:  nid,
+		})
 	}
 
 	// Find any ranges in PlaceError and move them to Pending or Quarantine
@@ -150,34 +146,20 @@ func (b *Balancer) rebalance() {
 		r.MustState(ranje.Pending)
 	}
 
-	// Find any ranges which should be forced onto a specific node.
-	for _, r := range b.ks.RangesForcing() {
-		n := b.rost.NodeByIdent(r.ForceNodeIdent)
+	// Moves
 
-		// The ident didn't match any node? Operator probably made a mistake, so
-		// leave it where it is.
-		if n == nil {
-			fmt.Printf("tried to force range to unknown node: %s\n", r.ForceNodeIdent)
-			continue
-		}
+	b.reqsMu.Lock()
+	moveReqs := b.moveReqs
+	b.moveReqs = nil
+	b.reqsMu.Unlock()
 
-		// Clear this now that we've found the destination node, to avoid
-		// confusion.
-		// TODO: Lock the range! This is a mutation!
-		r.ForceNodeIdent = ""
-
-		if r.State() == ranje.Ready {
-			r.MustState(ranje.Moving)
-			go b.Move(r, r.MoveSrc(), n)
-
-		} else if r.State() == ranje.Quarantined {
-			r.MustState(ranje.Placing)
-			go b.Place(r, n)
-
-		} else {
-			panic("force-placing pending ranges not implemented yet")
+	if len(moveReqs) > 0 {
+		for _, req := range moveReqs {
+			go b.Move(req)
 		}
 	}
+
+	// Splits
 
 	b.reqsMu.Lock()
 	splitReqs := b.splitReqs
@@ -190,7 +172,8 @@ func (b *Balancer) rebalance() {
 		}
 	}
 
-	// Copy/clear joinReqs and kick off each one
+	// Joins
+
 	// Can we skip the queue and call Join right from operatorJoin? Or Earlier?
 	b.reqsMu.Lock()
 	joinReqs := b.joinReqs
@@ -204,22 +187,22 @@ func (b *Balancer) rebalance() {
 
 }
 
-func (b *Balancer) Candidate(r *ranje.Range) *ranje.Node {
+func (b *Balancer) Candidate(r *ranje.Range) string {
 	b.rost.RLock()
 	defer b.rost.RUnlock()
 
-	var best *ranje.Node
+	var best string
 
 	// lol
-	for _, n := range b.rost.Nodes {
-		best = n
+	for nid := range b.rost.Nodes {
+		best = nid
 		break
 	}
 
-	// No healthy nodes?
-	if best == nil {
+	// No suitable nodes?
+	if best == "" {
 		fmt.Printf("no candidate nodes to place range: %s\n", r.String())
-		return nil
+		return ""
 	}
 
 	return best
@@ -245,14 +228,42 @@ func (b *Balancer) Place(r *ranje.Range, n *ranje.Node) {
 }
 
 // TODO: Can this be combined with move? Maybe most steps just do nothing.
-func (b *Balancer) Move(r *ranje.Range, src *ranje.Placement, destNode *ranje.Node) {
-	r.AssertState(ranje.Moving)
+//func (b *Balancer) Move(r *ranje.Range, src *ranje.Placement, destNode *ranje.Node) {
+func (b *Balancer) Move(req MoveRequest) {
+
+	// TODO: Lock ks.ranges!
+	r, err := b.ks.GetByIdent(req.Range)
+	if err != nil {
+		fmt.Printf("Move failed: %s\n", err.Error())
+		return
+	}
+
+	node := b.rost.NodeByIdent(req.Node)
+	if node == nil {
+		fmt.Printf("Move failed: No such node: %s\n", req.Node)
+		return
+	}
+
+	var src *ranje.Placement
+
+	// If the range is currently ready, it's currently places on some node.
+	if r.State() == ranje.Ready {
+		fmt.Printf("Moving: %s\n", r)
+		r.MustState(ranje.Moving)
+		src = r.MoveSrc()
+
+	} else if r.State() == ranje.Quarantined || r.State() == ranje.Pending {
+		fmt.Printf("Placing: %s\n", r)
+		r.MustState(ranje.Placing)
+
+	} else {
+		panic(fmt.Sprintf("unexpectd range state?! %s", r.State()))
+	}
 
 	// TODO: If src and dest are the same node (i.e. the range is moving to the same node, we get stuck in Taken)
-
 	// TODO: Could use an extra step here to clear the move with the dest node first.
 
-	dest, err := ranje.NewPlacement(r, destNode)
+	dest, err := ranje.NewPlacement(r, node)
 	if err != nil {
 		//return nil, fmt.Errorf("couldn't Give range; error creating placement: %s", err)
 		// TODO: Do something less dumb than this.
@@ -261,14 +272,19 @@ func (b *Balancer) Move(r *ranje.Range, src *ranje.Placement, destNode *ranje.No
 	}
 
 	// 1. Take
-	err = src.Take()
-	if err != nil {
-		fmt.Printf("Take failed: %s\n", err.Error())
-		r.MustState(ranje.Ready) // ???
-		return
+	// (only if moving; skip if doing initial placement)
+
+	if src != nil {
+		err = src.Take()
+		if err != nil {
+			fmt.Printf("Take failed: %s\n", err.Error())
+			r.MustState(ranje.Ready) // ???
+			return
+		}
 	}
 
 	// 2. Give
+
 	err = dest.Give()
 	if err != nil {
 		fmt.Printf("Give failed: %s\n", err.Error())
@@ -280,36 +296,50 @@ func (b *Balancer) Move(r *ranje.Range, src *ranje.Placement, destNode *ranje.No
 	}
 
 	// Wait for the placement to become Ready (which it might already be).
-	err = dest.FetchWait()
-	if err != nil {
-		// TODO: Provide a more useful error here
-		fmt.Printf("Fetch failed: %s\n", err.Error())
-		return
+
+	if src != nil {
+		err = dest.FetchWait()
+		if err != nil {
+			// TODO: Provide a more useful error here
+			fmt.Printf("Fetch failed: %s\n", err.Error())
+			return
+		}
 	}
 
-	// Drop
-	err = src.Drop()
-	if err != nil {
-		fmt.Printf("Drop failed: %s\n", err.Error())
-		// No state change. Stay in Moving.
-		// TODO: Repair the situation somehow.
-		//r.MustState(ranje.MoveError)
-		return
+	// 3. Drop
+	// (only if moving; skip if doing initial placement)
+
+	if src != nil {
+		err = src.Drop()
+		if err != nil {
+			fmt.Printf("Drop failed: %s\n", err.Error())
+			// No state change. Stay in Moving.
+			// TODO: Repair the situation somehow.
+			//r.MustState(ranje.MoveError)
+			return
+		}
 	}
 
-	// Serve
-	err = dest.Serve()
-	if err != nil {
-		fmt.Printf("Serve failed: %s\n", err.Error())
-		// No state change. Stay in Moving.
-		// TODO: Repair the situation somehow.
-		//r.MustState(ranje.MoveError)
-		return
-	}
+	// 4. Serve
 
-	src.Forget()
+	if src != nil {
+		err = dest.Serve()
+		if err != nil {
+			fmt.Printf("Serve failed: %s\n", err.Error())
+			// No state change. Stay in Moving.
+			// TODO: Repair the situation somehow.
+			//r.MustState(ranje.MoveError)
+			return
+		}
+	}
 
 	r.MustState(ranje.Ready)
+
+	// 5. Cleanup
+
+	if src != nil {
+		src.Forget()
+	}
 }
 
 func (b *Balancer) Join(req JoinRequest) {

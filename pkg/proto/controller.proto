@@ -6,7 +6,7 @@ import "ranje.proto";
 
 package ranger;
 
-message ForceRequest {
+message MoveRequest {
   Ident range = 1;
 
   // The ident of the node to assign the range to.
@@ -15,7 +15,7 @@ message ForceRequest {
   string node = 2;
 }
 
-message ForceResponse {
+message MoveResponse {
 }
 
 message SplitRequest {
@@ -47,8 +47,9 @@ message JoinResponse {
 
 service Balancer {
 
-  // Tell the balancer to assign a range to a specific node ASAP.
-  rpc Force (ForceRequest) returns (ForceResponse) {}
+  // Place a range on specific node, moving it from the node it is currently
+  // placed on, if any.
+  rpc Move (MoveRequest) returns (MoveResponse) {}
 
   // Split a range in two.
   rpc Split (SplitRequest) returns (SplitResponse) {}

@@ -2,6 +2,11 @@ package balancer
 
 import "github.com/adammck/ranger/pkg/ranje"
 
+type MoveRequest struct {
+	Range ranje.Ident
+	Node  string
+}
+
 type JoinRequest struct {
 	Left  ranje.Ident
 	Right ranje.Ident
