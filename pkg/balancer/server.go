@@ -31,7 +31,7 @@ func (bs *balancerServer) Move(ctx context.Context, req *pb.MoveRequest) (*pb.Mo
 		return nil, status.Error(codes.InvalidArgument, "missing: range")
 	}
 
-	bs.bal.opMove(MoveRequest{
+	bs.bal.Operation(MoveRequest{
 		Range: *id,
 		Node:  nid,
 	})
@@ -40,26 +40,9 @@ func (bs *balancerServer) Move(ctx context.Context, req *pb.MoveRequest) (*pb.Mo
 }
 
 func (bs *balancerServer) Split(ctx context.Context, req *pb.SplitRequest) (*pb.SplitResponse, error) {
-	pbid := req.Range
-	if pbid == nil {
-		return nil, status.Error(codes.InvalidArgument, "missing: range")
-	}
-
-	id, err := ranje.IdentFromProto(pbid)
+	id, err := getRange(bs, req.Range, "range")
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-
-	r, err := bs.bal.getRange(*id)
-	if err != nil {
-		return nil, status.Error(codes.NotFound, err.Error())
-	}
-
-	// TODO: Is this a good idea?
-	// We could just record the split point, return OK, and try our best.
-	err = bs.bal.rangeCanBeSplit(r)
-	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return nil, err
 	}
 
 	boundary := ranje.Key(req.Boundary)
@@ -77,32 +60,14 @@ func (bs *balancerServer) Split(ctx context.Context, req *pb.SplitRequest) (*pb.
 		return nil, status.Error(codes.InvalidArgument, "missing: node_right")
 	}
 
-	err = bs.bal.operatorSplit(r, boundary, left, right)
-	if err != nil {
-		return nil, status.Error(codes.Unknown, err.Error())
-	}
+	bs.bal.Operation(SplitRequest{
+		Range:     *id,
+		Boundary:  boundary,
+		NodeLeft:  left,
+		NodeRight: right,
+	})
 
 	return &pb.SplitResponse{}, nil
-}
-
-// getRange examines the given range ident and returns the corresponding Range
-// or an error suitable for a gRPC response.
-func getRange(bs *balancerServer, pbid *pb.Ident, field string) (*ranje.Range, error) {
-	if pbid == nil {
-		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("missing: %s", field))
-	}
-
-	id, err := ranje.IdentFromProto(pbid)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("invalid %s: %s", field, err.Error()))
-	}
-
-	r, err := bs.bal.getRange(*id)
-	if err != nil {
-		return nil, status.Error(codes.NotFound, err.Error())
-	}
-
-	return r, nil
 }
 
 func (bs *balancerServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.JoinResponse, error) {
@@ -121,10 +86,26 @@ func (bs *balancerServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.Jo
 		return nil, status.Error(codes.InvalidArgument, "missing: node")
 	}
 
-	err = bs.bal.operatorJoin(left, right, node)
-	if err != nil {
-		return nil, status.Error(codes.Unknown, err.Error())
-	}
+	bs.bal.Operation(JoinRequest{
+		Left:  *left,
+		Right: *right,
+		Node:  node,
+	})
 
 	return &pb.JoinResponse{}, nil
+}
+
+// getRange examines the given range ident and returns the corresponding Range
+// or an error suitable for a gRPC response.
+func getRange(bs *balancerServer, pbid *pb.Ident, field string) (*ranje.Ident, error) {
+	if pbid == nil {
+		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("missing: %s", field))
+	}
+
+	id, err := ranje.IdentFromProto(pbid)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("invalid %s: %s", field, err.Error()))
+	}
+
+	return id, nil
 }
