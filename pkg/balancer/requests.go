@@ -7,3 +7,10 @@ type JoinRequest struct {
 	Right ranje.Ident
 	Node  string
 }
+
+type SplitRequest struct {
+	Range     ranje.Ident
+	Boundary  ranje.Key
+	NodeLeft  string
+	NodeRight string
+}

@@ -40,6 +40,11 @@ func (p *Placement) Addr() string {
 	return p.node.addr()
 }
 
+// TODO: Replace this with a statusz-type page
+func (p *Placement) DumpForDebug() string {
+	return fmt.Sprintf("P{%s %s}", p.node.addr(), p.state)
+}
+
 func NewPlacement(r *Range, n *Node) (*Placement, error) {
 	p := &Placement{
 		rang:  r,

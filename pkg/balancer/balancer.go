@@ -19,8 +19,9 @@ type Balancer struct {
 	srv  *grpc.Server
 	bs   *balancerServer
 
-	joinReqs []JoinRequest
-	reqsMu   sync.Mutex
+	splitReqs []SplitRequest
+	joinReqs  []JoinRequest
+	reqsMu    sync.Mutex
 }
 
 func New(ks *ranje.Keyspace, rost *roster.Roster, srv *grpc.Server) *Balancer {
@@ -55,21 +56,21 @@ func (b *Balancer) operatorForce(id *ranje.Ident, node string) error {
 
 // operatorSplit is called by the balancerServer when a controller.Split RPC is
 // received. An operator wishes for this range to be split, for whatever reason.
+// TODO: Just take the ident! Why do we need the whole range here?
+// TODO: Actually why take the range at all? Just record the boundary.
 func (b *Balancer) operatorSplit(r *ranje.Range, boundary ranje.Key, left, right string) error {
-	if r.SplitRequest != nil {
-		fmt.Printf("Warning: Replaced operator split\n")
-	}
+	b.reqsMu.Lock()
+	defer b.reqsMu.Unlock()
 
-	r.Lock()
-	defer r.Unlock()
-
-	r.SplitRequest = &ranje.SplitRequest{
+	req := SplitRequest{
+		Range:     r.Meta.Ident,
 		Boundary:  boundary,
 		NodeLeft:  left,
 		NodeRight: right,
 	}
 
-	fmt.Printf("operator requested range %s split: %s\n", r.String(), r.SplitRequest)
+	b.splitReqs = append(b.splitReqs, req)
+	fmt.Printf("split request: %v\n", req)
 
 	return nil
 }
@@ -178,40 +179,15 @@ func (b *Balancer) rebalance() {
 		}
 	}
 
-	for _, r := range b.ks.RangesToSplit() {
+	b.reqsMu.Lock()
+	splitReqs := b.splitReqs
+	b.splitReqs = nil
+	b.reqsMu.Unlock()
 
-		// Pop the split request while processing.
-		// Note that this is different from forced range moves, above. But only
-		// because I haven't figured out what I'm doing here yet.
-		r.Lock()
-		s := r.SplitRequest
-		r.SplitRequest = nil
-		r.Unlock()
-
-		// Check again, since we released locks for a bit.
-		if s == nil {
-			fmt.Printf("SplitRequest went away for %s\n", r)
-			continue
+	if len(splitReqs) > 0 {
+		for _, req := range splitReqs {
+			go b.Split(req)
 		}
-
-		left := b.rost.NodeByIdent(s.NodeLeft)
-		right := b.rost.NodeByIdent(s.NodeRight)
-
-		if left == nil {
-			fmt.Printf("tried to split range to (left) unknown node: %s\n", left)
-			continue
-		}
-
-		if right == nil {
-			fmt.Printf("tried to split range to (right) unknown node: %s\n", right)
-			continue
-		}
-
-		// This is done by keyspace.DoSplit
-		//r.MustState(ranje.Splitting)
-
-		// TODO: Rename MoveSrc! Clearly it's not just that.
-		go b.Split(r, r.MoveSrc(), s.Boundary, left, right)
 	}
 
 	// Copy/clear joinReqs and kick off each one
@@ -455,10 +431,33 @@ func (b *Balancer) Join(req JoinRequest) {
 	}
 }
 
-func (b *Balancer) Split(r *ranje.Range, src *ranje.Placement, boundary ranje.Key, nLeft, nRight *ranje.Node) {
+func (b *Balancer) Split(req SplitRequest) {
+
+	nLeft := b.rost.NodeByIdent(req.NodeLeft)
+	if nLeft == nil {
+		fmt.Printf("Split failed: No such node (left): %s\n", req.NodeLeft)
+		return
+	}
+
+	nRight := b.rost.NodeByIdent(req.NodeRight)
+	if nRight == nil {
+		fmt.Printf("Split failed: No such node (right): %s\n", req.NodeRight)
+		return
+	}
+
+	// TODO: Lock ks.ranges!
+	r, err := b.ks.GetByIdent(req.Range)
+	if err != nil {
+		fmt.Printf("Join failed: %s\n", err.Error())
+		return
+	}
+
+	// TODO: Remove this, use prev/curr
+	src := r.MoveSrc()
 
 	// Moves r into Splitting state
-	err := b.ks.DoSplit(r, boundary)
+	// TODO: Rename MoveSrc! Clearly it's not just that.
+	err = b.ks.DoSplit(r, req.Boundary)
 	if err != nil {
 		fmt.Printf("DoSplit failed: %s\n", err.Error())
 		return
@@ -491,72 +490,71 @@ func (b *Balancer) Split(r *ranje.Range, src *ranje.Placement, boundary ranje.Ke
 	}
 
 	// 1. Take
+
 	err = src.Take()
 	if err != nil {
 		fmt.Printf("Take failed: %s\n", err.Error())
 		return
 	}
 
-	// TODO: Do these two in parallel with a waitgroup
+	// 2. Give
 
-	// 2. Give left
-	// TODO: This doesn't work yet! Give doesn't include parents info.
-	err = pLeft.Give()
+	// TODO: Pass a context into Take, to cancel both together.
+	g, _ := errgroup.WithContext(context.Background())
+	for side, p := range map[string]*ranje.Placement{"left": pLeft, "right": pRight} {
+
+		// Keep hold of current values for closure.
+		// https://golang.org/doc/faq#closures_and_goroutines
+		side := side
+		p := p
+
+		g.Go(func() error {
+
+			// TODO: This doesn't work yet! Give doesn't include parents info.
+			err = p.Give()
+			if err != nil {
+				return fmt.Errorf("give (%s) failed: %s", side, err.Error())
+			}
+
+			// Wait for the placement to become Ready (which it might already be).
+			err = p.FetchWait()
+			if err != nil {
+				// TODO: Provide a more useful error here
+				return fmt.Errorf("fetch (%s) failed: %s", side, err.Error())
+			}
+
+			return nil
+		})
+	}
+
+	err = g.Wait()
 	if err != nil {
-		fmt.Printf("Give left failed: %s\n", err.Error())
+		fmt.Printf("Give failed: %s\n", err.Error())
 		return
 	}
 
-	// Wait for the placement to become Ready (which it might already be).
-	err = pLeft.FetchWait()
-	if err != nil {
-		// TODO: Provide a more useful error here
-		fmt.Printf("Fetch failed: %s\n", err.Error())
-		return
-	}
+	// 3. Drop
 
-	// 2. Give right
-	err = pRight.Give()
-	if err != nil {
-		fmt.Printf("Give right failed: %s\n", err.Error())
-		return
-	}
-
-	// Wait for the placement to become Ready (which it might already be).
-	err = pRight.FetchWait()
-	if err != nil {
-		// TODO: Provide a more useful error here
-		fmt.Printf("Fetch failed: %s\n", err.Error())
-		return
-	}
-
-	// TODO: Wait for dest to become ready!
-
-	// Drop
 	err = src.Drop()
 	if err != nil {
 		fmt.Printf("Drop failed: %s\n", err.Error())
 		return
 	}
 
-	// TODO: Do these two in parallel with a waitgroup
+	// 4. Serve
 
-	// Serve left
-	err = pLeft.Serve()
+	g, _ = errgroup.WithContext(context.Background())
+	g.Go(func() error { return pLeft.Serve() })
+	g.Go(func() error { return pRight.Serve() })
+	err = g.Wait()
 	if err != nil {
-		fmt.Printf("Serve left failed: %s\n", err.Error())
+		// No state change. Stay in Moving.
+		// TODO: Repair the situation somehow.
+		fmt.Printf("Serve (Drop) failed: %s\n", err.Error())
 		return
 	}
 
 	rLeft.MustState(ranje.Ready)
-
-	// Serve right
-	err = pRight.Serve()
-	if err != nil {
-		fmt.Printf("Serve left failed: %s\n", err.Error())
-		return
-	}
-
 	rRight.MustState(ranje.Ready)
 
 	src.Forget()

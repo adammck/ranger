@@ -8,13 +8,6 @@ import (
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 )
 
-// TODO: Move this somewhere to balancer/requests.go!
-type SplitRequest struct {
-	Boundary  Key
-	NodeLeft  string
-	NodeRight string
-}
-
 // Range is a range of keys in the keyspace.
 // These should probably only be instantiated by Keyspace? No sanity checks, so be careful.
 type Range struct {
@@ -37,7 +30,6 @@ type Range struct {
 	// Public so the balancer can mess with them.
 	// TODO: Should that happen via accessors instead?
 	ForceNodeIdent string
-	SplitRequest   *SplitRequest
 
 	// Guards everything.
 	sync.Mutex
@@ -74,11 +66,14 @@ func (r *Range) String() string {
 // TODO: Replace this with a statusz-type page
 func (r *Range) DumpForDebug() {
 	f := ""
+	if r.curr != nil {
+		f = fmt.Sprintf("%s (curr: %s)", f, r.curr.DumpForDebug())
+	}
+	if r.next != nil {
+		f = fmt.Sprintf("%s (next: %s)", f, r.next.DumpForDebug())
+	}
 	if r.ForceNodeIdent != "" {
 		f = fmt.Sprintf("%s (forcing to: %s)", f, r.ForceNodeIdent)
-	}
-	if r.SplitRequest != nil {
-		f = fmt.Sprintf("%s (splitting: %s)", f, r.SplitRequest)
 	}
 	fmt.Printf(" - %s%s\n", r.String(), f)
 }

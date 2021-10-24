@@ -111,25 +111,6 @@ func (ks *Keyspace) RangesForcing() []*Range {
 	return out
 }
 
-func (ks *Keyspace) RangesToSplit() []*Range {
-	out := []*Range{}
-
-	ks.mu.RLock()
-	defer ks.mu.RUnlock()
-
-	for _, r := range ks.ranges {
-		r.Lock()
-		if r.SplitRequest != nil {
-			if r.state == Ready {
-				out = append(out, r)
-			}
-		}
-		r.Unlock()
-	}
-
-	return out
-}
-
 func (ks *Keyspace) Dump() string {
 	s := make([]string, len(ks.ranges))
 
