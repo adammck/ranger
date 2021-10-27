@@ -11,6 +11,7 @@ import (
 // Range is a range of keys in the keyspace.
 // These should probably only be instantiated by Keyspace? No sanity checks, so be careful.
 type Range struct {
+	pers Persister
 	Meta Meta
 
 	state    StateLocal
@@ -274,10 +275,18 @@ func (r *Range) ToState(new StateLocal) error {
 		return fmt.Errorf("invalid range state transition: %s -> %s", old, new)
 	}
 
+	// Update durable storage first
+	err := r.pers.PutState(r, new)
+	if err != nil {
+		r.state = old
+		return fmt.Errorf("while persisting range state: %s", err)
+	}
+
 	r.state = new
 
 	// Notify parent(s) of state change, so they can change their own state in
 	// response.
+	// TODO: Does this need to be transactional with the above state change? This won't be called again during rehydration.
 	for _, parent := range r.parents {
 		err := parent.ChildStateChanged()
 		if err != nil {
@@ -287,7 +296,27 @@ func (r *Range) ToState(new StateLocal) error {
 	}
 
 	fmt.Printf("%s %s -> %s\n", r.String(), old, new)
+
 	return nil
+}
+
+func (r *Range) InitPersist() error {
+
+	// Calling this method any time other than immediately after instantiating
+	// is a bug. Every other transition should happen via ToState.
+	if r.state != Pending {
+		panic("InitPersist called on non-pending range")
+	}
+
+	return r.pers.Create(r)
+}
+
+func (r *Range) ParentIdents() []Ident {
+	ids := make([]Ident, len(r.parents))
+	for i, r := range r.parents {
+		ids[i] = r.Meta.Ident
+	}
+	return ids
 }
 
 func (r *Range) ChildStateChanged() error {

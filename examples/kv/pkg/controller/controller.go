@@ -9,7 +9,9 @@ import (
 	"github.com/adammck/ranger/pkg/discovery"
 	consuldisc "github.com/adammck/ranger/pkg/discovery/consul"
 	"github.com/adammck/ranger/pkg/ranje"
+	consulpers "github.com/adammck/ranger/pkg/ranje/persisters/consul"
 	"github.com/adammck/ranger/pkg/roster"
+	"github.com/hashicorp/consul/api"
 	consulapi "github.com/hashicorp/consul/api"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -34,12 +36,20 @@ func New(addrLis, addrPub string) (*Controller, error) {
 	// TODO: Make this optional.
 	reflection.Register(srv)
 
+	api, err := api.NewClient(consulapi.DefaultConfig())
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO: Pass in the Consul client here.
 	disc, err := consuldisc.New("controller", addrPub, consulapi.DefaultConfig(), srv)
 	if err != nil {
 		return nil, err
 	}
 
-	ks := ranje.New()
+	pers := consulpers.New(api)
+
+	ks := ranje.New(pers)
 	rost := roster.New(disc)
 
 	return &Controller{

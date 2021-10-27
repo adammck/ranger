@@ -8,7 +8,7 @@ import (
 )
 
 func TestInitial(t *testing.T) {
-	ks := New()
+	ks := New(nil)
 	assert.Equal(t, 1, ks.Len())
 	assert.Equal(t, "{0 Pending [-inf, +inf]}", ks.Dump())
 
@@ -71,7 +71,7 @@ func TestHappyPath(t *testing.T) {
 }
 
 func TestSplit(t *testing.T) {
-	ks := New()
+	ks := New(nil)
 	assert.Equal(t, "{0 Pending [-inf, +inf]}", ks.Dump())
 	r0 := ks.Get(0)
 
@@ -174,7 +174,7 @@ func TestJoin(t *testing.T) {
 }
 
 func TestDiscard(t *testing.T) {
-	ks := New()
+	ks := New(nil)
 	r := ks.Get(0)
 	err := ks.Discard(r)
 	if assert.Error(t, err) {

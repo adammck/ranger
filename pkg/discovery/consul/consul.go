@@ -30,6 +30,7 @@ func (d *Discovery) getIdent() string {
 	return fmt.Sprintf("%s:%d", d.host, d.port)
 }
 
+// TODO: Take a consul API here, not a cfg.
 func New(serviceName, addr string, cfg *api.Config, srv *grpc.Server) (*Discovery, error) {
 	client, err := api.NewClient(cfg)
 	if err != nil {

@@ -89,7 +89,7 @@ func (req SplitRequest) Run(b *Balancer) {
 	// TODO: Lock ks.ranges!
 	r, err := b.ks.GetByIdent(req.Range)
 	if err != nil {
-		fmt.Printf("Join failed: %s\n", err.Error())
+		fmt.Printf("Split failed: %s\n", err.Error())
 		return
 	}
 

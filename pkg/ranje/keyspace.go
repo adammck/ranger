@@ -14,13 +14,17 @@ import (
 //
 // TODO: Move this out of 'ranje' package; it's stateful.
 type Keyspace struct {
+	pers      Persister
 	ranges    []*Range // TODO: don't be dumb, use an interval tree
 	mu        sync.RWMutex
 	nextIdent uint64
 }
 
-func New() *Keyspace {
-	ks := &Keyspace{nextIdent: 1}
+func New(persister Persister) *Keyspace {
+	ks := &Keyspace{
+		pers:      persister,
+		nextIdent: 1,
+	}
 
 	// Start with one range that covers all keys.
 	r := ks.Range()
@@ -30,8 +34,12 @@ func New() *Keyspace {
 	return ks
 }
 
+// NewWithSplits is just for testing.
+// TODO: Move this to the tests, why is it here?
 func NewWithSplits(splits []string) *Keyspace {
-	ks := &Keyspace{}
+	ks := &Keyspace{
+		pers: nil, // TODO: Not ideal.
+	}
 	rs := make([]*Range, len(splits)+1)
 
 	// TODO: Should we sort the splits here? Or panic? We currently assume they're sorted.
@@ -66,6 +74,7 @@ func NewWithSplits(splits []string) *Keyspace {
 // way that a Range should be constructed.
 func (ks *Keyspace) Range() *Range {
 	r := &Range{
+		pers:  ks.pers,
 		state: Pending,
 		Meta: Meta{
 			Ident: Ident{
@@ -73,6 +82,11 @@ func (ks *Keyspace) Range() *Range {
 				Key:   ks.nextIdent,
 			},
 		},
+	}
+
+	err := r.InitPersist()
+	if err != nil {
+		panic(fmt.Sprintf("failed to persist range: %s", err))
 	}
 
 	ks.nextIdent += 1
