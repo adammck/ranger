@@ -29,6 +29,7 @@ func New(persister Persister) *Keyspace {
 	// Start with one range that covers all keys.
 	r := ks.Range()
 	r.state = Pending
+	r.InitPersist()
 
 	ks.ranges = []*Range{r}
 	return ks
@@ -60,6 +61,7 @@ func NewWithSplits(splits []string) *Keyspace {
 		}
 
 		// TODO: Move start/end into params of Range? No sense without them.
+		// Note: Not persisting the new range, because tests.
 		r := ks.Range()
 		r.Meta.Start = s
 		r.Meta.End = e
@@ -71,7 +73,8 @@ func NewWithSplits(splits []string) *Keyspace {
 }
 
 // Range returns a new range with the next available ident. This is the only
-// way that a Range should be constructed.
+// way that a Range should be constructed. Callers must call Range.InitPersist
+// on the resulting range, maybe after mutating it once.
 func (ks *Keyspace) Range() *Range {
 	r := &Range{
 		pers:  ks.pers,
@@ -82,11 +85,6 @@ func (ks *Keyspace) Range() *Range {
 				Key:   ks.nextIdent,
 			},
 		},
-	}
-
-	err := r.InitPersist()
-	if err != nil {
-		panic(fmt.Sprintf("failed to persist range: %s", err))
 	}
 
 	ks.nextIdent += 1
@@ -194,11 +192,17 @@ func (ks *Keyspace) DoSplit(r *Range, k Key) error {
 	one.Meta.Start = r.Meta.Start
 	one.Meta.End = k
 	one.parents = []*Range{r}
+	if err := one.InitPersist(); err != nil {
+		panic(fmt.Sprintf("failed to persist range: %s", err))
+	}
 
 	two := ks.Range()
 	two.Meta.Start = k
 	two.Meta.End = r.Meta.End
 	two.parents = []*Range{r}
+	if err := two.InitPersist(); err != nil {
+		panic(fmt.Sprintf("failed to persist range: %s", err))
+	}
 
 	// append to the end of the ranges
 	// TODO: Insert the children after the parent, not at the end!
@@ -243,6 +247,9 @@ func (ks *Keyspace) JoinTwo(one *Range, two *Range) (*Range, error) {
 	three.Meta.Start = one.Meta.Start
 	three.Meta.End = two.Meta.End
 	three.parents = []*Range{one, two}
+	if err := three.InitPersist(); err != nil {
+		panic(fmt.Sprintf("failed to persist range: %s", err))
+	}
 
 	// Insert new range at the end.
 	ks.ranges = append(ks.ranges, three)
