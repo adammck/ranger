@@ -88,7 +88,9 @@ func (b *Balancer) rebalance() {
 	// Kick off any pending operator-initiated actions in goroutines.
 
 	b.opsMu.RLock()
-	for _, req := range b.ops {
+	ops := b.ops
+	b.ops = nil
+	for _, req := range ops {
 		go req.Run(b)
 	}
 	b.opsMu.RUnlock()
