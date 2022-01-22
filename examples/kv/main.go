@@ -70,7 +70,7 @@ func main() {
 		}
 
 	} else {
-		exit(errors.New("must provide one of -node, -controller"))
+		exit(errors.New("must provide one of -controller, -node, -proxy"))
 	}
 
 }
