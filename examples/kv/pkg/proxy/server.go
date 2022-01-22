@@ -22,7 +22,11 @@ func (ps *proxyServer) getClient(k []byte) (pbkv.KVClient, error) {
 		fmt.Printf("%s -> %s\n", k, nid)
 	}
 
-	if len(nids) != 1 {
+	if len(nids) == 0 {
+		return nil, status.Error(codes.Unimplemented, "no nodes have key")
+	}
+
+	if len(nids) > 1 {
 		return nil, status.Error(codes.Unimplemented, "proxying when multiple nodes have range not implemented yet")
 	}
 
