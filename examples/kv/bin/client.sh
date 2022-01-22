@@ -1,10 +1,10 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 set -euo pipefail
 
 case $# in
   "3")
     #set -x
-    echo $3 | grpcurl -plaintext -d @ localhost:$1 $2
+    echo "$3" | grpcurl -plaintext -d @ localhost:"$1" "$2"
     ;;
 
   *)
