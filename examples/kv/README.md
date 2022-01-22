@@ -18,6 +18,9 @@ $ ./kv -node -addr ":8003"
 $ # Run a proxy, to forward requests to the appropriate node(s).
 $ ./kv -proxy -addr ":8000"
 
+$ # Run a controller, to assign ranges to nodes.
+$ ./kv -controller -addr ":9000"
+
 $ # Read and write some data.
 $ bin/put.sh 8000 a aaaa
 $ bin/get.sh 8000 a
