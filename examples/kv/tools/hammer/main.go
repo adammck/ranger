@@ -15,6 +15,9 @@ import (
 	"google.golang.org/grpc"
 )
 
+const minKeys = 10
+const maxKeys = 1000000
+
 func init() {
 	rand.Seed(time.Now().UnixNano())
 }
@@ -56,16 +59,32 @@ func newClient(ctx context.Context, addr string) pbkv.KVClient {
 func runWorker(ctx context.Context, addr string) {
 	c := newClient(ctx, addr)
 
+	// Keys which have been PUT
+	keys := [][]byte{}
+
 	for {
-		// TODO: PUT
-		getOnce(ctx, c)
+		n := rand.Intn(10)
+
+		// always PUT until minKeys reached, then 10% of reqs until maxKeys.
+		if len(keys) < minKeys || (n == 0 && len(keys) < maxKeys) {
+			k := randomKey(8)
+			ok := putOnce(ctx, c, k)
+			if ok {
+				keys = append(keys, k)
+			}
+
+		} else {
+			// GET a random key which we have put.
+			getOnce(ctx, c, keys[rand.Intn(len(keys))])
+		}
+
 		time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
 	}
 }
 
-func getOnce(ctx context.Context, client pbkv.KVClient) {
+func getOnce(ctx context.Context, client pbkv.KVClient, key []byte) {
 	req := &pbkv.GetRequest{
-		Key: randomKey(8),
+		Key: key,
 	}
 
 	res := "OK"
@@ -75,7 +94,26 @@ func getOnce(ctx context.Context, client pbkv.KVClient) {
 		res = fmt.Sprintf("Error: %s", err)
 	}
 
-	fmt.Printf("Get: %s -- %s\n", req.Key, res)
+	fmt.Printf("GET: %s -- %s\n", req.Key, res)
+}
+
+func putOnce(ctx context.Context, client pbkv.KVClient, key []byte) bool {
+	req := &pbkv.PutRequest{
+		Key:   key,
+		Value: randomKey(rand.Intn(256)),
+	}
+
+	res := "OK"
+	ok := true
+
+	_, err := client.Put(ctx, req)
+	if err != nil {
+		res = fmt.Sprintf("Error: %s", err)
+		ok = false
+	}
+
+	fmt.Printf("PUT: %s -- %s\n", req.Key, res)
+	return ok
 }
 
 func randomKey(n int) []byte {
