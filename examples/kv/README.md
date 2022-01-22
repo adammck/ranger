@@ -6,16 +6,21 @@ interface to move those things around.
 
 ## Usage
 
-Server:
-
 ```console
 $ cd ~/code/src/github.com/adammck/ranger/examples/kv
 $ go build
 
-$ # Run three nodes.
-$ ./kv -addr ":8001"
-$ ./kv -addr ":8002"
-$ ./kv -addr ":8003"
+$ # Run three nodes, to store data.
+$ ./kv -node -addr ":8001"
+$ ./kv -node -addr ":8002"
+$ ./kv -node -addr ":8003"
+
+$ # Run a proxy, to forward requests to the appropriate node(s).
+$ ./kv -proxy -addr ":8000"
+
+$ # Read and write some data.
+$ bin/put.sh 8000 a aaaa
+$ bin/get.sh 8000 a
 ```
 
 ## Tests
