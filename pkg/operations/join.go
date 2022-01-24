@@ -87,6 +87,7 @@ func Join(ks *ranje.Keyspace, r1, r2 *ranje.Range, node *ranje.Node) {
 		return
 	}
 
+	r3.CompleteNextPlacement()
 	r3.MustState(ranje.Ready)
 
 	// 5. Cleanup
@@ -96,7 +97,10 @@ func Join(ks *ranje.Keyspace, r1, r2 *ranje.Range, node *ranje.Node) {
 	}
 
 	for _, r := range []*ranje.Range{r1, r2} {
-		r.MustState(ranje.Obsolete)
+
+		// This happens implicitly in Range.ChildStateChanged.
+		// TODO: Is this a good idea? Here would be more explicit.
+		// r.MustState(ranje.Obsolete)
 
 		// TODO: This part should probably be handled later by some kind of GC.
 		err = ks.Discard(r)

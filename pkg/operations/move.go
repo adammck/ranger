@@ -9,7 +9,7 @@ import (
 func Move(r *ranje.Range, node *ranje.Node) {
 	var src *ranje.Placement
 
-	// If the range is currently ready, it's currently places on some node.
+	// If the range is currently ready, it's placed on some node.
 	if r.State() == ranje.Ready {
 		fmt.Printf("Moving: %s\n", r)
 		r.MustState(ranje.Moving)
@@ -20,6 +20,7 @@ func Move(r *ranje.Range, node *ranje.Node) {
 		r.MustState(ranje.Placing)
 
 	} else {
+		// TODO: Don't panic! The range is probably already being moved.
 		panic(fmt.Sprintf("unexpectd range state?! %s", r.State()))
 	}
 
@@ -28,6 +29,7 @@ func Move(r *ranje.Range, node *ranje.Node) {
 
 	dest, err := ranje.NewPlacement(r, node)
 	if err != nil {
+		fmt.Printf("Move failed: error creating placement: %s\n", err.Error())
 		//return nil, fmt.Errorf("couldn't Give range; error creating placement: %s", err)
 		// TODO: Do something less dumb than this.
 		r.MustState(ranje.Ready)
@@ -59,6 +61,7 @@ func Move(r *ranje.Range, node *ranje.Node) {
 	}
 
 	// Wait for the placement to become Ready (which it might already be).
+	// (only if moving; skip if doing initial placement, because those don't fetch)
 
 	if src != nil {
 		err = dest.FetchWait()
@@ -96,11 +99,6 @@ func Move(r *ranje.Range, node *ranje.Node) {
 		}
 	}
 
+	r.CompleteNextPlacement()
 	r.MustState(ranje.Ready)
-
-	// 5. Cleanup
-
-	if src != nil {
-		src.Forget()
-	}
 }

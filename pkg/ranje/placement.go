@@ -76,26 +76,10 @@ func NewPlacement(r *Range, n *Node) (*Placement, error) {
 	return p, nil
 }
 
-// Forget removes this placement from the associated node and range.
-func (p *Placement) Forget() {
-	p.rang.Lock()
-	defer p.rang.Unlock()
-
-	p.node.muRanges.Lock()
-	defer p.node.muRanges.Unlock()
-
-	// Attempt both whether or not the first one fails.
-	// Either one failing indicates a bug.
-	err1 := p.rang.UnsafeForgetPlacement(p)
-	err2 := p.node.UnsafeForgetPlacement(p)
-
-	// TODO: This is probably a bit excessive.
-	if err1 != nil {
-		panic(fmt.Sprintf("UnsafeForgetPlacement: %s", err1.Error()))
-	}
-	if err2 != nil {
-		panic(fmt.Sprintf("UnsafeForgetPlacement: %s", err2.Error()))
-	}
+// Forget removes this placement from the associated node.
+// TODO: Do nodes even need a pointer back to the actual placement? Maybe can just cache what they hear via gRPC?
+func (p *Placement) Forget() error {
+	return p.node.ForgetPlacement(p)
 }
 
 func (p *Placement) ToState(new StatePlacement) error {

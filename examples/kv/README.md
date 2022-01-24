@@ -7,6 +7,9 @@ interface to move those things around.
 ## Usage
 
 ```console
+$ # Start consul in some other shell. This is used for service discovery and persistence (for now).
+$ consul agent -dev -ui
+
 $ cd ~/code/src/github.com/adammck/ranger/examples/kv
 $ go build
 

@@ -82,8 +82,11 @@ func (n *Node) DumpForDebug() {
 }
 
 // UnsafeForgetPlacement removes the given placement from the ranges map of this
-// node. Works by address, not value. The caller must hold muRanges for writing.
-func (n *Node) UnsafeForgetPlacement(p *Placement) error {
+// node. Works by address, not value.
+func (n *Node) ForgetPlacement(p *Placement) error {
+	n.muRanges.Lock()
+	defer n.muRanges.Unlock()
+
 	for id, p_ := range n.ranges {
 		if p == p_ {
 			delete(n.ranges, id)

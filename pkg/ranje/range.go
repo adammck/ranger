@@ -20,6 +20,7 @@ type Range struct {
 
 	// Which node currently has the range, and which it is moving to.
 	// TODO: Each of these are probably only valid in some states. Doc that.
+	// TODO: Placement fucks with these directly. Don't do that.
 	curr *Placement
 	next *Placement
 
@@ -145,24 +146,6 @@ func addParents(r *Range, parents *[]*pb.Placement) {
 	}
 }
 
-// Caller must hold the lock for writing.
-func (r *Range) UnsafeForgetPlacement(p *Placement) error {
-	// TODO: Surely this is only needed in one of these cases?
-
-	if r.curr == p {
-		r.curr = nil
-		return nil
-	}
-
-	if r.next == p {
-		r.next = nil
-		return nil
-	}
-
-	return fmt.Errorf("couldn't forget placement on node %s of range %s; not found",
-		p.node.String(), r.String())
-}
-
 // MustState attempts to change the state of the range to s, and panics if the
 // transition is invalid. Callers should only ever attempt valid state changes
 // anyway, but...
@@ -203,23 +186,22 @@ func (r *Range) ToState(new StateLocal) error {
 		ok = true
 	}
 
+	// Straight from Pending to PlaceError means that we can't even attempt a
+	// placement. Probably no candidate nodes available. Currently increments
+	// error count anyway, which might result in range quarantine!
+	if old == Pending && new == PlaceError { // NEEDS NUM
+		r.placeErrorCount += 1
+		ok = true
+	}
+
+	// TODO: THIS IS ONLY INITIAL PLACEMENT
 	if old == Placing && new == Ready { // 2
-		// TODO: Is this where we promote next to curr?
-		if r.curr != nil {
-			return errors.New("can't transition from Placing to Ready when r.curr is not nil")
-		}
-		if r.next == nil {
-			return errors.New("can't transition from Placing to Ready when r.next is nil")
-		}
-
-		// Promote next range to current.
-		r.curr = r.next
-		r.next = nil
-
 		r.placeErrorCount = 0
 		ok = true
 	}
 
+	// Started placing the range, but it failed. Maybe that's because the range
+	// is toxic. Or maybe just unlucky timing and the destination ndoe died.
 	if old == Placing && new == PlaceError { // 3
 		r.placeErrorCount += 1
 		ok = true
@@ -250,7 +232,7 @@ func (r *Range) ToState(new StateLocal) error {
 		ok = true
 	}
 
-	if old == Moving && new == Ready { // 7
+	if old == Moving && new == Ready { // 8
 		ok = true
 	}
 
@@ -331,63 +313,31 @@ func (r *Range) ChildStateChanged() error {
 	return nil
 }
 
-func (r *Range) PlacementStateChanged(p *Placement) {
+// Caller must NOT hold the range lock.
+func (r *Range) CompleteNextPlacement() error {
+	r.Lock()
+	defer r.Unlock()
 
-	// This will deadlock if we call ToState!
-	// TODO: Must be holding range lock to call?
-	//r.Lock()
-	//defer r.Unlock()
-
-	switch r.state {
-	case Pending:
-		r.assertNoCurr()
-
-		if p == r.next {
-			// TODO: Is SpPending right here?
-			if r.next.state == SpPending || r.next.state == SpFetching || r.next.state == SpFetched {
-				r.MustState(Placing)
-				return
-			}
-		}
-
-	case Placing:
-		r.assertNoCurr()
-
-		// This indicates a bug
-		if r.next == nil {
-			panic(fmt.Sprintf("placing range %s has nil next placement", r.String()))
-		}
-
-		if p == r.next {
-			if r.next.state == SpFetchFailed {
-				// TODO: Is this where we choose PlaceError or Quarantine?
-				r.MustState(PlaceError)
-				return
-			}
-			if r.next.state == SpReady {
-				r.MustState(Ready) // Promotes next to curr
-				return
-			}
-		}
-
-	case PlaceError:
-		r.assertNoCurr()
-		if p == r.next {
-			if r.next.state == SpPending {
-				if r.NeedsQuarantine() {
-					r.MustState(Quarantined)
-				} else {
-					r.MustState(Pending)
-				}
-			}
-		}
+	if r.next == nil {
+		// This method should not even be called in this state!
+		panic("can't complete move when next placement is nil")
 	}
-}
 
-func (r *Range) assertNoCurr() {
+	// During inital placement, it's okay for there to be no current placement.
+	// Otherwise notify the placement that we're about to destroy it. (This is
+	// a gross hack, because Node also has a pointer to the placement for now.)
+	// TODO: Should this be a totally separate path?
 	if r.curr != nil {
-		panic(fmt.Sprintf("pending range %s has non-nil curr placement", r.String()))
+		err := r.curr.Forget()
+		if err != nil {
+			return err
+		}
 	}
+
+	r.curr = r.next
+	r.next = nil
+
+	return nil
 }
 
 // childrenReady returns true if all of the ranges children are ready. (Doesn't

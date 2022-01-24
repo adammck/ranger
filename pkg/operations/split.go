@@ -112,13 +112,18 @@ func Split(ks *ranje.Keyspace, r *ranje.Range, boundary ranje.Key, nLeft, nRight
 		return
 	}
 
+	rLeft.CompleteNextPlacement()
 	rLeft.MustState(ranje.Ready)
+
+	rRight.CompleteNextPlacement()
 	rRight.MustState(ranje.Ready)
 
+	// TODO: Should this happen via CompletePlacement, too?
 	src.Forget()
 
-	// Redundant?
-	r.MustState(ranje.Obsolete)
+	// This happens implicitly in Range.ChildStateChanged.
+	// TODO: Is this a good idea? Here would be more explicit.
+	// r.MustState(ranje.Obsolete)
 
 	// TODO: Move this to some background GC routine in the balancer.
 	err = ks.Discard(r)
