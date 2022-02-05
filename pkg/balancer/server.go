@@ -28,7 +28,7 @@ func (bs *balancerServer) Move(ctx context.Context, req *pb.MoveRequest) (*pb.Mo
 
 	nid := req.Node
 	if nid == "" {
-		return nil, status.Error(codes.InvalidArgument, "missing: range")
+		return nil, status.Error(codes.InvalidArgument, "missing: node")
 	}
 
 	bs.bal.Operation(MoveRequest{
