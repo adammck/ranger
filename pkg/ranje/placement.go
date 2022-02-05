@@ -55,6 +55,8 @@ func NewPlacement(r *Range, n *Node) (*Placement, error) {
 	r.Lock()
 	defer r.Unlock()
 
+	// TODO: The placement should not care about this! Call this thing via
+	// ....  range.NewPlacement to check this.
 	if r.next != nil {
 		return nil, fmt.Errorf("range %s already has a next placement: %s", r.String(), r.next.Addr())
 	}
@@ -151,15 +153,15 @@ func (p *Placement) ToState(new StatePlacement) error {
 	return nil
 }
 
-func (p *Placement) Give() error {
+func (p *Placement) Give() (StatePlacement, error) {
 	// Build the request here to avoid Node having to reach back through us.
 	// TODO: Not sure if this actually makes sense.
 	req, err := p.rang.GiveRequest(p)
 	if err != nil {
-		return fmt.Errorf("error building GiveRequest: %s", err)
+		return SpUnknown, fmt.Errorf("error building GiveRequest: %s", err)
 	}
 
-	return p.node.give(p, req)
+	return p.state, p.node.give(p, req)
 }
 
 // FetchWait blocks until the placement becomes SpFetched, which hopefully happens

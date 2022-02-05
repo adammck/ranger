@@ -90,6 +90,7 @@ func (d *Discovery) Start() error {
 		},
 	}
 
+	// TODO: Send this in a loop while running, in case Consul dies.
 	err := d.consul.Agent().ServiceRegister(def)
 	if err != nil {
 		return err

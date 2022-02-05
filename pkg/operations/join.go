@@ -45,7 +45,7 @@ func Join(ks *ranje.Keyspace, r1, r2 *ranje.Range, node *ranje.Node) {
 		return
 	}
 
-	err = p3.Give()
+	_, err = p3.Give()
 	if err != nil {
 		fmt.Printf("Join (Give) failed: %s\n", err.Error())
 		// This is a bad situation; the range has been taken from the src, but

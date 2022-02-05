@@ -72,7 +72,11 @@ func (r *Range) DumpForDebug() {
 	fmt.Printf(" - %s%s\n", r.String(), f)
 }
 
-// TODO: This method is pointless now that we have curr/next; remove it.
+func (r *Range) Placement() *Placement {
+	return r.curr
+}
+
+// TODO: Use Placement instead of this!
 func (r *Range) MoveSrc() *Placement {
 
 	// TODO: Only really need RLock here.

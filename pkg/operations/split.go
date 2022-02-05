@@ -69,7 +69,7 @@ func Split(ks *ranje.Keyspace, r *ranje.Range, boundary ranje.Key, nLeft, nRight
 		g.Go(func() error {
 
 			// TODO: This doesn't work yet! Give doesn't include parents info.
-			err = p.Give()
+			_, err = p.Give()
 			if err != nil {
 				return fmt.Errorf("give (%s) failed: %s", side, err.Error())
 			}
