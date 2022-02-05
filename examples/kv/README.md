@@ -31,7 +31,7 @@ $ bin/get.sh 8000 a
 $ # Run a load test.
 $ cd tools/hammer
 $ go build
-$ ./hammer -addr localhost:8000 -workers 10
+$ ./hammer -addr localhost:8000 -workers 10 -interval 100
 ```
 
 ## Tests

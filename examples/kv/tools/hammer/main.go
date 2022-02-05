@@ -25,6 +25,7 @@ func init() {
 func main() {
 	faddrs := flag.String("addr", "localhost:8000", "addresses to hammer (comma-separated)")
 	fworkers := flag.Int("workers", 100, "number of workers to run in parallel")
+	finterval := flag.Int("interval", 100, "max time to sleep between rpcs (ms)")
 	flag.Parse()
 
 	ctx := context.Background()
@@ -41,7 +42,7 @@ func main() {
 
 	addrs := strings.Split(*faddrs, ",")
 	for n := 0; n < *fworkers; n++ {
-		go runWorker(ctx, addrs[n%len(addrs)])
+		go runWorker(ctx, addrs[n%len(addrs)], *finterval)
 	}
 
 	<-done
@@ -56,7 +57,7 @@ func newClient(ctx context.Context, addr string) pbkv.KVClient {
 	return pbkv.NewKVClient(conn)
 }
 
-func runWorker(ctx context.Context, addr string) {
+func runWorker(ctx context.Context, addr string, interval int) {
 	c := newClient(ctx, addr)
 
 	// Keys which have been PUT
@@ -78,7 +79,7 @@ func runWorker(ctx context.Context, addr string) {
 			getOnce(ctx, c, keys[rand.Intn(len(keys))])
 		}
 
-		time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
+		time.Sleep(time.Duration(rand.Intn(interval)) * time.Millisecond)
 	}
 }
 
