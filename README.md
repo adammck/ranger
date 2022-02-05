@@ -6,10 +6,24 @@ keys between them.
 
 ## Development
 
+Install development deps
+
+```console
+$ brew install protoc-gen-go
+$ brew install protoc-gen-go-grpc
+```
+
+Install local runtime deps
+
+```console
+$ brew install consul
+```
+
 Regenerate the files in `pkg/proto`
 
 ```console
 $ bin/gen-proto.sh
+$ examples/kv/bin/gen-proto.sh
 ```
 
 ## State Machine
@@ -70,4 +84,40 @@ digraph G {
         xTaken -> xDropped [label=drop];
     }
 }
+```
+
+## Objects
+
+### stateful
+
+this stuff lives in a durable store, which must always be kept up to date. no
+local state.
+
+```text
+keyspace
+- next_id
+- []range
+  - id
+  - [2]placement # current, next
+    - id
+    - node_id
+    - state
+  - operations # only one in progress a time!
+    - move
+      - state
+      - dest_node_id
+    - join
+    - split    
+```
+
+### volatile
+
+this stuff is gathered at startup, and kept up to date during runtime.
+
+```text
+nodemap
+- []node
+  - id
+  - host
+  - port
 ```
