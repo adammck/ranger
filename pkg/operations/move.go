@@ -29,8 +29,8 @@ type moveOp struct {
 	node *ranje.Node
 
 	// other state; needs persisting, but how can we persist these bloody pointers? store kind of idents and then look them up in every step.
-	src  *ranje.Placement
-	dest *ranje.Placement
+	src  *ranje.DurablePlacement
+	dest *ranje.DurablePlacement
 }
 
 func Move(r *ranje.Range, node *ranje.Node) {

@@ -7,10 +7,11 @@ import (
 	"time"
 )
 
-// Placement represents a pair of range+node.
-type Placement struct {
+// DurablePlacement represents a pair of range+node.
+// TODO: Rename this back to Placement once VolatilePlacement stuff has been extracted.
+type DurablePlacement struct {
 	rang *Range // owned by Keyspace.
-	node *Node  // owned by Roster.
+	node *Node  // owned by Roster. TODO: Change to node_id, don't call Node from Placement
 
 	// Controller-side state machine.
 	state StatePlacement
@@ -30,7 +31,7 @@ type Placement struct {
 	sync.Mutex
 }
 
-func (p *Placement) Addr() string {
+func (p *DurablePlacement) Addr() string {
 
 	// This should definitely not ever happen
 	if p.node == nil {
@@ -41,12 +42,12 @@ func (p *Placement) Addr() string {
 }
 
 // TODO: Replace this with a statusz-type page
-func (p *Placement) DumpForDebug() string {
+func (p *DurablePlacement) DumpForDebug() string {
 	return fmt.Sprintf("P{%s %s}", p.node.addr(), p.state)
 }
 
-func NewPlacement(r *Range, n *Node) (*Placement, error) {
-	p := &Placement{
+func NewPlacement(r *Range, n *Node) (*DurablePlacement, error) {
+	p := &DurablePlacement{
 		rang:  r,
 		node:  n,
 		state: SpPending,
@@ -61,18 +62,7 @@ func NewPlacement(r *Range, n *Node) (*Placement, error) {
 		return nil, fmt.Errorf("range %s already has a next placement: %s", r.String(), r.next.Addr())
 	}
 
-	n.muRanges.Lock()
-	defer n.muRanges.Unlock()
-
-	id := r.Meta.Ident
-	_, ok := n.ranges[id]
-	if ok {
-		return nil, fmt.Errorf("node %s already has range %s", n.String(), id.String())
-	}
-
 	r.next = p
-	n.ranges[id] = p
-
 	//r.PlacementStateChanged(p)
 
 	return p, nil
@@ -80,11 +70,11 @@ func NewPlacement(r *Range, n *Node) (*Placement, error) {
 
 // Forget removes this placement from the associated node.
 // TODO: Do nodes even need a pointer back to the actual placement? Maybe can just cache what they hear via gRPC?
-func (p *Placement) Forget() error {
+func (p *DurablePlacement) Forget() error {
 	return p.node.ForgetPlacement(p)
 }
 
-func (p *Placement) ToState(new StatePlacement) error {
+func (p *DurablePlacement) ToState(new StatePlacement) error {
 	p.Lock()
 	defer p.Unlock()
 	old := p.state
@@ -153,7 +143,7 @@ func (p *Placement) ToState(new StatePlacement) error {
 	return nil
 }
 
-func (p *Placement) Give() (StatePlacement, error) {
+func (p *DurablePlacement) Give() (StatePlacement, error) {
 	// Build the request here to avoid Node having to reach back through us.
 	// TODO: Not sure if this actually makes sense.
 	req, err := p.rang.GiveRequest(p)
@@ -167,7 +157,7 @@ func (p *Placement) Give() (StatePlacement, error) {
 // FetchWait blocks until the placement becomes SpFetched, which hopefully happens
 // in some other goroutine.
 // TODO: Add a timeout
-func (p *Placement) FetchWait() error {
+func (p *DurablePlacement) FetchWait() error {
 	for {
 		p.Lock()
 		s := p.state
@@ -191,14 +181,14 @@ func (p *Placement) FetchWait() error {
 	return nil
 }
 
-func (p *Placement) Take() error {
+func (p *DurablePlacement) Take() error {
 	return p.node.take(p)
 }
 
-func (p *Placement) Drop() error {
+func (p *DurablePlacement) Drop() error {
 	return p.node.drop(p)
 }
 
-func (p *Placement) Serve() error {
+func (p *DurablePlacement) Serve() error {
 	return p.node.serve(p)
 }

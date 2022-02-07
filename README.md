@@ -100,7 +100,7 @@ keyspace
   - id
   - [2]placement # current, next
     - id
-    - node_id
+    - node_id # <- where it is _expected_ to be
     - state
   - operations # only one in progress a time!
     - move
@@ -115,9 +115,19 @@ keyspace
 this stuff is gathered at startup, and kept up to date during runtime.
 
 ```text
-nodemap
+roster
 - []node
   - id
   - host
   - port
+
+  - utilization
+    - cpu?
+    - memory?
+    - network?
+    - disk?
+  
+  - vplacement
+    - state
+    - utilization # as above
 ```

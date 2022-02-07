@@ -92,7 +92,7 @@ func Join(ks *ranje.Keyspace, r1, r2 *ranje.Range, node *ranje.Node) {
 
 	// 5. Cleanup
 
-	for _, p := range []*ranje.Placement{p1, p2} {
+	for _, p := range []*ranje.DurablePlacement{p1, p2} {
 		p.Forget()
 	}
 

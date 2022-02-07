@@ -34,11 +34,6 @@ type Node struct {
 	client pb.NodeClient
 	muConn sync.RWMutex
 
-	// The ranges that this node has.
-	// TODO: Should this skip the placement and go straight to the Range?
-	ranges   map[Ident]*Placement
-	muRanges sync.RWMutex
-
 	// TODO: Figure out what to do with these. They shouldn't exist, and indicate a state bug. But ignoring them probably isn't right.
 	unexpectedRanges map[Ident]*pb.RangeMeta
 }
@@ -49,7 +44,6 @@ func NewNode(host string, port int) *Node {
 		port:             port,
 		init:             time.Now(),
 		seen:             time.Time{}, // never
-		ranges:           map[Ident]*Placement{},
 		unexpectedRanges: map[Ident]*pb.RangeMeta{},
 	}
 
@@ -76,26 +70,13 @@ func (n *Node) String() string {
 
 // TODO: Replace this with a statusz-type page
 func (n *Node) DumpForDebug() {
-	for id, p := range n.ranges {
-		fmt.Printf("   - %s %s\n", id.String(), p.state.String())
-	}
 }
 
 // UnsafeForgetPlacement removes the given placement from the ranges map of this
 // node. Works by address, not value.
-func (n *Node) ForgetPlacement(p *Placement) error {
-	n.muRanges.Lock()
-	defer n.muRanges.Unlock()
-
-	for id, p_ := range n.ranges {
-		if p == p_ {
-			delete(n.ranges, id)
-			return nil
-		}
-	}
-
-	return fmt.Errorf("couldn't forget placement of range %s on node %s; not found",
-		p.rang.String(), n.String())
+// TODO: Remove this method. It's useless now that nodes don't know placements.
+func (n *Node) ForgetPlacement(p *DurablePlacement) error {
+	return nil
 }
 
 // Seen tells us that the node is still in service discovery.
@@ -115,7 +96,7 @@ func (n *Node) addr() string {
 }
 
 // Called by Placement to avoid leaking the node pointer.
-func (n *Node) take(p *Placement) error {
+func (n *Node) take(p *DurablePlacement) error {
 	if p.state != SpReady {
 		return fmt.Errorf("can't take range %s from node %s when state is %s",
 			p.rang.String(), p.node.String(), p.state)
@@ -140,7 +121,7 @@ func (n *Node) take(p *Placement) error {
 	return p.ToState(SpTaken)
 }
 
-func (n *Node) drop(p *Placement) error {
+func (n *Node) drop(p *DurablePlacement) error {
 	if p.state != SpTaken {
 		return fmt.Errorf("can't drop range %s from node %s when state is %s",
 			p.rang.String(), p.node.String(), p.state)
@@ -165,7 +146,7 @@ func (n *Node) drop(p *Placement) error {
 	return p.ToState(SpDropped)
 }
 
-func (n *Node) serve(p *Placement) error {
+func (n *Node) serve(p *DurablePlacement) error {
 	if p.state != SpFetched {
 		return fmt.Errorf("can't serve range %s from node %s when state is %s (wanted SpFetched)",
 			p.rang.String(), p.node.String(), p.state)
@@ -190,16 +171,10 @@ func (n *Node) serve(p *Placement) error {
 	return p.ToState(SpReady)
 }
 
-func (n *Node) give(p *Placement, req *pb.GiveRequest) error {
+func (n *Node) give(p *DurablePlacement, req *pb.GiveRequest) error {
 	if p.state != SpPending {
 		return fmt.Errorf("can't serve range %s from node %s when state is %s (wanted SpPending)",
 			p.rang.String(), p.node.String(), p.state)
-	}
-
-	// TODO: Is there any point in this?
-	_, ok := n.ranges[p.rang.Meta.Ident]
-	if !ok {
-		panic("give called but placement not in node ranges!")
 	}
 
 	// TODO: Move outside this func?
@@ -239,7 +214,7 @@ func (n *Node) give(p *Placement, req *pb.GiveRequest) error {
 	return nil
 }
 
-func updateLocalState(p *Placement, rns pb.RangeNodeState) {
+func updateLocalState(p *DurablePlacement, rns pb.RangeNodeState) {
 	rs := RemoteStateFromProto(rns)
 	switch rs {
 	case StateUnknown:
@@ -271,6 +246,8 @@ func updateLocalState(p *Placement, rns pb.RangeNodeState) {
 
 // Probe updates current state of the node via RPC.
 // Returns error if the RPC fails or if a probe is already in progess.
+// TODO: This should probably call probe, and then return the results to some
+//       other coordinator. Don't store loadinfo in the Node.
 func (n *Node) Probe(ctx context.Context) error {
 	// TODO: Abort if probe in progress.
 
@@ -287,30 +264,32 @@ func (n *Node) Probe(ctx context.Context) error {
 			continue
 		}
 
-		id, err := IdentFromProto(rr.Ident)
-		if err != nil {
-			fmt.Printf("Got malformed ident from node %s: %s\n", n.addr(), err.Error())
-			continue
-		}
+		// id, err := IdentFromProto(rr.Ident)
+		// if err != nil {
+		// 	fmt.Printf("Got malformed ident from node %s: %s\n", n.addr(), err.Error())
+		// 	continue
+		// }
 
-		p, ok := n.ranges[*id]
+		// TODO: Move all of this outwards to some node state coordinator
 
-		if !ok {
-			fmt.Printf("Got unexpected range from node %s: %s\n", n.addr(), id.String())
-			n.unexpectedRanges[*id] = rr
-			continue
-		}
+		// p, ok := n.ranges[*id]
 
-		updateLocalState(p, r.State)
+		// if !ok {
+		// 	fmt.Printf("Got unexpected range from node %s: %s\n", n.addr(), id.String())
+		// 	n.unexpectedRanges[*id] = rr
+		// 	continue
+		// }
+
+		// updateLocalState(p, r.State)
 
 		// TODO: We compare the Ident here even though we just fetched the assignment by ID. Is that... why
-		if !p.rang.SameMeta(*id, rr.Start, rr.End) {
-			fmt.Printf("Remote range did not match local range with same ident: %s\n", id.String())
-			continue
-		}
+		// if !p.rang.SameMeta(*id, rr.Start, rr.End) {
+		// 	fmt.Printf("Remote range did not match local range with same ident: %s\n", id.String())
+		// 	continue
+		// }
 
 		// Finally update the remote info
-		p.K = r.Keys
+		//p.K = r.Keys
 
 		// TODO: Figure out wtf to do when remote state doesn't match local
 		//rrr.state = RemoteStateFromProto(r.State)

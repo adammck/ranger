@@ -59,7 +59,7 @@ func Split(ks *ranje.Keyspace, r *ranje.Range, boundary ranje.Key, nLeft, nRight
 
 	// TODO: Pass a context into Take, to cancel both together.
 	g, _ := errgroup.WithContext(context.Background())
-	for side, p := range map[string]*ranje.Placement{"left": pLeft, "right": pRight} {
+	for side, p := range map[string]*ranje.DurablePlacement{"left": pLeft, "right": pRight} {
 
 		// Keep hold of current values for closure.
 		// https://golang.org/doc/faq#closures_and_goroutines

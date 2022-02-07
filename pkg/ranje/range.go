@@ -21,8 +21,8 @@ type Range struct {
 	// Which node currently has the range, and which it is moving to.
 	// TODO: Each of these are probably only valid in some states. Doc that.
 	// TODO: Placement fucks with these directly. Don't do that.
-	curr *Placement
-	next *Placement
+	curr *DurablePlacement
+	next *DurablePlacement
 
 	// The number of times this range has failed to be placed since it was last
 	// Ready. Incremented by State.
@@ -72,12 +72,12 @@ func (r *Range) DumpForDebug() {
 	fmt.Printf(" - %s%s\n", r.String(), f)
 }
 
-func (r *Range) Placement() *Placement {
+func (r *Range) Placement() *DurablePlacement {
 	return r.curr
 }
 
 // TODO: Use Placement instead of this!
-func (r *Range) MoveSrc() *Placement {
+func (r *Range) MoveSrc() *DurablePlacement {
 
 	// TODO: Only really need RLock here.
 	r.Lock()
@@ -95,7 +95,7 @@ func (r *Range) MoveSrc() *Placement {
 	return r.curr
 }
 
-func (r *Range) GiveRequest(giving *Placement) (*pb.GiveRequest, error) {
+func (r *Range) GiveRequest(giving *DurablePlacement) (*pb.GiveRequest, error) {
 	rm := r.Meta.ToProto()
 
 	// Build a list of the other current placement of this exact range. This
