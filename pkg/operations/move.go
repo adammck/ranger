@@ -6,8 +6,6 @@ import (
 	"github.com/adammck/ranger/pkg/ranje"
 )
 
-// this is an attempt at a resumable operation, so is weirder than the other two
-
 type MoveOpState uint8
 
 const (
@@ -26,15 +24,17 @@ type moveOp struct {
 
 	// inputs; don't touch these after init!
 	r    *ranje.Range
-	node *ranje.Node
+	nSrc *ranje.Node
+	node *ranje.Node // TODO: Maybe can just take node ident?; also, rename to nDest
 
 	// other state; needs persisting, but how can we persist these bloody pointers? store kind of idents and then look them up in every step.
+	// can maybe hold a pointer back to the keyspace+roster?
 	src  *ranje.DurablePlacement
 	dest *ranje.DurablePlacement
 }
 
-func Move(r *ranje.Range, node *ranje.Node) {
-	op := moveOp{r: r, node: node}
+func Move(r *ranje.Range, nSrc *ranje.Node, node *ranje.Node) {
+	op := moveOp{r: r, nSrc: nSrc, node: node}
 	s := op.state
 
 	for {
@@ -68,7 +68,7 @@ func Move(r *ranje.Range, node *ranje.Node) {
 func (op *moveOp) init() MoveOpState {
 	var err error
 
-	op.dest, err = ranje.NewPlacement(op.r, op.node)
+	op.dest, err = ranje.NewPlacement(op.r, op.node.Ident())
 	if err != nil {
 		fmt.Printf("Move failed: error creating placement: %s\n", err.Error())
 		op.r.MustState(ranje.PlaceError)
@@ -90,7 +90,7 @@ func (op *moveOp) init() MoveOpState {
 	} else {
 		// TODO: Don't panic! The range is probably already being moved.
 		panic(fmt.Sprintf("unexpectd range state?! %s", op.r.State()))
-		return Failed
+		//return Failed
 	}
 
 	op.src = op.r.Placement()
@@ -102,7 +102,7 @@ func (op *moveOp) init() MoveOpState {
 }
 
 func (op *moveOp) take() MoveOpState {
-	err := op.src.Take()
+	err := op.nSrc.Take(op.src)
 	if err != nil {
 		fmt.Printf("Take failed: %s\n", err.Error())
 		op.r.MustState(ranje.Ready) // ???
@@ -113,7 +113,19 @@ func (op *moveOp) take() MoveOpState {
 }
 
 func (op *moveOp) give() MoveOpState {
-	pState, err := op.dest.Give()
+
+	// Build the request here to avoid Node having to reach back through us.
+	// TODO: Not sure if this actually makes sense.
+	req, err := op.r.GiveRequest(op.dest)
+	if err != nil {
+		fmt.Printf("Give failed: error constructing GiveRequest: %s\n", err.Error())
+
+		// TODO: Repair the situation somehow.
+		op.r.MustState(ranje.PlaceError)
+		return Failed
+	}
+
+	err = op.node.Give(op.dest, req)
 	if err != nil {
 		fmt.Printf("Give failed: %s\n", err.Error())
 
@@ -125,7 +137,7 @@ func (op *moveOp) give() MoveOpState {
 	// If the placement went straight to Ready, we're done. (This can happen
 	// when the range isn't being moved from anywhere, or if the transfer
 	// happens very quickly.)
-	if pState == ranje.SpReady {
+	if op.dest.State() == ranje.SpReady {
 		op.r.CompleteNextPlacement()
 		return Complete
 	}
@@ -148,7 +160,7 @@ func (op *moveOp) fetchWait() MoveOpState {
 }
 
 func (op *moveOp) serve() MoveOpState {
-	err := op.dest.Serve()
+	err := op.node.Serve(op.dest)
 	if err != nil {
 		fmt.Printf("Serve failed: %s\n", err.Error())
 

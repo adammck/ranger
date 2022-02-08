@@ -12,8 +12,9 @@ type OpRunner interface {
 }
 
 type MoveRequest struct {
-	Range ranje.Ident
-	Node  string
+	Range     ranje.Ident
+	SrcNodeID string
+	Node      string // rename to DestNodeID
 }
 
 func (req MoveRequest) Run(b *Balancer) {
@@ -25,44 +26,59 @@ func (req MoveRequest) Run(b *Balancer) {
 		return
 	}
 
+	nSrc := b.rost.NodeByIdent(req.SrcNodeID)
+	if nSrc == nil {
+		fmt.Printf("Move failed: Src node not found: %s\n", req.SrcNodeID)
+		return
+	}
+
 	n := b.rost.NodeByIdent(req.Node)
 	if n == nil {
 		fmt.Printf("Move failed: No such node: %s\n", req.Node)
 		return
 	}
 
-	operations.Move(r, n)
+	operations.Move(r, nSrc, n)
 }
 
 type JoinRequest struct {
-	Left  ranje.Ident
-	Right ranje.Ident
-	Node  string
+	RangeLeft  ranje.Ident
+	RangeRight ranje.Ident
+	NodeDst    string
 }
 
 func (req JoinRequest) Run(b *Balancer) {
+	// TODO: Do these lookups in the operation itself, so they can be lazy and resumable.
 
 	// TODO: Lock ks.ranges!
-	r1, err := b.ks.GetByIdent(req.Left)
+	rLeft, err := b.ks.GetByIdent(req.RangeLeft)
 	if err != nil {
 		fmt.Printf("Join failed: %s\n", err.Error())
 		return
 	}
 
 	// TODO: Lock ks.ranges!
-	r2, err := b.ks.GetByIdent(req.Right)
+	rRight, err := b.ks.GetByIdent(req.RangeRight)
 	if err != nil {
 		fmt.Printf("Join failed: %s\n", err.Error())
 		return
 	}
 
-	node := b.rost.NodeByIdent(req.Node)
+	node := b.rost.NodeByIdent(req.NodeDst)
 	if node == nil {
-		fmt.Printf("Join failed: No such node: %s\n", req.Node)
+		fmt.Printf("Join failed: No such node: %s\n", req.NodeDst)
 		return
 	}
 
-	operations.Join(b.ks, r1, r2, node)
+	op := operations.JoinOp{
+		Keyspace:      b.ks,
+		Roster:        b.rost,
+		RangeSrcLeft:  rLeft.Meta.Ident,
+		RangeSrcRight: rRight.Meta.Ident,
+		NodeDst:       node.Ident(),
+	}
+
+	op.Run()
 }
 
 type SplitRequest struct {
@@ -73,25 +89,14 @@ type SplitRequest struct {
 }
 
 func (req SplitRequest) Run(b *Balancer) {
-
-	nLeft := b.rost.NodeByIdent(req.NodeLeft)
-	if nLeft == nil {
-		fmt.Printf("Split failed: No such node (left): %s\n", req.NodeLeft)
-		return
+	op := operations.SplitOp{
+		Keyspace:     b.ks,
+		Roster:       b.rost,
+		RangeSrc:     req.Range,
+		Boundary:     req.Boundary,
+		NodeDstLeft:  req.NodeLeft,
+		NodeDstRight: req.NodeRight,
 	}
 
-	nRight := b.rost.NodeByIdent(req.NodeRight)
-	if nRight == nil {
-		fmt.Printf("Split failed: No such node (right): %s\n", req.NodeRight)
-		return
-	}
-
-	// TODO: Lock ks.ranges!
-	r, err := b.ks.GetByIdent(req.Range)
-	if err != nil {
-		fmt.Printf("Split failed: %s\n", err.Error())
-		return
-	}
-
-	operations.Split(b.ks, r, req.Boundary, nLeft, nRight)
+	op.Run()
 }

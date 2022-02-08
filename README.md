@@ -101,10 +101,11 @@ keyspace
   - [2]placement # current, next
     - id
     - node_id # <- where it is _expected_ to be
-    - state
+    - state # needed? can maybe be inferred
   - operations # only one in progress a time!
     - move
       - state
+      - src_node_id
       - dest_node_id
     - join
     - split    

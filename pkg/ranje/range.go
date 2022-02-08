@@ -76,6 +76,10 @@ func (r *Range) Placement() *DurablePlacement {
 	return r.curr
 }
 
+func (r *Range) NextPlacement() *DurablePlacement {
+	return r.next
+}
+
 // TODO: Use Placement instead of this!
 func (r *Range) MoveSrc() *DurablePlacement {
 
@@ -95,6 +99,7 @@ func (r *Range) MoveSrc() *DurablePlacement {
 	return r.curr
 }
 
+// TODO: Does this actually need the `giving` param?
 func (r *Range) GiveRequest(giving *DurablePlacement) (*pb.GiveRequest, error) {
 	rm := r.Meta.ToProto()
 
@@ -112,7 +117,7 @@ func (r *Range) GiveRequest(giving *DurablePlacement) (*pb.GiveRequest, error) {
 
 		if p.state != SpTaken {
 			return nil, fmt.Errorf("can't give range %s when current placement on node %s is in state %s",
-				r.String(), p.node.String(), p.state)
+				r.String(), p.nodeID, p.state)
 		}
 
 		parents = append(parents, &pb.Placement{

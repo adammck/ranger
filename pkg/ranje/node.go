@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/adammck/ranger/pkg/discovery"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"google.golang.org/grpc"
 )
@@ -19,10 +20,8 @@ const (
 	serveTimeout = 3 * time.Second
 )
 
-// TODO: Add the ident in here?
 type Node struct {
-	host string
-	port int
+	remote discovery.Remote
 
 	// when was this created? needed to drop nodes which never connect.
 	init time.Time
@@ -38,10 +37,9 @@ type Node struct {
 	unexpectedRanges map[Ident]*pb.RangeMeta
 }
 
-func NewNode(host string, port int) *Node {
+func NewNode(remote discovery.Remote) *Node {
 	n := Node{
-		host:             host,
-		port:             port,
+		remote:           remote,
 		init:             time.Now(),
 		seen:             time.Time{}, // never
 		unexpectedRanges: map[Ident]*pb.RangeMeta{},
@@ -51,7 +49,7 @@ func NewNode(host string, port int) *Node {
 
 	// start dialling in background
 	// todo: inherit context to allow global cancellation
-	conn, err := grpc.DialContext(context.Background(), fmt.Sprintf("%s:%d", n.host, n.port), grpc.WithInsecure())
+	conn, err := grpc.DialContext(context.Background(), n.remote.Addr(), grpc.WithInsecure())
 	if err != nil {
 		fmt.Printf("error while dialing: %v\n", err)
 	}
@@ -64,8 +62,12 @@ func NewNode(host string, port int) *Node {
 	return &n
 }
 
+func (n *Node) Ident() string {
+	return n.remote.Ident
+}
+
 func (n *Node) String() string {
-	return fmt.Sprintf("N{%s}", n.addr())
+	return fmt.Sprintf("N{%s}", n.remote.Ident)
 }
 
 // TODO: Replace this with a statusz-type page
@@ -90,16 +92,13 @@ func (n *Node) IsStale(now time.Time) bool {
 	return n.seen.Before(now.Add(-staleTimer))
 }
 
-// TODO: Maybe replace host/port with a discovery.Remote and move this there?
-func (n *Node) addr() string {
-	return fmt.Sprintf("%s:%d", n.host, n.port)
-}
-
 // Called by Placement to avoid leaking the node pointer.
-func (n *Node) take(p *DurablePlacement) error {
+func (n *Node) Take(p *DurablePlacement) error {
+
+	// TODO: Move this into the callers; state is no business of Node.
 	if p.state != SpReady {
 		return fmt.Errorf("can't take range %s from node %s when state is %s",
-			p.rang.String(), p.node.String(), p.state)
+			p.rang.String(), p.nodeID, p.state)
 	}
 
 	req := &pb.TakeRequest{
@@ -121,10 +120,10 @@ func (n *Node) take(p *DurablePlacement) error {
 	return p.ToState(SpTaken)
 }
 
-func (n *Node) drop(p *DurablePlacement) error {
+func (n *Node) Drop(p *DurablePlacement) error {
 	if p.state != SpTaken {
 		return fmt.Errorf("can't drop range %s from node %s when state is %s",
-			p.rang.String(), p.node.String(), p.state)
+			p.rang.String(), p.nodeID, p.state)
 	}
 
 	req := &pb.DropRequest{
@@ -146,10 +145,15 @@ func (n *Node) drop(p *DurablePlacement) error {
 	return p.ToState(SpDropped)
 }
 
-func (n *Node) serve(p *DurablePlacement) error {
+func (n *Node) Serve(p *DurablePlacement) error {
+	if p.nodeID != n.remote.Ident {
+		return fmt.Errorf("mismatched nodeID: %s != %s",
+			p.nodeID, n.remote.Ident)
+	}
+
 	if p.state != SpFetched {
 		return fmt.Errorf("can't serve range %s from node %s when state is %s (wanted SpFetched)",
-			p.rang.String(), p.node.String(), p.state)
+			p.rang.String(), p.nodeID, p.state)
 	}
 
 	req := &pb.ServeRequest{
@@ -171,10 +175,10 @@ func (n *Node) serve(p *DurablePlacement) error {
 	return p.ToState(SpReady)
 }
 
-func (n *Node) give(p *DurablePlacement, req *pb.GiveRequest) error {
+func (n *Node) Give(p *DurablePlacement, req *pb.GiveRequest) error {
 	if p.state != SpPending {
 		return fmt.Errorf("can't serve range %s from node %s when state is %s (wanted SpPending)",
-			p.rang.String(), p.node.String(), p.state)
+			p.rang.String(), p.nodeID, p.state)
 	}
 
 	// TODO: Move outside this func?
@@ -260,7 +264,7 @@ func (n *Node) Probe(ctx context.Context) error {
 	for _, r := range res.Ranges {
 		rr := r.Range
 		if rr == nil {
-			fmt.Printf("Malformed probe response from node %s: Range is nil\n", n.addr())
+			fmt.Printf("Malformed probe response from node %s: Range is nil\n", n.remote.Ident)
 			continue
 		}
 
@@ -296,13 +300,6 @@ func (n *Node) Probe(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-// Drop cleans up the node. Called when it hasn't responded to probes in a long time.
-func (n *Node) Drop() {
-	n.muConn.Lock()
-	defer n.muConn.Unlock()
-	n.conn.Close()
 }
 
 func (n *Node) Conn() (grpc.ClientConnInterface, error) {

@@ -43,6 +43,7 @@ func (ros *Roster) DumpForDebug() {
 }
 
 //func (ros *Roster) NodeBy(opts... NodeByOpts)
+// TODO: Return an error from this func, to avoid duplicating it in callers.
 func (ros *Roster) NodeByIdent(nodeIdent string) *ranje.Node {
 	ros.RLock()
 	defer ros.RUnlock()
@@ -67,8 +68,8 @@ func (ros *Roster) discover() {
 
 		// New Node?
 		if !ok {
-			n = ranje.NewNode(r.Host, r.Port)
-			fmt.Printf("new node: %v\n", r.Ident)
+			n = ranje.NewNode(r)
+			fmt.Printf("new node: %v\n", n.Ident())
 			ros.Nodes[r.Ident] = n
 		}
 

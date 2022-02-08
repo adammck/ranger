@@ -10,20 +10,11 @@ import (
 // DurablePlacement represents a pair of range+node.
 // TODO: Rename this back to Placement once VolatilePlacement stuff has been extracted.
 type DurablePlacement struct {
-	rang *Range // owned by Keyspace.
-	node *Node  // owned by Roster. TODO: Change to node_id, don't call Node from Placement
+	rang   *Range // owned by Keyspace.
+	nodeID string
 
 	// Controller-side state machine.
 	state StatePlacement
-
-	// Warning! This may not be accurate! The range may have changed state on
-	// the remote node since the last successful probe, or the node may have
-	// gone away. This is what we *think* the state is.
-	//remoteState StateRemote
-
-	// loadinfo?
-	// The number of keys that the range has.
-	K uint64
 
 	// Guards everything.
 	// TODO: Change into an RWLock, check callers.
@@ -31,26 +22,28 @@ type DurablePlacement struct {
 	sync.Mutex
 }
 
+// TODO: Rename this to NodeID; that's what it is now.
+// TODO: Remove this; placements should not be connected to their node, only by ident.
 func (p *DurablePlacement) Addr() string {
 
 	// This should definitely not ever happen
-	if p.node == nil {
+	if p.nodeID == "" {
 		panic("nil node for placement")
 	}
 
-	return p.node.addr()
+	return p.nodeID
 }
 
 // TODO: Replace this with a statusz-type page
 func (p *DurablePlacement) DumpForDebug() string {
-	return fmt.Sprintf("P{%s %s}", p.node.addr(), p.state)
+	return fmt.Sprintf("P{%s %s}", p.nodeID, p.state)
 }
 
-func NewPlacement(r *Range, n *Node) (*DurablePlacement, error) {
+func NewPlacement(r *Range, nodeID string) (*DurablePlacement, error) {
 	p := &DurablePlacement{
-		rang:  r,
-		node:  n,
-		state: SpPending,
+		rang:   r,
+		nodeID: nodeID,
+		state:  SpPending,
 	}
 
 	r.Lock()
@@ -68,10 +61,13 @@ func NewPlacement(r *Range, n *Node) (*DurablePlacement, error) {
 	return p, nil
 }
 
-// Forget removes this placement from the associated node.
-// TODO: Do nodes even need a pointer back to the actual placement? Maybe can just cache what they hear via gRPC?
+// TODO: Remove this
 func (p *DurablePlacement) Forget() error {
-	return p.node.ForgetPlacement(p)
+	return nil
+}
+
+func (p *DurablePlacement) State() StatePlacement {
+	return p.state
 }
 
 func (p *DurablePlacement) ToState(new StatePlacement) error {
@@ -143,17 +139,6 @@ func (p *DurablePlacement) ToState(new StatePlacement) error {
 	return nil
 }
 
-func (p *DurablePlacement) Give() (StatePlacement, error) {
-	// Build the request here to avoid Node having to reach back through us.
-	// TODO: Not sure if this actually makes sense.
-	req, err := p.rang.GiveRequest(p)
-	if err != nil {
-		return SpUnknown, fmt.Errorf("error building GiveRequest: %s", err)
-	}
-
-	return p.state, p.node.give(p, req)
-}
-
 // FetchWait blocks until the placement becomes SpFetched, which hopefully happens
 // in some other goroutine.
 // TODO: Add a timeout
@@ -179,16 +164,4 @@ func (p *DurablePlacement) FetchWait() error {
 	}
 
 	return nil
-}
-
-func (p *DurablePlacement) Take() error {
-	return p.node.take(p)
-}
-
-func (p *DurablePlacement) Drop() error {
-	return p.node.drop(p)
-}
-
-func (p *DurablePlacement) Serve() error {
-	return p.node.serve(p)
 }
