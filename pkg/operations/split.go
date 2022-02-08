@@ -27,16 +27,15 @@ type SplitOp struct {
 	state    OpSpState
 
 	// Inputs
-	//RangeSrc     *ranje.Range
-	RangeSrc     ranje.Ident
-	Boundary     ranje.Key
-	NodeDstLeft  string
-	NodeDstRight string
+	Range     ranje.Ident
+	Boundary  ranje.Key
+	NodeLeft  string
+	NodeRight string
 
 	// Set by Init after src range is split.
 	// TODO: Better to look up via Range.Child every time?
-	RangeLeft  ranje.Ident
-	RangeRight ranje.Ident
+	rL ranje.Ident
+	rR ranje.Ident
 }
 
 func (op *SplitOp) Run() {
@@ -64,7 +63,7 @@ func (op *SplitOp) Run() {
 }
 
 func (op *SplitOp) init() {
-	r0, err := op.Keyspace.GetByIdent(op.RangeSrc)
+	r0, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
 		fmt.Printf("Split (Init) failed: %s\n", err.Error())
 		return
@@ -90,15 +89,15 @@ func (op *SplitOp) init() {
 	}
 
 	// Store these (by ident) in the op for later.
-	op.RangeLeft = r12[0]
-	op.RangeRight = r12[1]
+	op.rL = r12[0]
+	op.rR = r12[1]
 
-	fmt.Printf("Splitting: %s -> %s, %s\n", op.RangeSrc.String(), op.RangeLeft.String(), op.RangeRight.String())
+	fmt.Printf("Splitting: %s -> %s, %s\n", op.Range.String(), op.rL.String(), op.rR.String())
 	op.state = OpSpTake
 }
 
 func (op *SplitOp) take() {
-	r0, err := op.Keyspace.GetByIdent(op.RangeSrc)
+	r0, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
 		fmt.Printf("Split (Take) failed: %s\n", err.Error())
 		return
@@ -116,8 +115,8 @@ func (op *SplitOp) take() {
 func (op *SplitOp) give() {
 	// TODO: Group these together in some ephemeral type?
 	sides := [2]string{"left", "right"}
-	ranges := []ranje.Ident{op.RangeLeft, op.RangeRight}
-	nodeIDs := []string{op.NodeDstLeft, op.NodeDstRight}
+	ranges := []ranje.Ident{op.rL, op.rR}
+	nodeIDs := []string{op.NodeLeft, op.NodeRight}
 
 	// TODO: Pass a context into Take, to cancel both together.
 	g, _ := errgroup.WithContext(context.Background())
@@ -177,7 +176,7 @@ func (op *SplitOp) give() {
 }
 
 func (op *SplitOp) drop() {
-	r, err := op.Keyspace.GetByIdent(op.RangeSrc)
+	r, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
 		fmt.Printf("Split (Drop) failed: %s\n", err.Error())
 		return
@@ -194,8 +193,8 @@ func (op *SplitOp) drop() {
 
 func (op *SplitOp) serve() {
 	sides := [2]string{"left", "right"}
-	ranges := []ranje.Ident{op.RangeLeft, op.RangeRight}
-	nodeIDs := []string{op.NodeDstLeft, op.NodeDstRight}
+	ranges := []ranje.Ident{op.rL, op.rR}
+	nodeIDs := []string{op.NodeLeft, op.NodeRight}
 
 	g, _ := errgroup.WithContext(context.Background())
 	for n := range sides {
@@ -242,7 +241,7 @@ func (op *SplitOp) serve() {
 	}
 
 	// TODO: Should this happen via CompletePlacement, too?
-	r0, err := op.Keyspace.GetByIdent(op.RangeSrc)
+	r0, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
 		fmt.Printf("Split (Serve) failed: %s\n", err.Error())
 		return

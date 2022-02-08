@@ -89,7 +89,7 @@ func (bs *balancerServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.Jo
 	bs.bal.Operation(JoinRequest{
 		RangeLeft:  *left,
 		RangeRight: *right,
-		NodeDst:    node,
+		Node:       node,
 	})
 
 	return &pb.JoinResponse{}, nil

@@ -28,13 +28,13 @@ type JoinOp struct {
 	state    OpJoinState
 
 	// Inputs
-	RangeSrcLeft  ranje.Ident
-	RangeSrcRight ranje.Ident
-	NodeDst       string
+	RangeLeft  ranje.Ident
+	RangeRight ranje.Ident
+	Node       string
 
 	// Set by Init after src range is joined.
 	// TODO: Better to look up via Range.Child every time?
-	rangeDst ranje.Ident
+	r ranje.Ident
 }
 
 func (op *JoinOp) Run() {
@@ -69,13 +69,13 @@ func (op *JoinOp) Run() {
 }
 
 func (op *JoinOp) init() OpJoinState {
-	r1, err := op.Keyspace.GetByIdent(op.RangeSrcLeft)
+	r1, err := op.Keyspace.GetByIdent(op.RangeLeft)
 	if err != nil {
 		fmt.Printf("Join (init, left) failed: %s\n", err.Error())
 		return OpJoinFailed
 	}
 
-	r2, err := op.Keyspace.GetByIdent(op.RangeSrcRight)
+	r2, err := op.Keyspace.GetByIdent(op.RangeRight)
 	if err != nil {
 		fmt.Printf("Join (init, right) failed: %s\n", err.Error())
 		return OpJoinFailed
@@ -91,7 +91,7 @@ func (op *JoinOp) init() OpJoinState {
 	}
 
 	// ???
-	op.rangeDst = r3.Meta.Ident
+	op.r = r3.Meta.Ident
 
 	fmt.Printf("Joining: %s, %s -> %s\n", r1, r2, r3)
 	return OpJoinTake
@@ -100,7 +100,7 @@ func (op *JoinOp) init() OpJoinState {
 func (op *JoinOp) take() OpJoinState {
 
 	sides := [2]string{"p1", "p2"}
-	rangeIDs := []ranje.Ident{op.RangeSrcLeft, op.RangeSrcRight}
+	rangeIDs := []ranje.Ident{op.RangeLeft, op.RangeRight}
 
 	// TODO: Pass the context into Take, to cancel both together.
 	g, _ := errgroup.WithContext(context.Background())
@@ -142,19 +142,19 @@ func (op *JoinOp) take() OpJoinState {
 }
 
 func (op *JoinOp) give() OpJoinState {
-	err := toState(op.Keyspace, op.rangeDst, ranje.Placing)
+	err := toState(op.Keyspace, op.r, ranje.Placing)
 	if err != nil {
 		fmt.Printf("Join (give) failed: %s\n", err.Error())
 		return OpJoinFailed
 	}
 
-	r3, err := op.Keyspace.GetByIdent(op.rangeDst)
+	r3, err := op.Keyspace.GetByIdent(op.r)
 	if err != nil {
 		fmt.Printf("%s\n", err.Error())
 		return OpJoinFailed
 	}
 
-	p3, err := ranje.NewPlacement(r3, op.NodeDst)
+	p3, err := ranje.NewPlacement(r3, op.Node)
 	if err != nil {
 		// TODO: wtf to do here? the range is fucked
 		return OpJoinFailed
@@ -183,7 +183,7 @@ func (op *JoinOp) give() OpJoinState {
 
 func (op *JoinOp) drop() OpJoinState {
 	sides := [2]string{"left", "right"}
-	rangeIDs := []ranje.Ident{op.RangeSrcLeft, op.RangeSrcRight}
+	rangeIDs := []ranje.Ident{op.RangeLeft, op.RangeRight}
 
 	g, _ := errgroup.WithContext(context.Background())
 	for i := range sides {
@@ -217,7 +217,7 @@ func (op *JoinOp) drop() OpJoinState {
 }
 
 func (op *JoinOp) serve() OpJoinState {
-	r, err := op.Keyspace.GetByIdent(op.rangeDst)
+	r, err := op.Keyspace.GetByIdent(op.r)
 	if err != nil {
 		fmt.Printf("Join (serve) failed: %s\n", err.Error())
 		return OpJoinFailed
@@ -237,7 +237,7 @@ func (op *JoinOp) serve() OpJoinState {
 
 func (op *JoinOp) cleanup() OpJoinState {
 	sides := [2]string{"left", "right"}
-	rangeIDs := []ranje.Ident{op.RangeSrcLeft, op.RangeSrcRight}
+	rangeIDs := []ranje.Ident{op.RangeLeft, op.RangeRight}
 
 	g, _ := errgroup.WithContext(context.Background())
 	for i := range sides {

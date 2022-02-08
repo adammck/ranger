@@ -9,18 +9,19 @@ type OpRunner interface {
 	Run(b *Balancer)
 }
 
+// This file is now totally pointless indirection. Remove it.
+
 type MoveRequest struct {
-	Range     ranje.Ident
-	SrcNodeID string
-	Node      string // rename to DestNodeID
+	Range ranje.Ident
+	Node  string
 }
 
 func (req MoveRequest) Run(b *Balancer) {
 	op := operations.MoveOp{
 		Keyspace: b.ks,
 		Roster:   b.rost,
-		RangeSrc: req.Range,
-		NodeDst:  req.Node,
+		Range:    req.Range,
+		Node:     req.Node,
 	}
 
 	op.Run()
@@ -29,16 +30,16 @@ func (req MoveRequest) Run(b *Balancer) {
 type JoinRequest struct {
 	RangeLeft  ranje.Ident
 	RangeRight ranje.Ident
-	NodeDst    string
+	Node       string
 }
 
 func (req JoinRequest) Run(b *Balancer) {
 	op := operations.JoinOp{
-		Keyspace:      b.ks,
-		Roster:        b.rost,
-		RangeSrcLeft:  req.RangeLeft,
-		RangeSrcRight: req.RangeRight,
-		NodeDst:       req.NodeDst,
+		Keyspace:   b.ks,
+		Roster:     b.rost,
+		RangeLeft:  req.RangeLeft,
+		RangeRight: req.RangeRight,
+		Node:       req.Node,
 	}
 
 	op.Run()
@@ -53,12 +54,12 @@ type SplitRequest struct {
 
 func (req SplitRequest) Run(b *Balancer) {
 	op := operations.SplitOp{
-		Keyspace:     b.ks,
-		Roster:       b.rost,
-		RangeSrc:     req.Range,
-		Boundary:     req.Boundary,
-		NodeDstLeft:  req.NodeLeft,
-		NodeDstRight: req.NodeRight,
+		Keyspace:  b.ks,
+		Roster:    b.rost,
+		Range:     req.Range,
+		Boundary:  req.Boundary,
+		NodeLeft:  req.NodeLeft,
+		NodeRight: req.NodeRight,
 	}
 
 	op.Run()

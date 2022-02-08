@@ -10,14 +10,14 @@ import (
 type MoveOpState uint8
 
 const (
-	Init MoveOpState = iota // -> Failed, Taking, Giving
-	Failed
-	Complete
+	OpMoveInit MoveOpState = iota // -> Failed, Taking, Giving
+	OpMoveFailed
+	OpMoveComplete
 
-	Taking       // -> Failed, Giving
-	Giving       // -> Failed, FetchWaiting
-	FetchWaiting // -> Failed, Serving
-	Serving      // -> Failed, Complete
+	OpMoveTaking       // -> Failed, Giving
+	OpMoveGiving       // -> Failed, FetchWaiting
+	OpMoveFetchWaiting // -> Failed, Serving
+	OpMoveServing      // -> Failed, Complete
 )
 
 type MoveOp struct {
@@ -26,8 +26,8 @@ type MoveOp struct {
 	state    MoveOpState
 
 	// Inputs
-	RangeSrc ranje.Ident // TODO: Rename to RangeID
-	NodeDst  string
+	Range ranje.Ident
+	Node  string
 }
 
 func (op *MoveOp) Run() {
@@ -35,22 +35,22 @@ func (op *MoveOp) Run() {
 
 	for {
 		switch s {
-		case Failed, Complete:
+		case OpMoveFailed, OpMoveComplete:
 			return
 
-		case Init:
+		case OpMoveInit:
 			s = op.init()
 
-		case Taking:
+		case OpMoveTaking:
 			s = op.take()
 
-		case Giving:
+		case OpMoveGiving:
 			s = op.give()
 
-		case FetchWaiting:
+		case OpMoveFetchWaiting:
 			s = op.fetchWait()
 
-		case Serving:
+		case OpMoveServing:
 			s = op.serve()
 		}
 
@@ -64,10 +64,10 @@ func (op *MoveOp) Run() {
 func (op *MoveOp) init() MoveOpState {
 	var err error
 
-	r, err := op.Keyspace.GetByIdent(op.RangeSrc)
+	r, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
 		fmt.Printf("Move (init) failed: %s\n", err.Error())
-		return Failed
+		return OpMoveFailed
 	}
 
 	// If the range is currently ready, it's placed on some node.
@@ -84,46 +84,46 @@ func (op *MoveOp) init() MoveOpState {
 
 	} else {
 		fmt.Printf("unexpected range state?! %s\n", r.State())
-		return Failed
+		return OpMoveFailed
 	}
 
-	return Giving
+	return OpMoveGiving
 }
 
 func (op *MoveOp) take() MoveOpState {
-	r, err := op.Keyspace.GetByIdent(op.RangeSrc)
+	r, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
 		fmt.Printf("Move (take) failed: %s\n", err.Error())
-		return Failed
+		return OpMoveFailed
 	}
 
 	p := r.Placement()
 	if p == nil {
 		fmt.Printf("Move (take) failed: Placement returned nil")
-		return Failed
+		return OpMoveFailed
 	}
 
 	err = take(op.Roster, p)
 	if err != nil {
 		fmt.Printf("Move (take) failed: %s\n", err.Error())
 		r.MustState(ranje.Ready) // ???
-		return Failed
+		return OpMoveFailed
 	}
 
-	return Giving
+	return OpMoveGiving
 }
 
 func (op *MoveOp) give() MoveOpState {
-	r, err := op.Keyspace.GetByIdent(op.RangeSrc)
+	r, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
 		fmt.Printf("%s\n", err.Error())
-		return Failed
+		return OpMoveFailed
 	}
 
-	p, err := ranje.NewPlacement(r, op.NodeDst)
+	p, err := ranje.NewPlacement(r, op.Node)
 	if err != nil {
 		// TODO: wtf to do here? the range is fucked
-		return Failed
+		return OpMoveFailed
 	}
 
 	err = give(op.Roster, r, p)
@@ -132,7 +132,7 @@ func (op *MoveOp) give() MoveOpState {
 
 		// TODO: Repair the situation somehow.
 		r.MustState(ranje.PlaceError)
-		return Failed
+		return OpMoveFailed
 	}
 
 	// If the placement went straight to Ready, we're done. (This can happen
@@ -140,23 +140,23 @@ func (op *MoveOp) give() MoveOpState {
 	// happens very quickly.)
 	if p.State() == ranje.SpReady {
 		r.CompleteNextPlacement()
-		return Complete
+		return OpMoveComplete
 	}
 
-	return FetchWaiting
+	return OpMoveFetchWaiting
 }
 
 func (op *MoveOp) fetchWait() MoveOpState {
-	r, err := op.Keyspace.GetByIdent(op.RangeSrc)
+	r, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
 		fmt.Printf("%s\n", err.Error())
-		return Failed
+		return OpMoveFailed
 	}
 
-	p, err := ranje.NewPlacement(r, op.NodeDst)
+	p, err := ranje.NewPlacement(r, op.Node)
 	if err != nil {
 		// TODO: wtf to do here? the range is fucked
-		return Failed
+		return OpMoveFailed
 	}
 
 	err = p.FetchWait()
@@ -166,22 +166,22 @@ func (op *MoveOp) fetchWait() MoveOpState {
 
 		// TODO: Repair the situation somehow.
 		r.MustState(ranje.PlaceError)
-		return Failed
+		return OpMoveFailed
 	}
 
-	return Serving
+	return OpMoveServing
 }
 
 func (op *MoveOp) serve() MoveOpState {
-	r, err := op.Keyspace.GetByIdent(op.RangeSrc)
+	r, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
 		fmt.Printf("%s\n", err.Error())
-		return Failed
+		return OpMoveFailed
 	}
 
-	p, err := ranje.NewPlacement(r, op.NodeDst)
+	p, err := ranje.NewPlacement(r, op.Node)
 	if err != nil {
-		return Failed
+		return OpMoveFailed
 	}
 
 	err = serve(op.Roster, p)
@@ -190,11 +190,11 @@ func (op *MoveOp) serve() MoveOpState {
 
 		// TODO: Repair the situation somehow.
 		r.MustState(ranje.PlaceError)
-		return Failed
+		return OpMoveFailed
 	}
 
 	r.CompleteNextPlacement()
 	r.MustState(ranje.Ready)
 
-	return Complete
+	return OpMoveComplete
 }
