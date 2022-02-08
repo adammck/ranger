@@ -1,7 +1,9 @@
 package balancer
 
 import (
-	"github.com/adammck/ranger/pkg/operations"
+	"github.com/adammck/ranger/pkg/operations/join"
+	"github.com/adammck/ranger/pkg/operations/move"
+	"github.com/adammck/ranger/pkg/operations/split"
 	"github.com/adammck/ranger/pkg/ranje"
 )
 
@@ -17,7 +19,7 @@ type MoveRequest struct {
 }
 
 func (req MoveRequest) Run(b *Balancer) {
-	op := operations.MoveOp{
+	op := move.MoveOp{
 		Keyspace: b.ks,
 		Roster:   b.rost,
 		Range:    req.Range,
@@ -34,7 +36,7 @@ type JoinRequest struct {
 }
 
 func (req JoinRequest) Run(b *Balancer) {
-	op := operations.JoinOp{
+	op := join.JoinOp{
 		Keyspace:   b.ks,
 		Roster:     b.rost,
 		RangeLeft:  req.RangeLeft,
@@ -53,7 +55,7 @@ type SplitRequest struct {
 }
 
 func (req SplitRequest) Run(b *Balancer) {
-	op := operations.SplitOp{
+	op := split.SplitOp{
 		Keyspace:  b.ks,
 		Roster:    b.rost,
 		Range:     req.Range,

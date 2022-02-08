@@ -1,30 +1,31 @@
-package operations
+package split
 
 import (
 	"context"
 	"fmt"
 
+	"github.com/adammck/ranger/pkg/operations/utils"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
 	"golang.org/x/sync/errgroup"
 )
 
-type OpSpState uint8
+type state uint8
 
 const (
-	OpSpInit OpSpState = iota
-	OpSpFailed
-	OpSpComplete
-	OpSpTake
-	OpSpGive
-	OpSpDrop
-	OpSpServe
+	Init state = iota
+	Failed
+	Complete
+	Take
+	Give
+	Drop
+	Serve
 )
 
 type SplitOp struct {
 	Keyspace *ranje.Keyspace
 	Roster   *roster.Roster
-	state    OpSpState
+	state    state
 
 	// Inputs
 	Range     ranje.Ident
@@ -41,22 +42,22 @@ type SplitOp struct {
 func (op *SplitOp) Run() {
 	for {
 		switch op.state {
-		case OpSpFailed, OpSpComplete:
+		case Failed, Complete:
 			return
 
-		case OpSpInit:
+		case Init:
 			op.init()
 
-		case OpSpTake:
+		case Take:
 			op.take()
 
-		case OpSpGive:
+		case Give:
 			op.give()
 
-		case OpSpDrop:
+		case Drop:
 			op.drop()
 
-		case OpSpServe:
+		case Serve:
 			op.serve()
 		}
 	}
@@ -93,7 +94,7 @@ func (op *SplitOp) init() {
 	op.rR = r12[1]
 
 	fmt.Printf("Splitting: %s -> %s, %s\n", op.Range.String(), op.rL.String(), op.rR.String())
-	op.state = OpSpTake
+	op.state = Take
 }
 
 func (op *SplitOp) take() {
@@ -103,13 +104,13 @@ func (op *SplitOp) take() {
 		return
 	}
 
-	err = take(op.Roster, r0.Placement())
+	err = utils.Take(op.Roster, r0.Placement())
 	if err != nil {
 		fmt.Printf("Split (Take) failed: %s\n", err.Error())
 		return
 	}
 
-	op.state = OpSpGive
+	op.state = Give
 }
 
 func (op *SplitOp) give() {
@@ -172,7 +173,7 @@ func (op *SplitOp) give() {
 		return
 	}
 
-	op.state = OpSpDrop
+	op.state = Drop
 }
 
 func (op *SplitOp) drop() {
@@ -182,13 +183,13 @@ func (op *SplitOp) drop() {
 		return
 	}
 
-	err = drop(op.Roster, r.Placement())
+	err = utils.Drop(op.Roster, r.Placement())
 	if err != nil {
 		fmt.Printf("Split (Drop) failed: %s\n", err.Error())
 		return
 	}
 
-	op.state = OpSpServe
+	op.state = Serve
 }
 
 func (op *SplitOp) serve() {

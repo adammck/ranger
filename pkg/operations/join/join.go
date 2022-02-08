@@ -1,31 +1,32 @@
-package operations
+package join
 
 import (
 	"context"
 	"fmt"
 
+	"github.com/adammck/ranger/pkg/operations/utils"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
 	"golang.org/x/sync/errgroup"
 )
 
-type OpJoinState uint8
+type state uint8
 
 const (
-	OpJoinInit OpJoinState = iota
-	OpJoinFailed
-	OpJoinComplete
-	OpJoinTake
-	OpJoinGive
-	OpJoinDrop
-	OpJoinServe
-	OpJoinCleanup
+	Init state = iota
+	Failed
+	Complete
+	Take
+	Give
+	Drop
+	Serve
+	Cleanup
 )
 
 type JoinOp struct {
 	Keyspace *ranje.Keyspace
 	Roster   *roster.Roster
-	state    OpJoinState
+	state    state
 
 	// Inputs
 	RangeLeft  ranje.Ident
@@ -42,25 +43,25 @@ func (op *JoinOp) Run() {
 
 	for {
 		switch op.state {
-		case OpJoinFailed, OpJoinComplete:
+		case Failed, Complete:
 			return
 
-		case OpJoinInit:
+		case Init:
 			s = op.init()
 
-		case OpJoinTake:
+		case Take:
 			s = op.take()
 
-		case OpJoinGive:
+		case Give:
 			s = op.give()
 
-		case OpJoinDrop:
+		case Drop:
 			s = op.drop()
 
-		case OpJoinServe:
+		case Serve:
 			s = op.serve()
 
-		case OpJoinCleanup:
+		case Cleanup:
 			s = op.cleanup()
 		}
 
@@ -68,17 +69,17 @@ func (op *JoinOp) Run() {
 	}
 }
 
-func (op *JoinOp) init() OpJoinState {
+func (op *JoinOp) init() state {
 	r1, err := op.Keyspace.GetByIdent(op.RangeLeft)
 	if err != nil {
 		fmt.Printf("Join (init, left) failed: %s\n", err.Error())
-		return OpJoinFailed
+		return Failed
 	}
 
 	r2, err := op.Keyspace.GetByIdent(op.RangeRight)
 	if err != nil {
 		fmt.Printf("Join (init, right) failed: %s\n", err.Error())
-		return OpJoinFailed
+		return Failed
 	}
 
 	// Moves r1 and r2 into Joining state.
@@ -87,17 +88,17 @@ func (op *JoinOp) init() OpJoinState {
 	r3, err := op.Keyspace.JoinTwo(r1, r2)
 	if err != nil {
 		fmt.Printf("Join failed: %s\n", err.Error())
-		return OpJoinFailed
+		return Failed
 	}
 
 	// ???
 	op.r = r3.Meta.Ident
 
 	fmt.Printf("Joining: %s, %s -> %s\n", r1, r2, r3)
-	return OpJoinTake
+	return Take
 }
 
-func (op *JoinOp) take() OpJoinState {
+func (op *JoinOp) take() state {
 
 	sides := [2]string{"p1", "p2"}
 	rangeIDs := []ranje.Ident{op.RangeLeft, op.RangeRight}
@@ -123,7 +124,7 @@ func (op *JoinOp) take() OpJoinState {
 				return fmt.Errorf("%s: NextPlacement returned nil", s)
 			}
 
-			err = take(op.Roster, p)
+			err = utils.Take(op.Roster, p)
 			if err != nil {
 				return err
 			}
@@ -135,39 +136,39 @@ func (op *JoinOp) take() OpJoinState {
 	err := g.Wait()
 	if err != nil {
 		fmt.Printf("Join (Take) failed: %s\n", err.Error())
-		return OpJoinFailed
+		return Failed
 	}
 
-	return OpJoinGive
+	return Give
 }
 
-func (op *JoinOp) give() OpJoinState {
-	err := toState(op.Keyspace, op.r, ranje.Placing)
+func (op *JoinOp) give() state {
+	err := utils.ToState(op.Keyspace, op.r, ranje.Placing)
 	if err != nil {
 		fmt.Printf("Join (give) failed: %s\n", err.Error())
-		return OpJoinFailed
+		return Failed
 	}
 
 	r3, err := op.Keyspace.GetByIdent(op.r)
 	if err != nil {
 		fmt.Printf("%s\n", err.Error())
-		return OpJoinFailed
+		return Failed
 	}
 
 	p3, err := ranje.NewPlacement(r3, op.Node)
 	if err != nil {
 		// TODO: wtf to do here? the range is fucked
-		return OpJoinFailed
+		return Failed
 	}
 
-	err = give(op.Roster, r3, p3)
+	err = utils.Give(op.Roster, r3, p3)
 	if err != nil {
 		fmt.Printf("Join (Give) failed: %s\n", err.Error())
 		// This is a bad situation; the range has been taken from the src, but
 		// can't be given to the dest! So we stay in Moving forever.
 		// TODO: Repair the situation somehow.
 		//r.MustState(ranje.MoveError)
-		return OpJoinFailed
+		return Failed
 	}
 
 	// Wait for the placement to become Ready (which it might already be).
@@ -175,13 +176,13 @@ func (op *JoinOp) give() OpJoinState {
 	if err != nil {
 		// TODO: Provide a more useful error here
 		fmt.Printf("Join (Fetch) failed: %s\n", err.Error())
-		return OpJoinFailed
+		return Failed
 	}
 
-	return OpJoinDrop
+	return Drop
 }
 
-func (op *JoinOp) drop() OpJoinState {
+func (op *JoinOp) drop() state {
 	sides := [2]string{"left", "right"}
 	rangeIDs := []ranje.Ident{op.RangeLeft, op.RangeRight}
 
@@ -196,7 +197,7 @@ func (op *JoinOp) drop() OpJoinState {
 				return fmt.Errorf("GetByIdent (%s): %s", s, err.Error())
 			}
 
-			err = drop(op.Roster, r.Placement())
+			err = utils.Drop(op.Roster, r.Placement())
 			if err != nil {
 				return fmt.Errorf("drop (%s): %s", s, err.Error())
 			}
@@ -210,32 +211,32 @@ func (op *JoinOp) drop() OpJoinState {
 		// No range state change. Stay in Moving.
 		// TODO: Repair the situation somehow.
 		fmt.Printf("Join (Drop) failed: %s\n", err.Error())
-		return OpJoinFailed
+		return Failed
 	}
 
-	return OpJoinServe
+	return Serve
 }
 
-func (op *JoinOp) serve() OpJoinState {
+func (op *JoinOp) serve() state {
 	r, err := op.Keyspace.GetByIdent(op.r)
 	if err != nil {
 		fmt.Printf("Join (serve) failed: %s\n", err.Error())
-		return OpJoinFailed
+		return Failed
 	}
 
-	err = serve(op.Roster, r.Placement())
+	err = utils.Serve(op.Roster, r.Placement())
 	if err != nil {
 		fmt.Printf("Join (serve) failed: %s\n", err.Error())
-		return OpJoinFailed
+		return Failed
 	}
 
 	r.CompleteNextPlacement()
 	r.MustState(ranje.Ready)
 
-	return OpJoinCleanup
+	return Cleanup
 }
 
-func (op *JoinOp) cleanup() OpJoinState {
+func (op *JoinOp) cleanup() state {
 	sides := [2]string{"left", "right"}
 	rangeIDs := []ranje.Ident{op.RangeLeft, op.RangeRight}
 
@@ -275,8 +276,8 @@ func (op *JoinOp) cleanup() OpJoinState {
 	err := g.Wait()
 	if err != nil {
 		fmt.Printf("Join (cleanup) failed: %s\n", err.Error())
-		return OpJoinFailed
+		return Failed
 	}
 
-	return OpJoinComplete
+	return Complete
 }

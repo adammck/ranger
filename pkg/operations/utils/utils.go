@@ -1,4 +1,4 @@
-package operations
+package utils
 
 import (
 	"fmt"
@@ -10,7 +10,7 @@ import (
 // Utility functions to stop repeating ourselves.
 // TODO: These are ironically very repetitive; refactor them.
 
-func toState(ks *ranje.Keyspace, rID ranje.Ident, state ranje.StateLocal) error {
+func ToState(ks *ranje.Keyspace, rID ranje.Ident, state ranje.StateLocal) error {
 	r, err := ks.GetByIdent(rID)
 	if err != nil {
 		return err
@@ -24,7 +24,7 @@ func toState(ks *ranje.Keyspace, rID ranje.Ident, state ranje.StateLocal) error 
 	return nil
 }
 
-func give(rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacement) error {
+func Give(rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacement) error {
 	node := rost.NodeByIdent(placement.Addr())
 	if node == nil {
 		return fmt.Errorf("no such node: %s", placement.Addr())
@@ -43,7 +43,7 @@ func give(rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacem
 	return nil
 }
 
-func take(rost *roster.Roster, placement *ranje.DurablePlacement) error {
+func Take(rost *roster.Roster, placement *ranje.DurablePlacement) error {
 	node := rost.NodeByIdent(placement.Addr())
 	if node == nil {
 		return fmt.Errorf("no such node: %s", placement.Addr())
@@ -58,7 +58,7 @@ func take(rost *roster.Roster, placement *ranje.DurablePlacement) error {
 }
 
 // TODO: Can we just take a range here and call+check Placement?
-func drop(rost *roster.Roster, placement *ranje.DurablePlacement) error {
+func Drop(rost *roster.Roster, placement *ranje.DurablePlacement) error {
 	if placement == nil {
 		// This should probably be a panic; how could we possibly have gotten here with a nil placement
 		return fmt.Errorf("nil placement")
@@ -78,7 +78,7 @@ func drop(rost *roster.Roster, placement *ranje.DurablePlacement) error {
 }
 
 // TODO: Can we just take a range here and call+check Placement?
-func serve(rost *roster.Roster, placement *ranje.DurablePlacement) error {
+func Serve(rost *roster.Roster, placement *ranje.DurablePlacement) error {
 	if placement == nil {
 		// This should probably be a panic
 		return fmt.Errorf("nil placement")
