@@ -1,8 +1,6 @@
 package balancer
 
 import (
-	"fmt"
-
 	"github.com/adammck/ranger/pkg/operations"
 	"github.com/adammck/ranger/pkg/ranje"
 )
@@ -18,27 +16,14 @@ type MoveRequest struct {
 }
 
 func (req MoveRequest) Run(b *Balancer) {
-
-	// TODO: Lock ks.ranges!
-	r, err := b.ks.GetByIdent(req.Range)
-	if err != nil {
-		fmt.Printf("Move failed: %s\n", err.Error())
-		return
+	op := operations.MoveOp{
+		Keyspace: b.ks,
+		Roster:   b.rost,
+		RangeSrc: req.Range,
+		NodeDst:  req.Node,
 	}
 
-	nSrc := b.rost.NodeByIdent(req.SrcNodeID)
-	if nSrc == nil {
-		fmt.Printf("Move failed: Src node not found: %s\n", req.SrcNodeID)
-		return
-	}
-
-	n := b.rost.NodeByIdent(req.Node)
-	if n == nil {
-		fmt.Printf("Move failed: No such node: %s\n", req.Node)
-		return
-	}
-
-	operations.Move(r, nSrc, n)
+	op.Run()
 }
 
 type JoinRequest struct {
@@ -48,34 +33,12 @@ type JoinRequest struct {
 }
 
 func (req JoinRequest) Run(b *Balancer) {
-	// TODO: Do these lookups in the operation itself, so they can be lazy and resumable.
-
-	// TODO: Lock ks.ranges!
-	rLeft, err := b.ks.GetByIdent(req.RangeLeft)
-	if err != nil {
-		fmt.Printf("Join failed: %s\n", err.Error())
-		return
-	}
-
-	// TODO: Lock ks.ranges!
-	rRight, err := b.ks.GetByIdent(req.RangeRight)
-	if err != nil {
-		fmt.Printf("Join failed: %s\n", err.Error())
-		return
-	}
-
-	node := b.rost.NodeByIdent(req.NodeDst)
-	if node == nil {
-		fmt.Printf("Join failed: No such node: %s\n", req.NodeDst)
-		return
-	}
-
 	op := operations.JoinOp{
 		Keyspace:      b.ks,
 		Roster:        b.rost,
-		RangeSrcLeft:  rLeft.Meta.Ident,
-		RangeSrcRight: rRight.Meta.Ident,
-		NodeDst:       node.Ident(),
+		RangeSrcLeft:  req.RangeLeft,
+		RangeSrcRight: req.RangeRight,
+		NodeDst:       req.NodeDst,
 	}
 
 	op.Run()

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/adammck/ranger/pkg/ranje"
+	"github.com/adammck/ranger/pkg/roster"
 )
 
 type MoveOpState uint8
@@ -19,22 +20,17 @@ const (
 	Serving      // -> Failed, Complete
 )
 
-type moveOp struct {
-	state MoveOpState
+type MoveOp struct {
+	Keyspace *ranje.Keyspace
+	Roster   *roster.Roster
+	state    MoveOpState
 
-	// inputs; don't touch these after init!
-	r    *ranje.Range
-	nSrc *ranje.Node
-	node *ranje.Node // TODO: Maybe can just take node ident?; also, rename to nDest
-
-	// other state; needs persisting, but how can we persist these bloody pointers? store kind of idents and then look them up in every step.
-	// can maybe hold a pointer back to the keyspace+roster?
-	src  *ranje.DurablePlacement
-	dest *ranje.DurablePlacement
+	// Inputs
+	RangeSrc ranje.Ident // TODO: Rename to RangeID
+	NodeDst  string
 }
 
-func Move(r *ranje.Range, nSrc *ranje.Node, node *ranje.Node) {
-	op := moveOp{r: r, nSrc: nSrc, node: node}
+func (op *MoveOp) Run() {
 	s := op.state
 
 	for {
@@ -65,13 +61,12 @@ func Move(r *ranje.Range, nSrc *ranje.Node, node *ranje.Node) {
 // In order to be robust against interruption, each of these steps must be
 // idempotent! Remember that we may crash at any line.
 
-func (op *moveOp) init() MoveOpState {
+func (op *MoveOp) init() MoveOpState {
 	var err error
 
-	op.dest, err = ranje.NewPlacement(op.r, op.node.Ident())
+	r, err := op.Keyspace.GetByIdent(op.RangeSrc)
 	if err != nil {
-		fmt.Printf("Move failed: error creating placement: %s\n", err.Error())
-		op.r.MustState(ranje.PlaceError)
+		fmt.Printf("Move (init) failed: %s\n", err.Error())
 		return Failed
 	}
 
@@ -79,98 +74,127 @@ func (op *moveOp) init() MoveOpState {
 	// TODO: Now that we have MoveOpState, do we even need a special range state
 	// to indicates that it's moving? Perhaps we can unify the op states into a
 	// single 'some op is happening' state on the range.
-	if op.r.State() == ranje.Ready {
-		op.r.MustState(ranje.Moving)
+	if r.State() == ranje.Ready {
+		r.MustState(ranje.Moving)
 
-	} else if op.r.State() == ranje.Quarantined || op.r.State() == ranje.Pending {
+	} else if r.State() == ranje.Quarantined || r.State() == ranje.Pending {
 		// Not ready, but still eligible to be placed. (This isn't necessarily
 		// an error state. All ranges are pending when created.)
-		op.r.MustState(ranje.Placing)
+		r.MustState(ranje.Placing)
 
 	} else {
-		// TODO: Don't panic! The range is probably already being moved.
-		panic(fmt.Sprintf("unexpectd range state?! %s", op.r.State()))
-		//return Failed
-	}
-
-	op.src = op.r.Placement()
-	if op.src != nil {
-		return Taking
-	}
-
-	return Giving
-}
-
-func (op *moveOp) take() MoveOpState {
-	err := op.nSrc.Take(op.src)
-	if err != nil {
-		fmt.Printf("Take failed: %s\n", err.Error())
-		op.r.MustState(ranje.Ready) // ???
+		fmt.Printf("unexpected range state?! %s\n", r.State())
 		return Failed
 	}
 
 	return Giving
 }
 
-func (op *moveOp) give() MoveOpState {
-
-	// Build the request here to avoid Node having to reach back through us.
-	// TODO: Not sure if this actually makes sense.
-	req, err := op.r.GiveRequest(op.dest)
+func (op *MoveOp) take() MoveOpState {
+	r, err := op.Keyspace.GetByIdent(op.RangeSrc)
 	if err != nil {
-		fmt.Printf("Give failed: error constructing GiveRequest: %s\n", err.Error())
-
-		// TODO: Repair the situation somehow.
-		op.r.MustState(ranje.PlaceError)
+		fmt.Printf("Move (take) failed: %s\n", err.Error())
 		return Failed
 	}
 
-	err = op.node.Give(op.dest, req)
+	p := r.Placement()
+	if p == nil {
+		fmt.Printf("Move (take) failed: Placement returned nil")
+		return Failed
+	}
+
+	err = take(op.Roster, p)
 	if err != nil {
-		fmt.Printf("Give failed: %s\n", err.Error())
+		fmt.Printf("Move (take) failed: %s\n", err.Error())
+		r.MustState(ranje.Ready) // ???
+		return Failed
+	}
+
+	return Giving
+}
+
+func (op *MoveOp) give() MoveOpState {
+	r, err := op.Keyspace.GetByIdent(op.RangeSrc)
+	if err != nil {
+		fmt.Printf("%s\n", err.Error())
+		return Failed
+	}
+
+	p, err := ranje.NewPlacement(r, op.NodeDst)
+	if err != nil {
+		// TODO: wtf to do here? the range is fucked
+		return Failed
+	}
+
+	err = give(op.Roster, r, p)
+	if err != nil {
+		fmt.Printf("Move (give) failed: %s\n", err.Error())
 
 		// TODO: Repair the situation somehow.
-		op.r.MustState(ranje.PlaceError)
+		r.MustState(ranje.PlaceError)
 		return Failed
 	}
 
 	// If the placement went straight to Ready, we're done. (This can happen
 	// when the range isn't being moved from anywhere, or if the transfer
 	// happens very quickly.)
-	if op.dest.State() == ranje.SpReady {
-		op.r.CompleteNextPlacement()
+	if p.State() == ranje.SpReady {
+		r.CompleteNextPlacement()
 		return Complete
 	}
 
 	return FetchWaiting
 }
 
-func (op *moveOp) fetchWait() MoveOpState {
-	err := op.dest.FetchWait()
+func (op *MoveOp) fetchWait() MoveOpState {
+	r, err := op.Keyspace.GetByIdent(op.RangeSrc)
+	if err != nil {
+		fmt.Printf("%s\n", err.Error())
+		return Failed
+	}
+
+	p, err := ranje.NewPlacement(r, op.NodeDst)
+	if err != nil {
+		// TODO: wtf to do here? the range is fucked
+		return Failed
+	}
+
+	err = p.FetchWait()
 	if err != nil {
 		// TODO: Provide a more useful error here
-		fmt.Printf("Fetch failed: %s\n", err.Error())
+		fmt.Printf("Move (fetchWait) failed: %s\n", err.Error())
 
 		// TODO: Repair the situation somehow.
-		op.r.MustState(ranje.PlaceError)
+		r.MustState(ranje.PlaceError)
 		return Failed
 	}
 
 	return Serving
 }
 
-func (op *moveOp) serve() MoveOpState {
-	err := op.node.Serve(op.dest)
+func (op *MoveOp) serve() MoveOpState {
+	r, err := op.Keyspace.GetByIdent(op.RangeSrc)
 	if err != nil {
-		fmt.Printf("Serve failed: %s\n", err.Error())
-
-		// TODO: Repair the situation somehow.
-		op.r.MustState(ranje.PlaceError)
+		fmt.Printf("%s\n", err.Error())
 		return Failed
 	}
 
-	op.r.CompleteNextPlacement()
-	op.r.MustState(ranje.Ready)
+	p, err := ranje.NewPlacement(r, op.NodeDst)
+	if err != nil {
+		return Failed
+	}
+
+	err = serve(op.Roster, p)
+	if err != nil {
+		fmt.Printf("Move (serve) failed: %s\n", err.Error())
+
+		// TODO: Repair the situation somehow.
+		r.MustState(ranje.PlaceError)
+		return Failed
+	}
+
+	r.CompleteNextPlacement()
+	r.MustState(ranje.Ready)
 
 	return Complete
 }
