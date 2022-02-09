@@ -139,7 +139,7 @@ func (op *SplitOp) give() {
 				return fmt.Errorf("NextPlacement (%s) returned nil", sides[n])
 			}
 
-			req, err := r.GiveRequest(p)
+			req, err := r.GiveRequest(p, "") // TODO: currNodeAddr!
 			if err != nil {
 				return fmt.Errorf("GiveRequest (%s) failed: %s", sides[n], err.Error())
 			}

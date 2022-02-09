@@ -25,12 +25,25 @@ func ToState(ks *ranje.Keyspace, rID ranje.Ident, state ranje.StateLocal) error 
 }
 
 func Give(rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacement) error {
+	currNodeAddr := ""
+
+	// Range is currently placed, so look up the node address.
+	if p := rang.Placement(); p != nil {
+		n := rost.NodeByIdent(p.NodeID())
+		if n == nil {
+			// The current node is gone. This is bad!
+			// But probably not fatal for most systems?
+			return fmt.Errorf("current node %s is not found", p.NodeID())
+		}
+		currNodeAddr = n.Addr()
+	}
+
 	node := rost.NodeByIdent(placement.NodeID())
 	if node == nil {
 		return fmt.Errorf("no such node: %s", placement.NodeID())
 	}
 
-	req, err := rang.GiveRequest(placement)
+	req, err := rang.GiveRequest(placement, currNodeAddr)
 	if err != nil {
 		return err
 	}

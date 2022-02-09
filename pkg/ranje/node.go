@@ -68,6 +68,10 @@ func (n *Node) Ident() string {
 	return n.remote.Ident
 }
 
+func (n *Node) Addr() string {
+	return n.remote.Addr()
+}
+
 func (n *Node) String() string {
 	return fmt.Sprintf("N{%s}", n.remote.Ident)
 }

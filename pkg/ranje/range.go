@@ -99,8 +99,9 @@ func (r *Range) MoveSrc() *DurablePlacement {
 	return r.curr
 }
 
+// TODO: This function really doesn't belong here; move it into operation helpers.
 // TODO: Does this actually need the `giving` param?
-func (r *Range) GiveRequest(giving *DurablePlacement) (*pb.GiveRequest, error) {
+func (r *Range) GiveRequest(giving *DurablePlacement, currNodeAddr string) (*pb.GiveRequest, error) {
 	rm := r.Meta.ToProto()
 
 	// Build a list of the other current placement of this exact range. This
@@ -122,7 +123,7 @@ func (r *Range) GiveRequest(giving *DurablePlacement) (*pb.GiveRequest, error) {
 
 		parents = append(parents, &pb.Placement{
 			Range: rm,
-			Node:  p.NodeID(),
+			Node:  currNodeAddr,
 		})
 	}
 
@@ -143,7 +144,7 @@ func addParents(r *Range, parents *[]*pb.Placement) {
 		// it's still placed, such as during a split. Older ranges might not be.
 		node := ""
 		if p := rr.curr; p != nil {
-			node = p.NodeID()
+			panic("not implemented")
 		}
 
 		*parents = append(*parents, &pb.Placement{
