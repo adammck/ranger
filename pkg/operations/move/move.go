@@ -20,6 +20,7 @@ const (
 	Untaking     // -> Failed
 	FetchWaiting // -> Failed, Serving
 	Serving      // -> Failed, Complete
+	// TODO: Drop!
 )
 
 type MoveOp struct {
@@ -206,9 +207,9 @@ func (op *MoveOp) fetchWait() state {
 		return Failed
 	}
 
-	p, err := ranje.NewPlacement(r, op.Node)
-	if err != nil {
-		fmt.Printf("Move (fetchWait) failed: %s\n", err.Error())
+	p := r.NextPlacement()
+	if p == nil {
+		fmt.Printf("Move (fetchWait) failed: NextPlacement is nil")
 		return Failed
 	}
 
@@ -228,9 +229,9 @@ func (op *MoveOp) serve() state {
 		return Failed
 	}
 
-	p, err := ranje.NewPlacement(r, op.Node)
-	if err != nil {
-		fmt.Printf("Move (serve) failed: %s\n", err.Error())
+	p := r.NextPlacement()
+	if p == nil {
+		fmt.Printf("Move (serve) failed: NextPlacement is nil")
 		return Failed
 	}
 
