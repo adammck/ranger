@@ -73,6 +73,13 @@ func (b *Balancer) rebalance() {
 			Range: r.Meta.Ident,
 			Node:  nid,
 		}
+
+		// TODO: There's a race here. The move operation should quickly transition the
+		// range into the Placing state, but if it takes longer than the rebalance loop,
+		// we'll start a second move, since it's still in Pending! To resolve this, make
+		// the init step of operations synchronous (to move the range into the next state
+		// before returning here), and kick off the rest in a goroutine.
+		// This is *probably* only a problem while debugging.
 		go req.Run(b)
 	}
 

@@ -25,6 +25,7 @@ service Node {
   rpc Give (GiveRequest) returns (GiveResponse) {}
   rpc Serve (ServeRequest) returns (ServeResponse) {}
   rpc Take (TakeRequest) returns (TakeResponse) {}
+  rpc Untake (UntakeRequest) returns (UntakeResponse) {}
   rpc Drop (DropRequest) returns (DropResponse) {}
 
   // Controller wants to know the state of ranges
@@ -63,6 +64,13 @@ message TakeRequest {
 }
 
 message TakeResponse {
+}
+
+message UntakeRequest {
+  Ident range = 1;
+}
+
+message UntakeResponse {
 }
 
 message DropRequest {

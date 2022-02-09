@@ -16,7 +16,8 @@ const (
 	Complete
 
 	Taking       // -> Failed, Giving
-	Giving       // -> Failed, FetchWaiting
+	Giving       // -> Failed, Untaking, FetchWaiting
+	Untaking     // -> Failed
 	FetchWaiting // -> Failed, Serving
 	Serving      // -> Failed, Complete
 )
@@ -48,6 +49,9 @@ func (op *MoveOp) Run() {
 		case Giving:
 			s = op.give()
 
+		case Untaking:
+			s = op.untake()
+
 		case FetchWaiting:
 			s = op.fetchWait()
 
@@ -55,6 +59,7 @@ func (op *MoveOp) Run() {
 			s = op.serve()
 		}
 
+		fmt.Printf("Move: %d -> %d\n", op.state, s)
 		op.state = s
 	}
 }
@@ -77,18 +82,18 @@ func (op *MoveOp) init() state {
 	// single 'some op is happening' state on the range.
 	if r.State() == ranje.Ready {
 		r.MustState(ranje.Moving)
+		return Taking
 
 	} else if r.State() == ranje.Quarantined || r.State() == ranje.Pending {
 		// Not ready, but still eligible to be placed. (This isn't necessarily
 		// an error state. All ranges are pending when created.)
 		r.MustState(ranje.Placing)
+		return Giving
 
 	} else {
-		fmt.Printf("unexpected range state?! %s\n", r.State())
+		fmt.Printf("Move (init) failed: unexpected range state?! %s\n", r.State())
 		return Failed
 	}
-
-	return Giving
 }
 
 func (op *MoveOp) take() state {
@@ -117,13 +122,13 @@ func (op *MoveOp) take() state {
 func (op *MoveOp) give() state {
 	r, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
-		fmt.Printf("%s\n", err.Error())
+		fmt.Printf("Move (give) failed: %s\n", err.Error())
 		return Failed
 	}
 
 	p, err := ranje.NewPlacement(r, op.Node)
 	if err != nil {
-		// TODO: wtf to do here? the range is fucked
+		fmt.Printf("Move (give) failed: %s\n", err.Error())
 		return Failed
 	}
 
@@ -131,8 +136,26 @@ func (op *MoveOp) give() state {
 	if err != nil {
 		fmt.Printf("Move (give) failed: %s\n", err.Error())
 
-		// TODO: Repair the situation somehow.
-		r.MustState(ranje.PlaceError)
+		// Clean up p. No return value.
+		r.ClearNextPlacement()
+
+		switch r.State() {
+		case ranje.Placing:
+			// During initial placement, we can just fail without cleanup. The
+			// range is still not assigned. The balancer should retry the
+			// placement, perhaps on a different node.
+			r.MustState(ranje.PlaceError)
+
+		case ranje.Moving:
+			// When moving, we have already taken the range from the src node,
+			// but failed to give it to the dest! We must untake it from the
+			// src, to avoid failing in a state where nobody has the range.
+			return Untaking
+
+		default:
+			panic(fmt.Sprintf("impossible range state: %s", r.State()))
+		}
+
 		return Failed
 	}
 
@@ -141,32 +164,57 @@ func (op *MoveOp) give() state {
 	// happens very quickly.)
 	if p.State() == ranje.SpReady {
 		r.CompleteNextPlacement()
+		r.MustState(ranje.Ready)
 		return Complete
 	}
 
 	return FetchWaiting
 }
 
+func (op *MoveOp) untake() state {
+	r, err := op.Keyspace.GetByIdent(op.Range)
+	if err != nil {
+		fmt.Printf("Move (untake) failed: %s\n", err.Error())
+		return Failed
+	}
+
+	p := r.Placement()
+	if p == nil {
+		fmt.Printf("Move (untake) failed: Placement returned nil")
+		return Failed
+	}
+
+	err = utils.Untake(op.Roster, p)
+	if err != nil {
+		fmt.Printf("Move (untake) failed: %s\n", err.Error())
+		return Failed // TODO: Try again?!
+	}
+
+	// The range is now ready again, because the current placement is ready.
+	// (and the next placement is gone.)
+	r.MustState(ranje.Ready)
+
+	// Always transition into failed, because even though this step succeeded
+	// and service has been restored to src, the move was a failure.
+	return Failed
+}
+
 func (op *MoveOp) fetchWait() state {
 	r, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
-		fmt.Printf("%s\n", err.Error())
+		fmt.Printf("Move (fetchWait) failed: %s\n", err.Error())
 		return Failed
 	}
 
 	p, err := ranje.NewPlacement(r, op.Node)
 	if err != nil {
-		// TODO: wtf to do here? the range is fucked
+		fmt.Printf("Move (fetchWait) failed: %s\n", err.Error())
 		return Failed
 	}
 
 	err = p.FetchWait()
 	if err != nil {
-		// TODO: Provide a more useful error here
 		fmt.Printf("Move (fetchWait) failed: %s\n", err.Error())
-
-		// TODO: Repair the situation somehow.
-		r.MustState(ranje.PlaceError)
 		return Failed
 	}
 
@@ -176,26 +224,23 @@ func (op *MoveOp) fetchWait() state {
 func (op *MoveOp) serve() state {
 	r, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
-		fmt.Printf("%s\n", err.Error())
+		fmt.Printf("Move (serve) failed: %s\n", err.Error())
 		return Failed
 	}
 
 	p, err := ranje.NewPlacement(r, op.Node)
 	if err != nil {
+		fmt.Printf("Move (serve) failed: %s\n", err.Error())
 		return Failed
 	}
 
 	err = utils.Serve(op.Roster, p)
 	if err != nil {
 		fmt.Printf("Move (serve) failed: %s\n", err.Error())
-
-		// TODO: Repair the situation somehow.
-		r.MustState(ranje.PlaceError)
 		return Failed
 	}
 
 	r.CompleteNextPlacement()
 	r.MustState(ranje.Ready)
-
 	return Complete
 }

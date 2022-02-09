@@ -25,9 +25,9 @@ func ToState(ks *ranje.Keyspace, rID ranje.Ident, state ranje.StateLocal) error 
 }
 
 func Give(rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacement) error {
-	node := rost.NodeByIdent(placement.Addr())
+	node := rost.NodeByIdent(placement.NodeID())
 	if node == nil {
-		return fmt.Errorf("no such node: %s", placement.Addr())
+		return fmt.Errorf("no such node: %s", placement.NodeID())
 	}
 
 	req, err := rang.GiveRequest(placement)
@@ -44,12 +44,26 @@ func Give(rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacem
 }
 
 func Take(rost *roster.Roster, placement *ranje.DurablePlacement) error {
-	node := rost.NodeByIdent(placement.Addr())
+	node := rost.NodeByIdent(placement.NodeID())
 	if node == nil {
-		return fmt.Errorf("no such node: %s", placement.Addr())
+		return fmt.Errorf("no such node: %s", placement.NodeID())
 	}
 
 	err := node.Take(placement)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func Untake(rost *roster.Roster, placement *ranje.DurablePlacement) error {
+	node := rost.NodeByIdent(placement.NodeID())
+	if node == nil {
+		return fmt.Errorf("no such node: %s", placement.NodeID())
+	}
+
+	err := node.Untake(placement)
 	if err != nil {
 		return err
 	}
@@ -64,9 +78,9 @@ func Drop(rost *roster.Roster, placement *ranje.DurablePlacement) error {
 		return fmt.Errorf("nil placement")
 	}
 
-	node := rost.NodeByIdent(placement.Addr())
+	node := rost.NodeByIdent(placement.NodeID())
 	if node == nil {
-		return fmt.Errorf("no such node: %s", placement.Addr())
+		return fmt.Errorf("no such node: %s", placement.NodeID())
 	}
 
 	err := node.Drop(placement)
@@ -84,9 +98,9 @@ func Serve(rost *roster.Roster, placement *ranje.DurablePlacement) error {
 		return fmt.Errorf("nil placement")
 	}
 
-	node := rost.NodeByIdent(placement.Addr())
+	node := rost.NodeByIdent(placement.NodeID())
 	if node == nil {
-		return fmt.Errorf("no such node: %s", placement.Addr())
+		return fmt.Errorf("no such node: %s", placement.NodeID())
 	}
 
 	err := node.Serve(placement)

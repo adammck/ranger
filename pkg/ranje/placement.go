@@ -24,7 +24,7 @@ type DurablePlacement struct {
 
 // TODO: Rename this to NodeID; that's what it is now.
 // TODO: Remove this; placements should not be connected to their node, only by ident.
-func (p *DurablePlacement) Addr() string {
+func (p *DurablePlacement) NodeID() string {
 
 	// This should definitely not ever happen
 	if p.nodeID == "" {
@@ -52,7 +52,7 @@ func NewPlacement(r *Range, nodeID string) (*DurablePlacement, error) {
 	// TODO: The placement should not care about this! Call this thing via
 	// ....  range.NewPlacement to check this.
 	if r.next != nil {
-		return nil, fmt.Errorf("range %s already has a next placement: %s", r.String(), r.next.Addr())
+		return nil, fmt.Errorf("range %s already has a next placement: %s", r.String(), r.next.NodeID())
 	}
 
 	r.next = p
@@ -120,6 +120,10 @@ func (p *DurablePlacement) ToState(new StatePlacement) error {
 
 	} else if old == SpTaken {
 		if new == SpDropped { // 8
+			ok = true
+		}
+
+		if new == SpReady {
 			ok = true
 		}
 	}

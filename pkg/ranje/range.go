@@ -122,7 +122,7 @@ func (r *Range) GiveRequest(giving *DurablePlacement) (*pb.GiveRequest, error) {
 
 		parents = append(parents, &pb.Placement{
 			Range: rm,
-			Node:  p.Addr(),
+			Node:  p.NodeID(),
 		})
 	}
 
@@ -143,7 +143,7 @@ func addParents(r *Range, parents *[]*pb.Placement) {
 		// it's still placed, such as during a split. Older ranges might not be.
 		node := ""
 		if p := rr.curr; p != nil {
-			node = p.Addr()
+			node = p.NodeID()
 		}
 
 		*parents = append(*parents, &pb.Placement{
@@ -320,6 +320,19 @@ func (r *Range) ChildStateChanged() error {
 	}
 
 	return nil
+}
+
+// Caller must NOT hold the range lock.
+func (r *Range) ClearNextPlacement() {
+	r.Lock()
+	defer r.Unlock()
+
+	if r.next == nil {
+		// This method should not even be called in this state!
+		panic("can't complete move when next placement is nil")
+	}
+
+	r.next = nil
 }
 
 // Caller must NOT hold the range lock.

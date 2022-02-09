@@ -347,6 +347,26 @@ func (s *nodeServer) Take(ctx context.Context, req *pbr.TakeRequest) (*pbr.TakeR
 	return &pbr.TakeResponse{}, nil
 }
 
+func (s *nodeServer) Untake(ctx context.Context, req *pbr.UntakeRequest) (*pbr.UntakeResponse, error) {
+	// lol
+	s.node.mu.Lock()
+	defer s.node.mu.Unlock()
+
+	ident, rd, err := s.getRangeData(req.Range)
+	if err != nil {
+		return nil, err
+	}
+
+	if rd.state != ranje.StateTaken {
+		return nil, status.Error(codes.FailedPrecondition, "can only untake ranges in the TAKEN state")
+	}
+
+	rd.state = ranje.StateReady
+
+	log.Printf("Untaken: %s", ident)
+	return &pbr.UntakeResponse{}, nil
+}
+
 func (s *nodeServer) Drop(ctx context.Context, req *pbr.DropRequest) (*pbr.DropResponse, error) {
 	// lol
 	s.node.mu.Lock()

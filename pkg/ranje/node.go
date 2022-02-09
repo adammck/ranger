@@ -13,11 +13,13 @@ import (
 )
 
 const (
-	staleTimer   = 10 * time.Second
-	giveTimeout  = 3 * time.Second
-	takeTimeout  = 3 * time.Second
-	dropTimeout  = 3 * time.Second
-	serveTimeout = 3 * time.Second
+	s             = time.Second
+	staleTimer    = 10 * s
+	giveTimeout   = 3 * s
+	takeTimeout   = 3 * s
+	untakeTimeout = 3 * s
+	dropTimeout   = 3 * s
+	serveTimeout  = 3 * s
 )
 
 type Node struct {
@@ -120,6 +122,33 @@ func (n *Node) Take(p *DurablePlacement) error {
 	return p.ToState(SpTaken)
 }
 
+func (n *Node) Untake(p *DurablePlacement) error {
+
+	// TODO: Move this into the callers; state is no business of Node.
+	if p.state != SpTaken {
+		return fmt.Errorf("can't untake range %s from node %s when state is %s",
+			p.rang.String(), p.nodeID, p.state)
+	}
+
+	req := &pb.UntakeRequest{
+		Range: p.rang.Meta.Ident.ToProto(),
+	}
+
+	// TODO: Move outside this func?
+	ctx, cancel := context.WithTimeout(context.Background(), untakeTimeout)
+	defer cancel()
+
+	// TODO: Retry a few times before giving up.
+	_, err := n.client.Untake(ctx, req)
+	if err != nil {
+		// No state change. Placement is still SpTaken.
+		return err
+	}
+
+	// TODO: Also move this into caller?
+	return p.ToState(SpReady)
+}
+
 func (n *Node) Drop(p *DurablePlacement) error {
 	if p.state != SpTaken {
 		return fmt.Errorf("can't drop range %s from node %s when state is %s",
@@ -177,7 +206,7 @@ func (n *Node) Serve(p *DurablePlacement) error {
 
 func (n *Node) Give(p *DurablePlacement, req *pb.GiveRequest) error {
 	if p.state != SpPending {
-		return fmt.Errorf("can't serve range %s from node %s when state is %s (wanted SpPending)",
+		return fmt.Errorf("can't give range %s to node %s when state is %s (wanted SpPending)",
 			p.rang.String(), p.nodeID, p.state)
 	}
 
