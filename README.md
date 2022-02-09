@@ -64,24 +64,25 @@ digraph G {
     }
 
     subgraph cluster_1 {
-        label=PLACEMENT;
+      label=PLACEMENT;
 
-        xPending [label=Pending];
-        xFetching [label=Fetching];
-        xFetched [label=Fetched];
-        xFetchFailed [label=FetchFailed];
-        xReady [label=Ready penwidth=2];
-        xTaken [label=Taken];
-        xDropped [label=Dropped];
-        
-        xPending -> xReady [label=give];
-        xPending -> xFetching [label=give];
-	    xFetching -> xFetched;
-	    xFetching -> xFetchFailed;
-	    xFetched -> xReady  [label=serve];
-	    xFetchFailed -> xPending;
-	    xReady -> xTaken [label=take];
-        xTaken -> xDropped [label=drop];
+      xPending [label=Pending];
+      xFetching [label=Fetching];
+      xFetched [label=Fetched];
+      xFetchFailed [label=FetchFailed];
+      xReady [label=Ready penwidth=2];
+      xTaken [label=Taken];
+      xDropped [label=Dropped];
+
+      xPending -> xReady [label=give];
+      xPending -> xFetching [label=give];
+      xFetching -> xFetched;
+      xFetching -> xFetchFailed;
+      xFetched -> xReady  [label=serve];
+      xFetchFailed -> xPending;
+      xReady -> xTaken [label=take];
+      xTaken -> xDropped [label=drop];
+      xTaken -> xReady [label=untake];
     }
 }
 ```
