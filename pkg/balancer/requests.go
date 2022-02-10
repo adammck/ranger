@@ -8,7 +8,7 @@ import (
 )
 
 type OpRunner interface {
-	Run(b *Balancer)
+	Run(b *Balancer) error
 }
 
 // This file is now totally pointless indirection. Remove it.
@@ -18,15 +18,13 @@ type MoveRequest struct {
 	Node  string
 }
 
-func (req MoveRequest) Run(b *Balancer) {
-	op := move.MoveOp{
+func (req MoveRequest) Run(b *Balancer) error {
+	return move.Run(&move.MoveOp{
 		Keyspace: b.ks,
 		Roster:   b.rost,
 		Range:    req.Range,
 		Node:     req.Node,
-	}
-
-	op.Run()
+	})
 }
 
 type JoinRequest struct {
@@ -35,16 +33,14 @@ type JoinRequest struct {
 	Node       string
 }
 
-func (req JoinRequest) Run(b *Balancer) {
-	op := join.JoinOp{
+func (req JoinRequest) Run(b *Balancer) error {
+	return join.Run(&join.JoinOp{
 		Keyspace:   b.ks,
 		Roster:     b.rost,
 		RangeLeft:  req.RangeLeft,
 		RangeRight: req.RangeRight,
 		Node:       req.Node,
-	}
-
-	op.Run()
+	})
 }
 
 type SplitRequest struct {
@@ -54,15 +50,13 @@ type SplitRequest struct {
 	NodeRight string
 }
 
-func (req SplitRequest) Run(b *Balancer) {
-	op := split.SplitOp{
+func (req SplitRequest) Run(b *Balancer) error {
+	return split.Run(&split.SplitOp{
 		Keyspace:  b.ks,
 		Roster:    b.rost,
 		Range:     req.Range,
 		Boundary:  req.Boundary,
 		NodeLeft:  req.NodeLeft,
 		NodeRight: req.NodeRight,
-	}
-
-	op.Run()
+	})
 }

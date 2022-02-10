@@ -31,6 +31,8 @@ func (bs *balancerServer) Move(ctx context.Context, req *pb.MoveRequest) (*pb.Mo
 		return nil, status.Error(codes.InvalidArgument, "missing: node")
 	}
 
+	// TODO: Block response until the op has completed or failed?
+
 	bs.bal.Operation(MoveRequest{
 		Range: *id,
 		Node:  nid,

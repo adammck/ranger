@@ -39,14 +39,65 @@ type SplitOp struct {
 	rR ranje.Ident
 }
 
-func (op *SplitOp) Run() {
+func Run(op *SplitOp) error {
+	s, err := op.init()
+	if err != nil {
+		return err
+	}
+
+	op.state = s
+
+	// Run the rest of the operation in the background.
+	go op.Go()
+	return nil
+}
+
+func (op *SplitOp) init() (state, error) {
+	r0, err := op.Keyspace.GetByIdent(op.Range)
+	if err != nil {
+		fmt.Printf("Split (Init) failed: %s\n", err.Error())
+		return Failed, nil
+	}
+
+	// Moves r into Splitting state
+	// TODO: Rename MoveSrc! Clearly it's not just that.
+	err = op.Keyspace.DoSplit(r0, op.Boundary)
+	if err != nil {
+		fmt.Printf("Split (Init) failed: DoSplit failed: %s\n", err.Error())
+		return Failed, nil
+	}
+
+	r12 := [2]ranje.Ident{}
+	for n := range r12 {
+		r, err := r0.Child(n)
+		if err != nil {
+			fmt.Printf("Split (Init) failed: r0.Child(%d) returned error: %s\n", n, err.Error())
+			return Failed, nil
+		}
+
+		r12[n] = r.Meta.Ident
+	}
+
+	// Store these (by ident) in the op for later.
+	op.rL = r12[0]
+	op.rR = r12[1]
+
+	fmt.Printf("Splitting: %s -> %s, %s\n", op.Range.String(), op.rL.String(), op.rR.String())
+	op.state = Take
+
+	return Take, nil
+}
+
+func (op *SplitOp) Go() error {
+	// TODO: Move rest of op to goroutine, like Move.
+
 	for {
 		switch op.state {
 		case Failed, Complete:
-			return
+			return nil
 
 		case Init:
-			op.init()
+			panic("split operation re-entered init state")
 
 		case Take:
 			op.take()
@@ -61,40 +112,6 @@ func (op *SplitOp) Run() {
 			op.serve()
 		}
 	}
-}
-
-func (op *SplitOp) init() {
-	r0, err := op.Keyspace.GetByIdent(op.Range)
-	if err != nil {
-		fmt.Printf("Split (Init) failed: %s\n", err.Error())
-		return
-	}
-
-	// Moves r into Splitting state
-	// TODO: Rename MoveSrc! Clearly it's not just that.
-	err = op.Keyspace.DoSplit(r0, op.Boundary)
-	if err != nil {
-		fmt.Printf("Split (Init) failed: DoSplit failed: %s\n", err.Error())
-		return
-	}
-
-	r12 := [2]ranje.Ident{}
-	for n := range r12 {
-		r, err := r0.Child(n)
-		if err != nil {
-			fmt.Printf("Split (Init) failed: r0.Child(%d) returned error: %s\n", n, err.Error())
-			return
-		}
-
-		r12[n] = r.Meta.Ident
-	}
-
-	// Store these (by ident) in the op for later.
-	op.rL = r12[0]
-	op.rR = r12[1]
-
-	fmt.Printf("Splitting: %s -> %s, %s\n", op.Range.String(), op.rL.String(), op.rR.String())
-	op.state = Take
 }
 
 func (op *SplitOp) take() {

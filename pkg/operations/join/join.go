@@ -38,16 +38,58 @@ type JoinOp struct {
 	r ranje.Ident
 }
 
-func (op *JoinOp) Run() {
+func Run(op *JoinOp) error {
+	s, err := op.init()
+	if err != nil {
+		return err
+	}
+
+	op.state = s
+
+	// Run the rest of the operation in the background.
+	go op.Go()
+	return nil
+}
+
+func (op *JoinOp) init() (state, error) {
+	r1, err := op.Keyspace.GetByIdent(op.RangeLeft)
+	if err != nil {
+		fmt.Printf("Join (init, left) failed: %s\n", err.Error())
+		return Failed, nil
+	}
+
+	r2, err := op.Keyspace.GetByIdent(op.RangeRight)
+	if err != nil {
+		fmt.Printf("Join (init, right) failed: %s\n", err.Error())
+		return Failed, nil
+	}
+
+	// Moves r1 and r2 into Joining state.
+	// Starts dest in Pending state. (Like all ranges!)
+	// Returns error if either of the ranges aren't ready, or if they're not adjacent.
+	r3, err := op.Keyspace.JoinTwo(r1, r2)
+	if err != nil {
+		fmt.Printf("Join failed: %s\n", err.Error())
+		return Failed, nil
+	}
+
+	// ???
+	op.r = r3.Meta.Ident
+
+	fmt.Printf("Joining: %s, %s -> %s\n", r1, r2, r3)
+	return Take, nil
+}
+
+func (op *JoinOp) Go() error {
 	s := op.state
 
 	for {
 		switch op.state {
 		case Failed, Complete:
-			return
+			return nil
 
 		case Init:
-			s = op.init()
+			panic("join operation re-entered init state")
 
 		case Take:
 			s = op.take()
@@ -67,35 +109,6 @@ func (op *JoinOp) Run() {
 
 		op.state = s
 	}
-}
-
-func (op *JoinOp) init() state {
-	r1, err := op.Keyspace.GetByIdent(op.RangeLeft)
-	if err != nil {
-		fmt.Printf("Join (init, left) failed: %s\n", err.Error())
-		return Failed
-	}
-
-	r2, err := op.Keyspace.GetByIdent(op.RangeRight)
-	if err != nil {
-		fmt.Printf("Join (init, right) failed: %s\n", err.Error())
-		return Failed
-	}
-
-	// Moves r1 and r2 into Joining state.
-	// Starts dest in Pending state. (Like all ranges!)
-	// Returns error if either of the ranges aren't ready, or if they're not adjacent.
-	r3, err := op.Keyspace.JoinTwo(r1, r2)
-	if err != nil {
-		fmt.Printf("Join failed: %s\n", err.Error())
-		return Failed
-	}
-
-	// ???
-	op.r = r3.Meta.Ident
-
-	fmt.Printf("Joining: %s, %s -> %s\n", r1, r2, r3)
-	return Take
 }
 
 func (op *JoinOp) take() state {

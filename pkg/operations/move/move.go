@@ -33,7 +33,55 @@ type MoveOp struct {
 	Node  string
 }
 
-func (op *MoveOp) Run() {
+func Run(op *MoveOp) error {
+	s, err := op.init()
+	if err != nil {
+		return err
+	}
+
+	op.state = s
+
+	// Run the rest of the operation in the background.
+	go op.Go()
+	return nil
+}
+
+// This is run synchronously, to determine whether the operation can proceed. If
+// so, the rest of the operation is run in a goroutine.
+func (op *MoveOp) init() (state, error) {
+	var err error
+
+	r, err := op.Keyspace.GetByIdent(op.Range)
+	if err != nil {
+		return Failed, fmt.Errorf("can't initiate move: %v", err)
+	}
+
+	// If the range is currently ready, it's placed on some node.
+	// TODO: Now that we have MoveOpState, do we even need a special range state
+	// to indicates that it's moving? Perhaps we can unify the op states into a
+	// single 'some op is happening' state on the range.
+	if r.State() == ranje.Ready {
+
+		// TODO: Sanity check here that we're not trying to move the range to
+		// the node it's already on. The operation fails gracefully even if we
+		// do try to do this, but involves a brief unavailability because it
+		// will Take, then try to Give (and fail), then Untake.
+
+		r.MustState(ranje.Moving)
+		return Taking, nil
+
+	} else if r.State() == ranje.Quarantined || r.State() == ranje.Pending {
+		// Not ready, but still eligible to be placed. (This isn't necessarily
+		// an error state. All ranges are pending when created.)
+		r.MustState(ranje.Placing)
+		return Giving, nil
+
+	} else {
+		return Failed, fmt.Errorf("can't initiate move of range in state %q", r.State())
+	}
+}
+
+func (op *MoveOp) Go() {
 	s := op.state
 
 	for {
@@ -42,7 +90,7 @@ func (op *MoveOp) Run() {
 			return
 
 		case Init:
-			s = op.init()
+			panic("move operation re-entered init state")
 
 		case Taking:
 			s = op.take()
@@ -65,38 +113,6 @@ func (op *MoveOp) Run() {
 
 		fmt.Printf("Move: %d -> %d\n", op.state, s)
 		op.state = s
-	}
-}
-
-// In order to be robust against interruption, each of these steps must be
-// idempotent! Remember that we may crash at any line.
-
-func (op *MoveOp) init() state {
-	var err error
-
-	r, err := op.Keyspace.GetByIdent(op.Range)
-	if err != nil {
-		fmt.Printf("Move (init) failed: %s\n", err.Error())
-		return Failed
-	}
-
-	// If the range is currently ready, it's placed on some node.
-	// TODO: Now that we have MoveOpState, do we even need a special range state
-	// to indicates that it's moving? Perhaps we can unify the op states into a
-	// single 'some op is happening' state on the range.
-	if r.State() == ranje.Ready {
-		r.MustState(ranje.Moving)
-		return Taking
-
-	} else if r.State() == ranje.Quarantined || r.State() == ranje.Pending {
-		// Not ready, but still eligible to be placed. (This isn't necessarily
-		// an error state. All ranges are pending when created.)
-		r.MustState(ranje.Placing)
-		return Giving
-
-	} else {
-		fmt.Printf("Move (init) failed: unexpected range state?! %s\n", r.State())
-		return Failed
 	}
 }
 
