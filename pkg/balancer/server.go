@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/adammck/ranger/pkg/operations/join"
+	"github.com/adammck/ranger/pkg/operations/move"
+	"github.com/adammck/ranger/pkg/operations/split"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"google.golang.org/grpc/codes"
@@ -33,9 +36,11 @@ func (bs *balancerServer) Move(ctx context.Context, req *pb.MoveRequest) (*pb.Mo
 
 	// TODO: Block response until the op has completed or failed?
 
-	bs.bal.Operation(MoveRequest{
-		Range: *id,
-		Node:  nid,
+	bs.bal.Operation(&move.MoveOp{
+		Keyspace: bs.bal.ks,
+		Roster:   bs.bal.rost,
+		Range:    *id,
+		Node:     nid,
 	})
 
 	return &pb.MoveResponse{}, nil
@@ -62,7 +67,9 @@ func (bs *balancerServer) Split(ctx context.Context, req *pb.SplitRequest) (*pb.
 		return nil, status.Error(codes.InvalidArgument, "missing: node_right")
 	}
 
-	bs.bal.Operation(SplitRequest{
+	bs.bal.Operation(&split.SplitOp{
+		Keyspace:  bs.bal.ks,
+		Roster:    bs.bal.rost,
 		Range:     *id,
 		Boundary:  boundary,
 		NodeLeft:  left,
@@ -88,7 +95,9 @@ func (bs *balancerServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.Jo
 		return nil, status.Error(codes.InvalidArgument, "missing: node")
 	}
 
-	bs.bal.Operation(JoinRequest{
+	bs.bal.Operation(&join.JoinOp{
+		Keyspace:   bs.bal.ks,
+		Roster:     bs.bal.rost,
 		RangeLeft:  *left,
 		RangeRight: *right,
 		Node:       node,

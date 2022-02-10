@@ -5,6 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/adammck/ranger/pkg/operations"
+	"github.com/adammck/ranger/pkg/operations/move"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
@@ -17,7 +19,7 @@ type Balancer struct {
 	srv  *grpc.Server
 	bs   *balancerServer
 
-	ops   []OpRunner
+	ops   []operations.Operation
 	opsMu sync.RWMutex
 }
 
@@ -36,7 +38,9 @@ func New(ks *ranje.Keyspace, rost *roster.Roster, srv *grpc.Server) *Balancer {
 	return b
 }
 
-func (b *Balancer) Operation(req OpRunner) {
+// Operations must be scheduled via this method, rather than invoked directly,
+// to avoid races. Only the rebalance loop actually runs them.
+func (b *Balancer) Operation(req operations.Operation) {
 	b.opsMu.Lock()
 	defer b.opsMu.Unlock()
 	b.ops = append(b.ops, req)
@@ -69,11 +73,12 @@ func (b *Balancer) rebalance() {
 		// Perform the placement in a background goroutine. (It's just a special
 		// case of moving with no source.) When it terminates, the range will be
 		// in the Ready or PlaceError states.
-		req := MoveRequest{
-			Range: r.Meta.Ident,
-			Node:  nid,
-		}
-		err := req.Run(b)
+		err := operations.Run(&move.MoveOp{
+			Keyspace: b.ks,
+			Roster:   b.rost,
+			Range:    r.Meta.Ident,
+			Node:     nid,
+		})
 		if err != nil {
 			fmt.Printf("Error placing pending range: %v\n", err)
 		}
@@ -94,7 +99,7 @@ func (b *Balancer) rebalance() {
 	ops := b.ops
 	b.ops = nil
 	for _, req := range ops {
-		err := req.Run(b)
+		err := operations.Run(req)
 		if err != nil {
 			fmt.Printf("Error initiating operation: %v\n", err)
 		}

@@ -39,24 +39,12 @@ type SplitOp struct {
 	rR ranje.Ident
 }
 
-func Run(op *SplitOp) error {
-	s, err := op.init()
-	if err != nil {
-		return err
-	}
-
-	op.state = s
-
-	// Run the rest of the operation in the background.
-	go op.Go()
-	return nil
-}
-
-func (op *SplitOp) init() (state, error) {
+func (op *SplitOp) Init() error {
 	r0, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
 		fmt.Printf("Split (Init) failed: %s\n", err.Error())
-		return Failed, nil
+		op.state = Failed
+		return nil
 	}
 
 	// Moves r into Splitting state
@@ -64,7 +52,8 @@ func (op *SplitOp) init() (state, error) {
 	err = op.Keyspace.DoSplit(r0, op.Boundary)
 	if err != nil {
 		fmt.Printf("Split (Init) failed: DoSplit failed: %s\n", err.Error())
-		return Failed, nil
+		op.state = Failed
+		return nil
 	}
 
 	r12 := [2]ranje.Ident{}
@@ -72,7 +61,8 @@ func (op *SplitOp) init() (state, error) {
 		r, err := r0.Child(n)
 		if err != nil {
 			fmt.Printf("Split (Init) failed: r0.Child(%d) returned error: %s\n", n, err.Error())
-			return Failed, nil
+			op.state = Failed
+			return nil
 		}
 
 		r12[n] = r.Meta.Ident
@@ -84,17 +74,16 @@ func (op *SplitOp) init() (state, error) {
 
 	fmt.Printf("Splitting: %s -> %s, %s\n", op.Range.String(), op.rL.String(), op.rR.String())
 	op.state = Take
-
-	return Take, nil
+	return nil
 }
 
-func (op *SplitOp) Go() error {
+func (op *SplitOp) Run() {
 	// TODO: Move rest of op to goroutine, like Move.
 
 	for {
 		switch op.state {
 		case Failed, Complete:
-			return nil
+			return
 
 		case Init:
 			panic("split operation re-entered init state")

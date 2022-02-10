@@ -33,27 +33,15 @@ type MoveOp struct {
 	Node  string
 }
 
-func Run(op *MoveOp) error {
-	s, err := op.init()
-	if err != nil {
-		return err
-	}
-
-	op.state = s
-
-	// Run the rest of the operation in the background.
-	go op.Go()
-	return nil
-}
-
 // This is run synchronously, to determine whether the operation can proceed. If
 // so, the rest of the operation is run in a goroutine.
-func (op *MoveOp) init() (state, error) {
+func (op *MoveOp) Init() error {
 	var err error
 
 	r, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
-		return Failed, fmt.Errorf("can't initiate move: %v", err)
+		op.state = Failed
+		return fmt.Errorf("can't initiate move: %v", err)
 	}
 
 	// If the range is currently ready, it's placed on some node.
@@ -68,20 +56,23 @@ func (op *MoveOp) init() (state, error) {
 		// will Take, then try to Give (and fail), then Untake.
 
 		r.MustState(ranje.Moving)
-		return Taking, nil
+		op.state = Taking
+		return nil
 
 	} else if r.State() == ranje.Quarantined || r.State() == ranje.Pending {
 		// Not ready, but still eligible to be placed. (This isn't necessarily
 		// an error state. All ranges are pending when created.)
 		r.MustState(ranje.Placing)
-		return Giving, nil
+		op.state = Giving
+		return nil
 
 	} else {
-		return Failed, fmt.Errorf("can't initiate move of range in state %q", r.State())
+		op.state = Failed
+		return fmt.Errorf("can't initiate move of range in state %q", r.State())
 	}
 }
 
-func (op *MoveOp) Go() {
+func (op *MoveOp) Run() {
 	s := op.state
 
 	for {

@@ -38,30 +38,19 @@ type JoinOp struct {
 	r ranje.Ident
 }
 
-func Run(op *JoinOp) error {
-	s, err := op.init()
-	if err != nil {
-		return err
-	}
-
-	op.state = s
-
-	// Run the rest of the operation in the background.
-	go op.Go()
-	return nil
-}
-
-func (op *JoinOp) init() (state, error) {
+func (op *JoinOp) Init() error {
 	r1, err := op.Keyspace.GetByIdent(op.RangeLeft)
 	if err != nil {
 		fmt.Printf("Join (init, left) failed: %s\n", err.Error())
-		return Failed, nil
+		op.state = Failed
+		return nil
 	}
 
 	r2, err := op.Keyspace.GetByIdent(op.RangeRight)
 	if err != nil {
 		fmt.Printf("Join (init, right) failed: %s\n", err.Error())
-		return Failed, nil
+		op.state = Failed
+		return nil
 	}
 
 	// Moves r1 and r2 into Joining state.
@@ -70,23 +59,25 @@ func (op *JoinOp) init() (state, error) {
 	r3, err := op.Keyspace.JoinTwo(r1, r2)
 	if err != nil {
 		fmt.Printf("Join failed: %s\n", err.Error())
-		return Failed, nil
+		op.state = Failed
+		return nil
 	}
 
 	// ???
 	op.r = r3.Meta.Ident
 
 	fmt.Printf("Joining: %s, %s -> %s\n", r1, r2, r3)
-	return Take, nil
+	op.state = Take
+	return nil
 }
 
-func (op *JoinOp) Go() error {
+func (op *JoinOp) Run() {
 	s := op.state
 
 	for {
 		switch op.state {
 		case Failed, Complete:
-			return nil
+			return
 
 		case Init:
 			panic("join operation re-entered init state")
