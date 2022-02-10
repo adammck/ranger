@@ -19,8 +19,8 @@ const (
 	Giving       // -> Failed, Untaking, FetchWaiting
 	Untaking     // -> Failed
 	FetchWaiting // -> Failed, Serving
-	Serving      // -> Failed, Complete
-	// TODO: Drop!
+	Serving      // -> Failed, Complete, Dropping
+	Dropping     // -> Failed, Complete
 )
 
 type MoveOp struct {
@@ -58,6 +58,9 @@ func (op *MoveOp) Run() {
 
 		case Serving:
 			s = op.serve()
+
+		case Dropping:
+			s = op.drop()
 		}
 
 		fmt.Printf("Move: %d -> %d\n", op.state, s)
@@ -164,9 +167,7 @@ func (op *MoveOp) give() state {
 	// when the range isn't being moved from anywhere, or if the transfer
 	// happens very quickly.)
 	if p.State() == ranje.SpReady {
-		r.CompleteNextPlacement()
-		r.MustState(ranje.Ready)
-		return Complete
+		return complete(r)
 	}
 
 	return FetchWaiting
@@ -241,6 +242,47 @@ func (op *MoveOp) serve() state {
 		return Failed
 	}
 
+	switch r.State() {
+	case ranje.Moving:
+		// This is a range move, so even though the next placement is ready to
+		// serve, we still have to clean up the current placement. We could mark
+		// the range as ready now, to minimize the not-ready window, but a drop
+		// operation should be fast, and it would be weird.
+		return Dropping
+
+	case ranje.Placing:
+		// This is an initial placement, so we have no previous node to drop
+		// data from. We're done.
+		return complete(r)
+
+	default:
+		panic(fmt.Sprintf("impossible range state: %s", r.State()))
+	}
+}
+
+func (op *MoveOp) drop() state {
+	r, err := op.Keyspace.GetByIdent(op.Range)
+	if err != nil {
+		fmt.Printf("Move (drop) failed: %s\n", err.Error())
+		return Failed
+	}
+
+	p := r.Placement()
+	if p == nil {
+		fmt.Printf("Move (drop) failed: Placement is nil")
+		return Failed
+	}
+
+	err = utils.Drop(op.Roster, p)
+	if err != nil {
+		fmt.Printf("Move (drop) failed: %s\n", err.Error())
+		return Failed
+	}
+
+	return complete(r)
+}
+
+func complete(r *ranje.Range) state {
 	r.CompleteNextPlacement()
 	r.MustState(ranje.Ready)
 	return Complete
