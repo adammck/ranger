@@ -101,7 +101,7 @@ func getOnce(ctx context.Context, client pbkv.KVClient, key []byte) {
 func putOnce(ctx context.Context, client pbkv.KVClient, key []byte) bool {
 	req := &pbkv.PutRequest{
 		Key:   key,
-		Value: randomKey(rand.Intn(256)),
+		Value: randomKey(1 + rand.Intn(255)),
 	}
 
 	res := "OK"
