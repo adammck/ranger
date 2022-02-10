@@ -62,46 +62,62 @@ func runWorker(ctx context.Context, addr string, interval int) {
 
 	// Keys which have been PUT
 	keys := [][]byte{}
+	vals := [][]byte{}
 
 	for {
 		n := rand.Intn(10)
 
-		// always PUT until minKeys reached, then 10% of reqs until maxKeys.
+		// always PUT new values until minKeys reached, then 10% until maxKeys.
 		if len(keys) < minKeys || (n == 0 && len(keys) < maxKeys) {
 			k := randomKey(8)
-			ok := putOnce(ctx, c, k)
+			v := randomKey(1 + rand.Intn(255))
+			ok := putOnce(ctx, c, k, v)
 			if ok {
 				keys = append(keys, k)
+				vals = append(vals, v)
+			}
+
+		} else if n == 0 {
+			// Replace values 10% of the time after maxKeys
+			i := rand.Intn(len(keys))
+			k := keys[i]
+			v := randomKey(1 + rand.Intn(255))
+			ok := putOnce(ctx, c, k, v)
+			if ok {
+				vals[i] = v
 			}
 
 		} else {
 			// GET a random key which we have put.
-			getOnce(ctx, c, keys[rand.Intn(len(keys))])
+			i := rand.Intn(len(keys))
+			getOnce(ctx, c, keys[i], vals[i])
 		}
 
 		time.Sleep(time.Duration(rand.Intn(interval)) * time.Millisecond)
 	}
 }
 
-func getOnce(ctx context.Context, client pbkv.KVClient, key []byte) {
+func getOnce(ctx context.Context, client pbkv.KVClient, key []byte, val []byte) {
 	req := &pbkv.GetRequest{
 		Key: key,
 	}
 
-	res := "OK"
+	status := "OK"
 
-	_, err := client.Get(ctx, req)
+	res, err := client.Get(ctx, req)
 	if err != nil {
-		res = fmt.Sprintf("Error: %s", err)
+		status = fmt.Sprintf("Error: %s", err)
+	} else if string(res.Value) != string(val) {
+		status = fmt.Sprintf("Bad: %q != %q", val, res.Value)
 	}
 
-	fmt.Printf("GET: %s -- %s\n", req.Key, res)
+	fmt.Printf("GET: %s -- %s\n", req.Key, status)
 }
 
-func putOnce(ctx context.Context, client pbkv.KVClient, key []byte) bool {
+func putOnce(ctx context.Context, client pbkv.KVClient, key []byte, val []byte) bool {
 	req := &pbkv.PutRequest{
 		Key:   key,
-		Value: randomKey(1 + rand.Intn(255)),
+		Value: val,
 	}
 
 	res := "OK"
