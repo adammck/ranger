@@ -11,16 +11,15 @@ import (
 type state uint8
 
 const (
-	Init state = iota // -> Failed, Taking, Giving
+	Init state = iota
 	Failed
 	Complete
-
-	Taking       // -> Failed, Giving
-	Giving       // -> Failed, Untaking, FetchWaiting
-	Untaking     // -> Failed
-	FetchWaiting // -> Failed, Serving
-	Serving      // -> Failed, Complete, Dropping
-	Dropping     // -> Failed, Complete
+	Take
+	Give
+	Untake
+	FetchWait
+	Serve
+	Drop
 )
 
 type MoveOp struct {
@@ -40,8 +39,7 @@ func (op *MoveOp) Init() error {
 
 	r, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
-		op.state = Failed
-		return fmt.Errorf("can't initiate move: %v", err)
+		return fmt.Errorf("can't initiate move; GetByIdent failed: %v", err)
 	}
 
 	// If the range is currently ready, it's placed on some node.
@@ -56,20 +54,19 @@ func (op *MoveOp) Init() error {
 		// will Take, then try to Give (and fail), then Untake.
 
 		r.MustState(ranje.Moving)
-		op.state = Taking
+		op.state = Take
 		return nil
 
 	} else if r.State() == ranje.Quarantined || r.State() == ranje.Pending {
 		// Not ready, but still eligible to be placed. (This isn't necessarily
 		// an error state. All ranges are pending when created.)
 		r.MustState(ranje.Placing)
-		op.state = Giving
+		op.state = Give
 		return nil
 
-	} else {
-		op.state = Failed
-		return fmt.Errorf("can't initiate move of range in state %q", r.State())
 	}
+
+	return fmt.Errorf("can't initiate move of range in state %q", r.State())
 }
 
 func (op *MoveOp) Run() {
@@ -83,22 +80,22 @@ func (op *MoveOp) Run() {
 		case Init:
 			panic("move operation re-entered init state")
 
-		case Taking:
+		case Take:
 			s = op.take()
 
-		case Giving:
+		case Give:
 			s = op.give()
 
-		case Untaking:
+		case Untake:
 			s = op.untake()
 
-		case FetchWaiting:
+		case FetchWait:
 			s = op.fetchWait()
 
-		case Serving:
+		case Serve:
 			s = op.serve()
 
-		case Dropping:
+		case Drop:
 			s = op.drop()
 		}
 
@@ -127,7 +124,7 @@ func (op *MoveOp) take() state {
 		return Failed
 	}
 
-	return Giving
+	return Give
 }
 
 func (op *MoveOp) give() state {
@@ -161,7 +158,7 @@ func (op *MoveOp) give() state {
 			// When moving, we have already taken the range from the src node,
 			// but failed to give it to the dest! We must untake it from the
 			// src, to avoid failing in a state where nobody has the range.
-			return Untaking
+			return Untake
 
 		default:
 			panic(fmt.Sprintf("impossible range state: %s", r.State()))
@@ -177,7 +174,7 @@ func (op *MoveOp) give() state {
 		return complete(r)
 	}
 
-	return FetchWaiting
+	return FetchWait
 }
 
 func (op *MoveOp) untake() state {
@@ -227,7 +224,7 @@ func (op *MoveOp) fetchWait() state {
 		return Failed
 	}
 
-	return Serving
+	return Serve
 }
 
 func (op *MoveOp) serve() state {
@@ -255,7 +252,7 @@ func (op *MoveOp) serve() state {
 		// serve, we still have to clean up the current placement. We could mark
 		// the range as ready now, to minimize the not-ready window, but a drop
 		// operation should be fast, and it would be weird.
-		return Dropping
+		return Drop
 
 	case ranje.Placing:
 		// This is an initial placement, so we have no previous node to drop

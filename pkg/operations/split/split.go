@@ -42,43 +42,37 @@ type SplitOp struct {
 func (op *SplitOp) Init() error {
 	r0, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
-		fmt.Printf("Split (Init) failed: %s\n", err.Error())
-		op.state = Failed
-		return nil
+		return fmt.Errorf("can't initiate split; GetByIdent failed: %v", err)
 	}
 
 	// Moves r into Splitting state
 	// TODO: Rename MoveSrc! Clearly it's not just that.
 	err = op.Keyspace.DoSplit(r0, op.Boundary)
 	if err != nil {
-		fmt.Printf("Split (Init) failed: DoSplit failed: %s\n", err.Error())
-		op.state = Failed
-		return nil
+		return fmt.Errorf("can't initiate split; DoSplit failed: %v", err)
 	}
 
 	r12 := [2]ranje.Ident{}
 	for n := range r12 {
 		r, err := r0.Child(n)
 		if err != nil {
-			fmt.Printf("Split (Init) failed: r0.Child(%d) returned error: %s\n", n, err.Error())
-			op.state = Failed
-			return nil
+			return fmt.Errorf("can't initiate split; r0.Child(%d) failed: %v", n, err)
 		}
 
 		r12[n] = r.Meta.Ident
 	}
 
 	// Store these (by ident) in the op for later.
+	// TODO: Get rid of this; do the lookup every time.
 	op.rL = r12[0]
 	op.rR = r12[1]
 
-	fmt.Printf("Splitting: %s -> %s, %s\n", op.Range.String(), op.rL.String(), op.rR.String())
 	op.state = Take
 	return nil
 }
 
 func (op *SplitOp) Run() {
-	// TODO: Move rest of op to goroutine, like Move.
+	s := op.state
 
 	for {
 		switch op.state {
@@ -89,37 +83,40 @@ func (op *SplitOp) Run() {
 			panic("split operation re-entered init state")
 
 		case Take:
-			op.take()
+			s = op.take()
 
 		case Give:
-			op.give()
+			s = op.give()
 
 		case Drop:
-			op.drop()
+			s = op.drop()
 
 		case Serve:
-			op.serve()
+			s = op.serve()
 		}
+
+		fmt.Printf("Split: %d -> %d\n", op.state, s)
+		op.state = s
 	}
 }
 
-func (op *SplitOp) take() {
+func (op *SplitOp) take() state {
 	r0, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
 		fmt.Printf("Split (Take) failed: %s\n", err.Error())
-		return
+		return Failed
 	}
 
 	err = utils.Take(op.Roster, r0.Placement())
 	if err != nil {
 		fmt.Printf("Split (Take) failed: %s\n", err.Error())
-		return
+		return Failed
 	}
 
-	op.state = Give
+	return Give
 }
 
-func (op *SplitOp) give() {
+func (op *SplitOp) give() state {
 	// TODO: Group these together in some ephemeral type?
 	sides := [2]string{"left", "right"}
 	ranges := []ranje.Ident{op.rL, op.rR}
@@ -176,29 +173,29 @@ func (op *SplitOp) give() {
 	err := g.Wait()
 	if err != nil {
 		fmt.Printf("Give failed: %s\n", err.Error())
-		return
+		return Failed
 	}
 
-	op.state = Drop
+	return Drop
 }
 
-func (op *SplitOp) drop() {
+func (op *SplitOp) drop() state {
 	r, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
 		fmt.Printf("Split (Drop) failed: %s\n", err.Error())
-		return
+		return Failed
 	}
 
 	err = utils.Drop(op.Roster, r.Placement())
 	if err != nil {
 		fmt.Printf("Split (Drop) failed: %s\n", err.Error())
-		return
+		return Failed
 	}
 
-	op.state = Serve
+	return Serve
 }
 
-func (op *SplitOp) serve() {
+func (op *SplitOp) serve() state {
 	sides := [2]string{"left", "right"}
 	ranges := []ranje.Ident{op.rL, op.rR}
 	nodeIDs := []string{op.NodeLeft, op.NodeRight}
@@ -244,14 +241,14 @@ func (op *SplitOp) serve() {
 		// No state change. Stay in Moving.
 		// TODO: Repair the situation somehow.
 		fmt.Printf("Serve (Drop) failed: %s\n", err.Error())
-		return
+		return Failed
 	}
 
 	// TODO: Should this happen via CompletePlacement, too?
 	r0, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
 		fmt.Printf("Split (Serve) failed: %s\n", err.Error())
-		return
+		return Failed
 	}
 	r0.Placement().Forget()
 
@@ -264,4 +261,6 @@ func (op *SplitOp) serve() {
 	if err != nil {
 		fmt.Printf("Discard failed: %s\n", err.Error())
 	}
+
+	return Complete
 }

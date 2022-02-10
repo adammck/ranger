@@ -41,16 +41,12 @@ type JoinOp struct {
 func (op *JoinOp) Init() error {
 	r1, err := op.Keyspace.GetByIdent(op.RangeLeft)
 	if err != nil {
-		fmt.Printf("Join (init, left) failed: %s\n", err.Error())
-		op.state = Failed
-		return nil
+		return fmt.Errorf("can't initiate join; GetByIdent(left) failed: %v", err)
 	}
 
 	r2, err := op.Keyspace.GetByIdent(op.RangeRight)
 	if err != nil {
-		fmt.Printf("Join (init, right) failed: %s\n", err.Error())
-		op.state = Failed
-		return nil
+		return fmt.Errorf("can't initiate join; GetByIdent(right) failed: %v", err)
 	}
 
 	// Moves r1 and r2 into Joining state.
@@ -58,15 +54,12 @@ func (op *JoinOp) Init() error {
 	// Returns error if either of the ranges aren't ready, or if they're not adjacent.
 	r3, err := op.Keyspace.JoinTwo(r1, r2)
 	if err != nil {
-		fmt.Printf("Join failed: %s\n", err.Error())
-		op.state = Failed
-		return nil
+		return fmt.Errorf("can't initiate join; JoinTwo failed: %v", err)
 	}
 
-	// ???
+	// TODO: Get rid of this; do the lookup every time.
 	op.r = r3.Meta.Ident
 
-	fmt.Printf("Joining: %s, %s -> %s\n", r1, r2, r3)
 	op.state = Take
 	return nil
 }
@@ -98,6 +91,7 @@ func (op *JoinOp) Run() {
 			s = op.cleanup()
 		}
 
+		fmt.Printf("Join: %d -> %d\n", op.state, s)
 		op.state = s
 	}
 }
@@ -183,6 +177,7 @@ func (op *JoinOp) give() state {
 		return Failed
 	}
 
+	// TODO: Shouldn't this be Serve, before Drop?
 	return Drop
 }
 
