@@ -25,6 +25,7 @@ const (
 type SplitOp struct {
 	Keyspace *ranje.Keyspace
 	Roster   *roster.Roster
+	Done     func()
 	state    state
 
 	// Inputs
@@ -77,6 +78,9 @@ func (op *SplitOp) Run() {
 	for {
 		switch op.state {
 		case Failed, Complete:
+			if op.Done != nil {
+				op.Done() // TODO: Send an error?
+			}
 			return
 
 		case Init:

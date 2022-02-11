@@ -3,6 +3,7 @@ package balancer
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/adammck/ranger/pkg/operations/join"
 	"github.com/adammck/ranger/pkg/operations/move"
@@ -34,14 +35,18 @@ func (bs *balancerServer) Move(ctx context.Context, req *pb.MoveRequest) (*pb.Mo
 		return nil, status.Error(codes.InvalidArgument, "missing: node")
 	}
 
-	// TODO: Block response until the op has completed or failed?
+	wg := sync.WaitGroup{}
+	wg.Add(1)
 
 	bs.bal.Operation(&move.MoveOp{
 		Keyspace: bs.bal.ks,
 		Roster:   bs.bal.rost,
+		Done:     wg.Done,
 		Range:    *id,
 		Node:     nid,
 	})
+
+	wg.Wait()
 
 	return &pb.MoveResponse{}, nil
 }
@@ -67,14 +72,20 @@ func (bs *balancerServer) Split(ctx context.Context, req *pb.SplitRequest) (*pb.
 		return nil, status.Error(codes.InvalidArgument, "missing: node_right")
 	}
 
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+
 	bs.bal.Operation(&split.SplitOp{
 		Keyspace:  bs.bal.ks,
 		Roster:    bs.bal.rost,
+		Done:      wg.Done,
 		Range:     *id,
 		Boundary:  boundary,
 		NodeLeft:  left,
 		NodeRight: right,
 	})
+
+	wg.Wait()
 
 	return &pb.SplitResponse{}, nil
 }
@@ -95,13 +106,19 @@ func (bs *balancerServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.Jo
 		return nil, status.Error(codes.InvalidArgument, "missing: node")
 	}
 
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+
 	bs.bal.Operation(&join.JoinOp{
 		Keyspace:   bs.bal.ks,
 		Roster:     bs.bal.rost,
+		Done:       wg.Done,
 		RangeLeft:  *left,
 		RangeRight: *right,
 		Node:       node,
 	})
+
+	wg.Wait()
 
 	return &pb.JoinResponse{}, nil
 }

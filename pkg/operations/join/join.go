@@ -26,6 +26,7 @@ const (
 type JoinOp struct {
 	Keyspace *ranje.Keyspace
 	Roster   *roster.Roster
+	Done     func()
 	state    state
 
 	// Inputs
@@ -70,6 +71,9 @@ func (op *JoinOp) Run() {
 	for {
 		switch op.state {
 		case Failed, Complete:
+			if op.Done != nil {
+				op.Done() // TODO: Send an error?
+			}
 			return
 
 		case Init:

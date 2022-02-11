@@ -25,6 +25,7 @@ const (
 type MoveOp struct {
 	Keyspace *ranje.Keyspace
 	Roster   *roster.Roster
+	Done     func()
 	state    state
 
 	// Inputs
@@ -74,7 +75,10 @@ func (op *MoveOp) Run() {
 
 	for {
 		switch s {
-		case Failed, Complete:
+		case Complete, Failed:
+			if op.Done != nil {
+				op.Done() // TODO: Send an error?
+			}
 			return
 
 		case Init:
