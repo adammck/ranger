@@ -1,64 +1,20 @@
 setup_file() {
     go build
-
-    # Refuse to run if any of the needed ports are already in use. We check this
-    # again before each test (in setup), in case a server is left running.
-    nc -z localhost 8001 && fail "port 8001 is in use"
-    nc -z localhost 8002 && fail "port 8002 is in use"
-    nc -z localhost 8003 && fail "port 8003 is in use"
-
-    # keys
-    export a=$(echo -n a | base64)
-    export a1=$(echo -n a1 | base64)
-    export a2=$(echo -n a2 | base64)
-    export b=$(echo -n b | base64)
-    export b1=$(echo -n b1 | base64)
-    export b2=$(echo -n b2 | base64)
-    export c=$(echo -n c | base64)
-
-    # vals
-    export zzz=$(echo -n zzz | base64)
-    export yyy=$(echo -n yyy | base64)
-    export xxx=$(echo -n xxx | base64)
-    export www=$(echo -n www | base64)
 }
 
 setup() {
-    # TODO: I don't want to vendor bats, but do something less dumb than this
+    # TODO: Use this instead: https://github.com/ztombol/bats-docs#homebrew
     load '/Users/adammck/code/src/github.com/bats-core/bats-support/load.bash'
     load '/Users/adammck/code/src/github.com/bats-core/bats-assert/load.bash'
-
-    # Start three nodes. For each of them, fail fast if the port is already in
-    # use, start the server in the background, and note down the PID (so we can
-    # stop the server in teardown).
-
-    nc -z localhost 8001 && fail "port 8001 is in use"
-    ./kv -node -addr ":8001" &
-    PID_8001=$!
-
-    nc -z localhost 8002 && fail "port 8002 is in use"
-    ./kv -node -addr ":8002" &
-    PID_8002=$!
-
-    nc -z localhost 8003 && fail "port 8003 is in use"
-    ./kv -node -addr ":8003" &
-    PID_8003=$!
-
-    # Block until the three ports are listening.
-    # TODO: Move wait-port tool into a func in this file.
-    run wait-port 8001
-    run wait-port 8002
-    run wait-port 8003
+    load test_helper
 }
 
 teardown() {
-    # Stop the servers we started above.
-    if test -n "$PID_8001" && kill -s 0 $PID_8001; then kill $PID_8001; fi
-    if test -n "$PID_8002" && kill -s 0 $PID_8002; then kill $PID_8002; fi
-    if test -n "$PID_8003" && kill -s 0 $PID_8003; then kill $PID_8003; fi
+    stop_cmds
 }
 
 @test "read write to unassigned range" {
+    start_node 8001
 
     # Try to read a key from node 1 which is not assigned.
     run bin/client.sh 8001 kv.KV.Get '{"key": "'$a'"}'
@@ -76,6 +32,7 @@ teardown() {
 }
 
 @test "assign range" {
+    start_node 8001
 
     # Assign the range [a,b) to node 1.
     run bin/client.sh 8001 ranger.Node.Give '{"range": {"ident": {"key": 1}, "start": "'$a'", "end": "'$b'"}}'
@@ -102,6 +59,7 @@ teardown() {
 }
 
 @test "dump range" {
+    start_node 8001
 
     # Dump a range which doesn't exist.
     run bin/client.sh 8001 kv.KV.Dump '{"range": {"key": 1}}'
@@ -134,6 +92,8 @@ teardown() {
 }
 
 @test "move range" {
+    start_node 8001
+    start_node 8002
 
     # ---- setup
 
@@ -219,6 +179,9 @@ teardown() {
 }
 
 @test "join ranges" {
+    start_node 8001
+    start_node 8002
+    start_node 8003
 
     # ---- setup
 
@@ -270,6 +233,9 @@ teardown() {
 }
 
 @test "split ranges" {
+    start_node 8001
+    start_node 8002
+    start_node 8003
 
     # ---- setup
 
