@@ -1,6 +1,12 @@
 setup_file() {
     go build
 
+    # Refuse to run if any of the needed ports are already in use. We check this
+    # again before each test (in setup), in case a server is left running.
+    nc -z localhost 8001 && fail "port 8001 is in use"
+    nc -z localhost 8002 && fail "port 8002 is in use"
+    nc -z localhost 8003 && fail "port 8003 is in use"
+
     # keys
     export a=$(echo -n a | base64)
     export a1=$(echo -n a1 | base64)
@@ -22,26 +28,34 @@ setup() {
     load '/Users/adammck/code/src/github.com/bats-core/bats-support/load.bash'
     load '/Users/adammck/code/src/github.com/bats-core/bats-assert/load.bash'
 
-    ./kv -node -addr ":8001" >$BATS_TMPDIR/kv-8001.log 2>&1 &
+    # Start three nodes. For each of them, fail fast if the port is already in
+    # use, start the server in the background, and note down the PID (so we can
+    # stop the server in teardown).
+
+    nc -z localhost 8001 && fail "port 8001 is in use"
+    ./kv -node -addr ":8001" &
     PID_8001=$!
 
-    ./kv -node -addr ":8002" >$BATS_TMPDIR/kv-8002.log 2>&1 &
+    nc -z localhost 8002 && fail "port 8002 is in use"
+    ./kv -node -addr ":8002" &
     PID_8002=$!
 
-    ./kv -node -addr ":8003" >$BATS_TMPDIR/kv-8003.log 2>&1 &
+    nc -z localhost 8003 && fail "port 8003 is in use"
+    ./kv -node -addr ":8003" &
     PID_8003=$!
 
+    # Block until the three ports are listening.
     # TODO: Move wait-port tool into a func in this file.
-    wait-port 8001
-    wait-port 8002
-    wait-port 8003
+    run wait-port 8001
+    run wait-port 8002
+    run wait-port 8003
 }
 
 teardown() {
-    # TODO: do something sensible if the pids are invalid
-    kill $PID_8001
-    kill $PID_8002
-    kill $PID_8003
+    # Stop the servers we started above.
+    if test -n "$PID_8001" && kill -s 0 $PID_8001; then kill $PID_8001; fi
+    if test -n "$PID_8002" && kill -s 0 $PID_8002; then kill $PID_8002; fi
+    if test -n "$PID_8003" && kill -s 0 $PID_8003; then kill $PID_8003; fi
 }
 
 @test "read write to unassigned range" {
