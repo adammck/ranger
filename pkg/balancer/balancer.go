@@ -21,6 +21,7 @@ type Balancer struct {
 
 	ops   []operations.Operation
 	opsMu sync.RWMutex
+	opsWG sync.WaitGroup
 }
 
 func New(ks *ranje.Keyspace, rost *roster.Roster, srv *grpc.Server) *Balancer {
@@ -46,7 +47,7 @@ func (b *Balancer) Operation(req operations.Operation) {
 	b.ops = append(b.ops, req)
 }
 
-func (b *Balancer) rebalance() {
+func (b *Balancer) Tick() {
 	fmt.Printf("rebalancing\n")
 
 	// Find any unknown and complain about them. There should be NONE of these
@@ -78,7 +79,7 @@ func (b *Balancer) rebalance() {
 			Roster:   b.rost,
 			Range:    r.Meta.Ident,
 			Node:     nid,
-		})
+		}, &b.opsWG)
 		if err != nil {
 			fmt.Printf("Error placing pending range: %v\n", err)
 		}
@@ -99,12 +100,18 @@ func (b *Balancer) rebalance() {
 	ops := b.ops
 	b.ops = nil
 	for _, req := range ops {
-		err := operations.Run(req)
+		err := operations.Run(req, &b.opsWG)
 		if err != nil {
 			fmt.Printf("Error initiating operation: %v\n", err)
 		}
 	}
 	b.opsMu.RUnlock()
+}
+
+// FinishOps blocks until all operations have finished. It does nothing to
+// prevent new operations being scheduled while it's waiting.
+func (b *Balancer) FinishOps() {
+	b.opsWG.Wait()
 }
 
 func (b *Balancer) Candidate(r *ranje.Range) string {
@@ -130,6 +137,6 @@ func (b *Balancer) Candidate(r *ranje.Range) string {
 
 func (b *Balancer) Run(t *time.Ticker) {
 	for ; true; <-t.C {
-		b.rebalance()
+		b.Tick()
 	}
 }

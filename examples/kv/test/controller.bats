@@ -24,8 +24,8 @@ teardown() {
     assert_line -n 1 '  Code: FailedPrecondition'
     assert_line -n 2 '  Message: no valid range'
 
-    start_controller 9000
-    sleep 1 # lol
+    # Run a single rebalance cycle.
+    ./kv -controller -addr ":9000" -once
 
     # Try the same write again. It should succeed this time, because the
     # controller has assigned the first (infinite) range to it.

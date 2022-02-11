@@ -11,7 +11,6 @@ import (
 	"github.com/adammck/ranger/pkg/ranje"
 	consulpers "github.com/adammck/ranger/pkg/ranje/persisters/consul"
 	"github.com/adammck/ranger/pkg/roster"
-	"github.com/hashicorp/consul/api"
 	consulapi "github.com/hashicorp/consul/api"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -21,14 +20,16 @@ type Controller struct {
 	name    string
 	addrLis string
 	addrPub string // do we actually need this? maybe only discovery does.
-	srv     *grpc.Server
-	disc    discovery.Discoverable
-	ks      *ranje.Keyspace
-	rost    *roster.Roster
-	bal     *balancer.Balancer
+	once    bool   // run one rebalance cycle and exit
+
+	srv  *grpc.Server
+	disc discovery.Discoverable
+	ks   *ranje.Keyspace
+	rost *roster.Roster
+	bal  *balancer.Balancer
 }
 
-func New(addrLis, addrPub string) (*Controller, error) {
+func New(addrLis, addrPub string, once bool) (*Controller, error) {
 	var opts []grpc.ServerOption
 	srv := grpc.NewServer(opts...)
 
@@ -36,7 +37,7 @@ func New(addrLis, addrPub string) (*Controller, error) {
 	// TODO: Make this optional.
 	reflection.Register(srv)
 
-	api, err := api.NewClient(consulapi.DefaultConfig())
+	api, err := consulapi.NewClient(consulapi.DefaultConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -56,6 +57,7 @@ func New(addrLis, addrPub string) (*Controller, error) {
 		name:    "controller",
 		addrLis: addrLis,
 		addrPub: addrPub,
+		once:    once,
 		srv:     srv,
 		disc:    disc,
 		ks:      ks,
@@ -94,31 +96,47 @@ func (c *Controller) Run(done chan bool) error {
 	// TODO: Fetch current assignment status from nodes
 	// TODO: Reconcile divergence etc
 
-	// Start roster. Periodically probes all nodes to get their state.
-	ticker := time.NewTicker(time.Second)
-	go c.rost.Run(ticker)
+	if c.once {
+		// Perform a single blocking cycle.
+		c.rost.Tick()
 
-	// Start rebalancing loop.
-	// TODO: This should probably be reactive rather than running in a loop. Could run after probes complete.
-	go c.bal.Run(time.NewTicker(1005 * time.Millisecond))
+	} else {
+		// Start roster. Periodically probes all nodes to get their state.
+		ticker := time.NewTicker(time.Second)
+		go c.rost.Run(ticker)
+	}
 
-	// Dump range state periodically
-	// TODO: Move this to a statusz type page
-	go func() {
-		t := time.NewTicker(3 * time.Second)
-		for ; true; <-t.C {
-			fmt.Print("\033[H\033[2J")
+	if c.once {
+		fmt.Println("before rebalance:")
+		c.printState()
 
-			fmt.Println("nodes:")
-			c.rost.DumpForDebug()
-			fmt.Println("ranges:")
-			c.ks.DumpForDebug()
-			fmt.Println("----")
-		}
-	}()
+		c.bal.Tick()
+		c.bal.FinishOps()
+
+		fmt.Println("after rebalance:")
+		c.printState()
+
+	} else {
+
+		// Start rebalancing loop.
+		// TODO: This should probably be reactive rather than running in a loop. Could run after probes complete.
+		go c.bal.Run(time.NewTicker(1005 * time.Millisecond))
+
+		// Dump range state periodically
+		// TODO: Move this to a statusz type page
+		go func() {
+			t := time.NewTicker(3 * time.Second)
+			for ; true; <-t.C {
+				fmt.Print("\033[H\033[2J")
+				c.printState()
+			}
+		}()
+	}
 
 	// Block until channel closes, indicating that caller wants shutdown.
-	<-done
+	if !c.once {
+		<-done
+	}
 
 	// Let in-flight RPCs finish and then stop. errChan will contain the error
 	// returned by server.Serve (above) or be closed with no error.
@@ -137,4 +155,12 @@ func (c *Controller) Run(done chan bool) error {
 	}
 
 	return nil
+}
+
+func (c *Controller) printState() {
+	fmt.Println("nodes:")
+	c.rost.DumpForDebug()
+	fmt.Println("ranges:")
+	c.ks.DumpForDebug()
+	fmt.Println("----")
 }

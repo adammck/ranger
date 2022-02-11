@@ -20,6 +20,9 @@ func main() {
 
 	addrLis := flag.String("addr", "localhost:8000", "address to start grpc server on")
 	addrPub := flag.String("pub-addr", "", "address for other nodes to reach this (default: same as -listen)")
+
+	fonce := flag.Bool("once", false, "controller: perform one rebalance cycle and exit")
+
 	flag.Parse()
 
 	if *addrPub == "" {
@@ -60,7 +63,7 @@ func main() {
 	} else if !*fnod && !*fprx && *fctl {
 		// TODO: This branch seems very similar to the previous...
 
-		c, err := controller.New(*addrLis, *addrPub)
+		c, err := controller.New(*addrLis, *addrPub, *fonce)
 		if err != nil {
 			exit(err)
 		}
