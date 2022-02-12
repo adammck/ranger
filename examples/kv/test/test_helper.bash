@@ -1,25 +1,25 @@
 cmds=()
 
 # keys
-export a=$(echo -n a | base64)
-export a1=$(echo -n a1 | base64)
-export a2=$(echo -n a2 | base64)
-export b=$(echo -n b | base64)
-export b1=$(echo -n b1 | base64)
-export b2=$(echo -n b2 | base64)
-export c=$(echo -n c | base64)
+a=$(echo -n a | base64); export a;
+a1=$(echo -n a1 | base64); export a1;
+a2=$(echo -n a2 | base64); export a2;
+b=$(echo -n b | base64); export b;
+b1=$(echo -n b1 | base64); export b1;
+b2=$(echo -n b2 | base64); export b2;
+c=$(echo -n c | base64); export c;
 
 # vals
-export zzz=$(echo -n zzz | base64)
-export yyy=$(echo -n yyy | base64)
-export xxx=$(echo -n xxx | base64)
-export www=$(echo -n www | base64)
+zzz=$(echo -n zzz | base64); export zzz;
+yyy=$(echo -n yyy | base64); export yyy;
+xxx=$(echo -n xxx | base64); export xxx;
+www=$(echo -n www | base64); export www;
 
 # Fail if the given port number is currently in use. This is better than trying
 # to run some command and failing with a weird error.
 assert_port_available() {
     #>&3 echo "# assert_port_available $@"
-    nc -z localhost $1 && fail "port $1 is already in use"
+    nc -z localhost "$1" && fail "port $1 is already in use"
     return 0
 }
 
@@ -27,14 +27,14 @@ assert_port_available() {
 # Stop it by calling defer_stop_cmds in teardown.
 start_node() {
     #>&3 echo "# start_node $@"
-    start_cmd $1 ./kv -node -addr ":$1"
+    start_cmd "$1" ./kv -node -addr ":$1"
 }
 
 # Start a controller in the background on the given port.
 # Stop it by calling defer_stop_cmds in teardown.
 start_controller() {
     #>&3 echo "# start_controller $@"
-    start_cmd $1 ./kv -controller -addr ":$1"
+    start_cmd "$1" ./kv -controller -addr ":$1"
 }
 
 stop_controller() {
@@ -54,9 +54,9 @@ start_cmd() {
     shift
 
     assert_port_available "$port"
-    $@ &
+    "$@" &
     defer_stop_cmds "$!"
-    run wait-port $port
+    run wait-port "$port"
 }
 
 stop_cmd() {
@@ -70,12 +70,12 @@ stop_cmd() {
 
 defer_stop_cmds() {
     #>&3 echo "# defer_stop_cmds $1"
-    cmds+=($1)
+    cmds+=("$1")
 }
 
 stop_cmds() {
     #>&3 echo "# stop_cmds $1"
-    for pid in ${cmds[@]}; do
+    for pid in "${cmds[@]}"; do
         stop_cmd "$pid"
     done
 }
