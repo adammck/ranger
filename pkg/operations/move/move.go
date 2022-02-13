@@ -23,6 +23,8 @@ const (
 	Drop
 )
 
+//go:generate stringer -type=state
+
 type MoveOp struct {
 	Keyspace *ranje.Keyspace
 	Roster   *roster.Roster
@@ -104,7 +106,7 @@ func (op *MoveOp) Run() {
 			s = op.drop()
 		}
 
-		log.Printf("Move: %d -> %d", op.state, s)
+		log.Printf("Move: %s -> %s", op.state, s)
 		op.state = s
 	}
 }

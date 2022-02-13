@@ -23,6 +23,8 @@ const (
 	Serve
 )
 
+//go:generate stringer -type=state
+
 type SplitOp struct {
 	Keyspace *ranje.Keyspace
 	Roster   *roster.Roster
@@ -100,7 +102,7 @@ func (op *SplitOp) Run() {
 			s = op.serve()
 		}
 
-		log.Printf("Split: %d -> %d", op.state, s)
+		log.Printf("Split: %s -> %s", op.state, s)
 		op.state = s
 	}
 }

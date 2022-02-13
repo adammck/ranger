@@ -24,6 +24,8 @@ const (
 	Cleanup
 )
 
+//go:generate stringer -type=state
+
 type JoinOp struct {
 	Keyspace *ranje.Keyspace
 	Roster   *roster.Roster
@@ -96,7 +98,7 @@ func (op *JoinOp) Run() {
 			s = op.cleanup()
 		}
 
-		log.Printf("Join: %d -> %d", op.state, s)
+		log.Printf("Join: %s -> %s", op.state, s)
 		op.state = s
 	}
 }
