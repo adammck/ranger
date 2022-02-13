@@ -31,12 +31,39 @@ func Give(rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacem
 		return fmt.Errorf("no such node: %s", placement.NodeID())
 	}
 
-	req, err := giveRequest(rost, rang, placement)
-	if err != nil {
-		return err
+	// Perform some last-minute sanity checks.
+	// TODO: Is this a good idea? (If so, add them to the other helpers.)
+	if p := rang.Placement(); p != nil {
+		if p.State() == ranje.SpPending && p == placement {
+			panic("giving current placement??")
+		}
+
+		if p.State() != ranje.SpTaken {
+			return fmt.Errorf("can't give range %s when current placement on node %s is in state %s",
+				rang.String(), p.NodeID(), p.State())
+		}
 	}
 
-	err = node.Give(placement, req)
+	// Build a list of the ancestors of this range (including itself), and the
+	// nodes they're currently placed on where applicable. When moving a range,
+	// the first will be the current placement of the exact same range, with the
+	// same ident and boundaries. When splitting a range, the first will be the
+	// range which this range (either the left or right) was split from, with a
+	// different ident and boundaries which are a superset. When joining, the
+	// first two will be the ranges which this range were joined from, with
+	// different idents and boundaries which are a subset.
+	//
+	// TODO: There is currently no history pruning, so this will grow forever.
+	// TODO: Rename pb.Placement to something else. It's not a placement!
+	parents := []*pb.Placement{}
+	addParents(rost, rang, &parents)
+
+	req := &pb.GiveRequest{
+		Range:   rang.Meta.ToProto(),
+		Parents: parents,
+	}
+
+	err := node.Give(placement, req)
 	if err != nil {
 		return err
 	}
@@ -44,39 +71,9 @@ func Give(rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacem
 	return nil
 }
 
-func giveRequest(rost *roster.Roster, rang *ranje.Range, giving *ranje.DurablePlacement) (*pb.GiveRequest, error) {
-
-	// Build a list of the other current placement of this exact range. This
-	// doesn't include the ranges which this range was split/joined from! It'll
-	// be empty the first time the range is being placed, and have one entry
-	// during normal moves.
-	parents := []*pb.Placement{}
-	if p := rang.Placement(); p != nil {
-
-		// This indicates that the caller is very confused
-		if p.State() == ranje.SpPending && p == giving {
-			panic("giving current placement??")
-		}
-
-		if p.State() != ranje.SpTaken {
-			return nil, fmt.Errorf("can't give range %s when current placement on node %s is in state %s",
-				rang.String(), p.NodeID(), p.State())
-		}
-
-		parents = append(parents, pbPlacement(rost, rang))
-	}
-
-	addParents(rost, rang, &parents)
-
-	return &pb.GiveRequest{
-		Range:   rang.Meta.ToProto(),
-		Parents: parents,
-	}, nil
-}
-
-func addParents(rost *roster.Roster, r *ranje.Range, parents *[]*pb.Placement) {
-	for _, rr := range r.Parents() {
-		*parents = append(*parents, pbPlacement(rost, rr))
+func addParents(rost *roster.Roster, rang *ranje.Range, parents *[]*pb.Placement) {
+	*parents = append(*parents, pbPlacement(rost, rang))
+	for _, rr := range rang.Parents() {
 		addParents(rost, rr, parents)
 	}
 }
