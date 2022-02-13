@@ -63,6 +63,11 @@ func (op *SplitOp) Init() error {
 			return fmt.Errorf("can't initiate split; r0.Child(%d) failed: %v", n, err)
 		}
 
+		// Immediately move the new ranges into Placing, so the balancer loop
+		// doesn't try to place them in a separate op. (Feels kind of weird to
+		// be doing this explicitly while we do so much else implicitly?)
+		r.MustState(ranje.Placing)
+
 		r12[n] = r.Meta.Ident
 	}
 
@@ -153,28 +158,17 @@ func (op *SplitOp) give() (state, error) {
 		g.Go(func() error {
 			r, err := op.Keyspace.GetByIdent(ranges[n])
 			if err != nil {
-				return fmt.Errorf("GetByIdent (%s): %s", sides[n], err)
+				return fmt.Errorf("GetByIdent (%s): %v", sides[n], err)
 			}
 
-			p := r.NextPlacement()
-			if p == nil {
-				return fmt.Errorf("NextPlacement (%s) returned nil", sides[n])
-			}
-
-			req, err := r.GiveRequest(p, "") // TODO: currNodeAddr!
+			p, err := ranje.NewPlacement(r, nodeIDs[n])
 			if err != nil {
-				return fmt.Errorf("giveRequest (%s) failed: %s", sides[n], err)
+				return fmt.Errorf("give failed: %v", err)
 			}
 
-			nod := op.Roster.NodeByIdent(nodeIDs[n])
-			if nod == nil {
-				return fmt.Errorf("NodeByIdent(%s) returned no such node: %s", sides[n], nodeIDs[n])
-			}
-
-			// TODO: This doesn't work yet! Give doesn't include parents info.
-			err = nod.Give(p, req)
+			err = utils.Give(op.Roster, r, p)
 			if err != nil {
-				return fmt.Errorf("give (%s) failed: %s", sides[n], err)
+				return fmt.Errorf("give failed: %v", err)
 			}
 
 			// Wait for the placement to become Ready (which it might already be).
@@ -268,7 +262,7 @@ func (op *SplitOp) serve() (state, error) {
 
 	// This happens in Range.ChildStateChanged once children are Ready.
 	// TODO: Is that a good idea? Here would be more explicit.
-	// r.MustState(ranje.Obsolete)
+	r0.MustState(ranje.Obsolete)
 
 	// TODO: Move this to some background GC routine in the balancer.
 	err = op.Keyspace.Discard(r0)

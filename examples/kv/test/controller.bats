@@ -77,6 +77,7 @@ teardown() {
 
     # Split the range from node 1 to nodes 2 and three.
     run bin/client.sh 9000 ranger.Balancer.Split '{"range": {"key": 1}, "boundary": "'$b'", "node_left": "8002", "node_right": "8003"}'
+    assert_success
 
     # Check that the range is gone from node 1.
     run bin/client.sh 8001 kv.KV.Put '{"key": "'$a'", "value": "'$zzz'"}'

@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"log"
 	"sync"
-
-	pb "github.com/adammck/ranger/pkg/proto/gen"
 )
 
 // Range is a range of keys in the keyspace.
@@ -98,63 +96,6 @@ func (r *Range) MoveSrc() *DurablePlacement {
 	}
 
 	return r.curr
-}
-
-// TODO: This function really doesn't belong here; move it into operation helpers.
-// TODO: Does this actually need the `giving` param?
-func (r *Range) GiveRequest(giving *DurablePlacement, currNodeAddr string) (*pb.GiveRequest, error) {
-	rm := r.Meta.ToProto()
-
-	// Build a list of the other current placement of this exact range. This
-	// doesn't include the ranges which this range was split/joined from! It'll
-	// be empty the first time the range is being placed, and have one entry
-	// during normal moves.
-	parents := []*pb.Placement{}
-	if p := r.curr; p != nil {
-
-		// This indicates that the caller is very confused
-		if p.state == SpPending && p == giving {
-			panic("giving current placement??")
-		}
-
-		if p.state != SpTaken {
-			return nil, fmt.Errorf("can't give range %s when current placement on node %s is in state %s",
-				r.String(), p.nodeID, p.state)
-		}
-
-		parents = append(parents, &pb.Placement{
-			Range: rm,
-			Node:  currNodeAddr,
-		})
-	}
-
-	// Add one generations of parents
-	// That's all we support right now
-	addParents(r, &parents)
-
-	return &pb.GiveRequest{
-		Range:   rm,
-		Parents: parents,
-	}, nil
-}
-
-func addParents(r *Range, parents *[]*pb.Placement) {
-	for _, rr := range r.parents {
-
-		// Include the node where the parent range can currently be found, if
-		// it's still placed, such as during a split. Older ranges might not be.
-		node := ""
-		if p := rr.curr; p != nil {
-			panic("not implemented")
-		}
-
-		*parents = append(*parents, &pb.Placement{
-			Range: rr.Meta.ToProto(),
-			Node:  node,
-		})
-
-		// TODO: Recurse?
-	}
 }
 
 // MustState attempts to change the state of the range to s, and panics if the
@@ -310,6 +251,10 @@ func (r *Range) ParentIdents() []Ident {
 		ids[i] = r.Meta.Ident
 	}
 	return ids
+}
+
+func (r *Range) Parents() []*Range {
+	return r.parents
 }
 
 func (r *Range) ChildStateChanged() error {
