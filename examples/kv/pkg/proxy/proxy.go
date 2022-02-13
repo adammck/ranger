@@ -124,7 +124,6 @@ func (c *Proxy) Run(done chan bool) error {
 	go func() {
 		t := time.NewTicker(1 * time.Second)
 		for ; true; <-t.C {
-			log.Println("roster:")
 			c.rost.DumpForDebug()
 		}
 	}()

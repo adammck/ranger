@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"flag"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -21,10 +20,12 @@ func main() {
 
 	addrLis := flag.String("addr", "localhost:8000", "address to start grpc server on")
 	addrPub := flag.String("pub-addr", "", "address for other nodes to reach this (default: same as -listen)")
-
 	fonce := flag.Bool("once", false, "controller: perform one rebalance cycle and exit")
-
 	flag.Parse()
+
+	// Replace default logger.
+	logger := log.New(os.Stdout, "", 0)
+	*log.Default() = *logger
 
 	if *addrPub == "" {
 		*addrPub = *addrLis
@@ -32,18 +33,14 @@ func main() {
 
 	sig := make(chan os.Signal, 1)
 	done := make(chan bool, 1)
-	signal.Notify(sig, syscall.SIGINT)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 
-	// Wait for SIGINT
 	go func() {
-		s := <-sig
-		log.Printf("Signal: %v", s)
+		<-sig
 		done <- true
 	}()
 
 	if *fnod && !*fprx && !*fctl {
-		defaultLogger(fmt.Sprintf("node %s", *addrPub))
-
 		n, err := node.New(*addrLis, *addrPub)
 		if err != nil {
 			exit(err)
@@ -54,8 +51,6 @@ func main() {
 		}
 
 	} else if !*fnod && *fprx && !*fctl {
-		defaultLogger(fmt.Sprintf("prxy %s", *addrPub))
-
 		c, err := proxy.New(*addrLis, *addrPub)
 		if err != nil {
 			exit(err)
@@ -66,8 +61,6 @@ func main() {
 		}
 
 	} else if !*fnod && !*fprx && *fctl {
-		defaultLogger(fmt.Sprintf("ctrl %s", *addrPub))
-
 		c, err := controller.New(*addrLis, *addrPub, *fonce)
 		if err != nil {
 			exit(err)
@@ -86,9 +79,4 @@ func main() {
 func exit(err error) {
 	log.Fatalf("Error: %s", err)
 	os.Exit(1)
-}
-
-func defaultLogger(prefix string) {
-	logger := log.New(os.Stdout, fmt.Sprintf("[%s] ", prefix), log.Lshortfile)
-	*log.Default() = *logger
 }

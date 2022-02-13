@@ -157,9 +157,6 @@ func (c *Controller) Run(done chan bool) error {
 }
 
 func (c *Controller) printState() {
-	log.Println("nodes:")
 	c.rost.DumpForDebug()
-	log.Println("ranges:")
 	c.ks.DumpForDebug()
-	log.Println("----")
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"log"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/adammck/ranger/pkg/discovery"
@@ -95,10 +94,6 @@ func (ros *Roster) probe() {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
 
-	// Measure how long this takes and how many succeed.
-	start := time.Now()
-	var success uint64
-
 	// TODO: We already do this in expire, bundle them together.
 	for _, node := range ros.Nodes {
 		wg.Add(1)
@@ -112,15 +107,10 @@ func (ros *Roster) probe() {
 				log.Printf("Error probing %v: %v", n.Ident(), err)
 				return
 			}
-			atomic.AddUint64(&success, 1)
 		}(node)
 	}
 
 	wg.Wait()
-
-	t := time.Now()
-	elapsed := t.Sub(start)
-	log.Printf("probed %d nodes in %s", success, elapsed.String())
 }
 
 func (r *Roster) Tick() {

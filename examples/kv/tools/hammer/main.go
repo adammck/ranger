@@ -32,18 +32,20 @@ func main() {
 	fcount := flag.Int("count", 0, "number of requests to send before terminating (default: no limit)")
 	flag.Parse()
 
+	// Replace default logger.
+	logger := log.New(os.Stdout, "", 0)
+	*log.Default() = *logger
+
 	ctx, cancel := context.WithCancel(context.Background())
 
 	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		s := <-sig
-		log.Printf("Signal: %v", s)
+		<-sig
 		cancel()
 	}()
 
-	defaultLogger("hammer")
 	wg := sync.WaitGroup{}
 
 	addrs := strings.Split(*faddrs, ",")
@@ -185,9 +187,4 @@ const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 func exit(err error) {
 	fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 	os.Exit(1)
-}
-
-func defaultLogger(prefix string) {
-	logger := log.New(os.Stdout, fmt.Sprintf("[%s] ", prefix), log.Lshortfile)
-	*log.Default() = *logger
 }

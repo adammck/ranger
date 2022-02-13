@@ -7,23 +7,17 @@ interface to move those things around.
 ## Usage
 
 ```console
-$ # Start consul in some other shell. This is used for service discovery and persistence (for now).
-$ consul agent -dev -ui
-
 $ cd ~/code/src/github.com/adammck/ranger/examples/kv
 $ go build
 
-$ # Run three nodes, to store data.
-$ ./kv -node -addr ":8001"
-$ ./kv -node -addr ":8002"
-$ ./kv -node -addr ":8003"
+$ # Start consul in the background.
+$ brew services run consul
 
-$ # Run a proxy, to forward requests to the appropriate node(s).
-$ ./kv -proxy -addr ":8000"
+# Run a simple cluster (see Procfile)
+$ foreman start -m controller=1,proxy=1,node=3
+```
 
-$ # Run a controller, to assign ranges to nodes.
-$ ./kv -controller -addr ":9000"
-
+```console
 $ # Read and write some data.
 $ bin/put.sh 8000 a aaaa
 $ bin/get.sh 8000 a

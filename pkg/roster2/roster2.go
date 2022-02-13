@@ -5,7 +5,6 @@ import (
 	"log"
 	"sort"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/adammck/ranger/pkg/discovery"
@@ -172,10 +171,6 @@ func (ros *Roster2) probe() {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
 
-	// Measure how long this takes and how many succeed.
-	start := time.Now()
-	var success uint64
-
 	for _, node := range ros.Map {
 		wg.Add(1)
 
@@ -188,15 +183,10 @@ func (ros *Roster2) probe() {
 				log.Printf("probe error: %s", err)
 				return
 			}
-			atomic.AddUint64(&success, 1)
 		}(node)
 	}
 
 	wg.Wait()
-
-	t := time.Now()
-	elapsed := t.Sub(start)
-	log.Printf("probed %d nodes in %s", success, elapsed.String())
 }
 
 func (r *Roster2) Tick() {
