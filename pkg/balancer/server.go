@@ -75,10 +75,15 @@ func (bs *balancerServer) Split(ctx context.Context, req *pb.SplitRequest) (*pb.
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 
+	cb := func(e error) {
+		err = e
+		wg.Done()
+	}
+
 	bs.bal.Operation(&split.SplitOp{
 		Keyspace:  bs.bal.ks,
 		Roster:    bs.bal.rost,
-		Done:      wg.Done,
+		Done:      cb,
 		Range:     *id,
 		Boundary:  boundary,
 		NodeLeft:  left,
@@ -86,6 +91,10 @@ func (bs *balancerServer) Split(ctx context.Context, req *pb.SplitRequest) (*pb.
 	})
 
 	wg.Wait()
+
+	if err != nil {
+		return nil, status.Error(codes.Aborted, fmt.Sprintf("split operation failed: %v", err))
+	}
 
 	return &pb.SplitResponse{}, nil
 }

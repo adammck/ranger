@@ -28,7 +28,7 @@ const (
 type SplitOp struct {
 	Keyspace *ranje.Keyspace
 	Roster   *roster.Roster
-	Done     func()
+	Done     func(error)
 	state    state
 
 	// Inputs
@@ -77,12 +77,26 @@ func (op *SplitOp) Init() error {
 
 func (op *SplitOp) Run() {
 	s := op.state
+	var err error
 
 	for {
+		if err != nil && op.state != Failed {
+			panic(fmt.Sprintf("split operation has error while in state: %s", op.state))
+		}
+
 		switch op.state {
-		case Failed, Complete:
+		case Failed:
+			if err == nil {
+				panic("split operation in Failed state with no error")
+			}
 			if op.Done != nil {
-				op.Done() // TODO: Send an error?
+				op.Done(err)
+			}
+			return
+
+		case Complete:
+			if op.Done != nil {
+				op.Done(nil)
 			}
 			return
 
@@ -90,16 +104,16 @@ func (op *SplitOp) Run() {
 			panic("split operation re-entered init state")
 
 		case Take:
-			s = op.take()
+			s, err = op.take()
 
 		case Give:
-			s = op.give()
+			s, err = op.give()
 
 		case Drop:
-			s = op.drop()
+			s, err = op.drop()
 
 		case Serve:
-			s = op.serve()
+			s, err = op.serve()
 		}
 
 		log.Printf("Split: %s -> %s", op.state, s)
@@ -107,23 +121,21 @@ func (op *SplitOp) Run() {
 	}
 }
 
-func (op *SplitOp) take() state {
+func (op *SplitOp) take() (state, error) {
 	r0, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
-		log.Printf("Split (Take) failed: %s", err.Error())
-		return Failed
+		return Failed, fmt.Errorf("split (take) failed: %s", err)
 	}
 
 	err = utils.Take(op.Roster, r0.Placement())
 	if err != nil {
-		log.Printf("Split (Take) failed: %s", err.Error())
-		return Failed
+		return Failed, fmt.Errorf("split (take) failed: %s", err)
 	}
 
-	return Give
+	return Give, nil
 }
 
-func (op *SplitOp) give() state {
+func (op *SplitOp) give() (state, error) {
 	// TODO: Group these together in some ephemeral type?
 	sides := [2]string{"left", "right"}
 	ranges := []ranje.Ident{op.rL, op.rR}
@@ -141,7 +153,7 @@ func (op *SplitOp) give() state {
 		g.Go(func() error {
 			r, err := op.Keyspace.GetByIdent(ranges[n])
 			if err != nil {
-				return fmt.Errorf("GetByIdent (%s): %s", sides[n], err.Error())
+				return fmt.Errorf("GetByIdent (%s): %s", sides[n], err)
 			}
 
 			p := r.NextPlacement()
@@ -151,7 +163,7 @@ func (op *SplitOp) give() state {
 
 			req, err := r.GiveRequest(p, "") // TODO: currNodeAddr!
 			if err != nil {
-				return fmt.Errorf("GiveRequest (%s) failed: %s", sides[n], err.Error())
+				return fmt.Errorf("giveRequest (%s) failed: %s", sides[n], err)
 			}
 
 			nod := op.Roster.NodeByIdent(nodeIDs[n])
@@ -162,7 +174,7 @@ func (op *SplitOp) give() state {
 			// TODO: This doesn't work yet! Give doesn't include parents info.
 			err = nod.Give(p, req)
 			if err != nil {
-				return fmt.Errorf("give (%s) failed: %s", sides[n], err.Error())
+				return fmt.Errorf("give (%s) failed: %s", sides[n], err)
 			}
 
 			// Wait for the placement to become Ready (which it might already be).
@@ -170,7 +182,7 @@ func (op *SplitOp) give() state {
 			err = p.FetchWait()
 			if err != nil {
 				// TODO: Provide a more useful error here
-				return fmt.Errorf("fetchwait (%s) failed: %s", sides[n], err.Error())
+				return fmt.Errorf("fetchwait (%s) failed: %s", sides[n], err)
 			}
 
 			return nil
@@ -179,30 +191,27 @@ func (op *SplitOp) give() state {
 
 	err := g.Wait()
 	if err != nil {
-		log.Printf("Give failed: %s", err.Error())
-		return Failed
+		return Failed, fmt.Errorf("give failed: %s", err)
 	}
 
-	return Drop
+	return Drop, nil
 }
 
-func (op *SplitOp) drop() state {
+func (op *SplitOp) drop() (state, error) {
 	r, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
-		log.Printf("Split (Drop) failed: %s", err.Error())
-		return Failed
+		return Failed, fmt.Errorf("split (drop) failed: %s", err)
 	}
 
 	err = utils.Drop(op.Roster, r.Placement())
 	if err != nil {
-		log.Printf("Split (Drop) failed: %s", err.Error())
-		return Failed
+		return Failed, fmt.Errorf("split (drop) failed: %s", err)
 	}
 
-	return Serve
+	return Serve, nil
 }
 
-func (op *SplitOp) serve() state {
+func (op *SplitOp) serve() (state, error) {
 	sides := [2]string{"left", "right"}
 	ranges := []ranje.Ident{op.rL, op.rR}
 	nodeIDs := []string{op.NodeLeft, op.NodeRight}
@@ -214,7 +223,7 @@ func (op *SplitOp) serve() state {
 		g.Go(func() error {
 			r, err := op.Keyspace.GetByIdent(ranges[n])
 			if err != nil {
-				return fmt.Errorf("GetByIdent (%s): %s", sides[n], err.Error())
+				return fmt.Errorf("GetByIdent (%s): %s", sides[n], err)
 			}
 
 			p := r.NextPlacement()
@@ -229,12 +238,12 @@ func (op *SplitOp) serve() state {
 
 			err = nod.Serve(p)
 			if err != nil {
-				return fmt.Errorf("serve (%s): %s", sides[n], err.Error())
+				return fmt.Errorf("serve (%s): %s", sides[n], err)
 			}
 
 			err = r.CompleteNextPlacement()
 			if err != nil {
-				return fmt.Errorf("CompleteNextPlacement (%s): %s", sides[n], err.Error())
+				return fmt.Errorf("CompleteNextPlacement (%s): %s", sides[n], err)
 			}
 
 			r.MustState(ranje.Ready)
@@ -247,15 +256,13 @@ func (op *SplitOp) serve() state {
 	if err != nil {
 		// No state change. Stay in Moving.
 		// TODO: Repair the situation somehow.
-		log.Printf("Serve (Drop) failed: %s", err.Error())
-		return Failed
+		return Failed, fmt.Errorf("split (serve) failed: %s", err)
 	}
 
 	// TODO: Should this happen via CompletePlacement, too?
 	r0, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
-		log.Printf("Split (Serve) failed: %s", err.Error())
-		return Failed
+		return Failed, fmt.Errorf("split (Serve) failed: %s", err)
 	}
 	r0.Placement().Forget()
 
@@ -266,8 +273,8 @@ func (op *SplitOp) serve() state {
 	// TODO: Move this to some background GC routine in the balancer.
 	err = op.Keyspace.Discard(r0)
 	if err != nil {
-		log.Printf("Discard failed: %s", err.Error())
+		return Failed, fmt.Errorf("split (discard) failed: %s", err)
 	}
 
-	return Complete
+	return Complete, nil
 }
