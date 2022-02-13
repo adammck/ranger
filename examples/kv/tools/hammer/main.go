@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
 	"math/rand"
 	"os"
 	"os/signal"
@@ -36,9 +37,11 @@ func main() {
 
 	go func() {
 		s := <-sig
-		fmt.Fprintf(os.Stderr, "Signal: %v\n", s)
+		log.Printf("Signal: %v", s)
 		done <- true
 	}()
+
+	defaultLogger("hammer")
 
 	addrs := strings.Split(*faddrs, ",")
 	for n := 0; n < *fworkers; n++ {
@@ -111,7 +114,7 @@ func getOnce(ctx context.Context, client pbkv.KVClient, key []byte, val []byte) 
 		status = fmt.Sprintf("Bad: %q != %q", val, res.Value)
 	}
 
-	fmt.Printf("GET: %s -- %s\n", req.Key, status)
+	log.Printf("GET: %s -- %s", req.Key, status)
 }
 
 func putOnce(ctx context.Context, client pbkv.KVClient, key []byte, val []byte) bool {
@@ -129,7 +132,7 @@ func putOnce(ctx context.Context, client pbkv.KVClient, key []byte, val []byte) 
 		ok = false
 	}
 
-	fmt.Printf("PUT: %s -- %s\n", req.Key, res)
+	log.Printf("PUT: %s -- %s", req.Key, res)
 	return ok
 }
 
@@ -146,4 +149,9 @@ const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 func exit(err error) {
 	fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 	os.Exit(1)
+}
+
+func defaultLogger(prefix string) {
+	logger := log.New(os.Stdout, fmt.Sprintf("[%s] ", prefix), log.Lshortfile)
+	*log.Default() = *logger
 }

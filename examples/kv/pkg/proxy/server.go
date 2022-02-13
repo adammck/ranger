@@ -2,7 +2,7 @@ package proxy
 
 import (
 	"context"
-	"fmt"
+	"log"
 
 	pbkv "github.com/adammck/ranger/examples/kv/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
@@ -19,7 +19,7 @@ func (ps *proxyServer) getClient(k []byte) (pbkv.KVClient, error) {
 	nids := ps.proxy.rost.Locate(ranje.Key(k))
 
 	for _, nid := range nids {
-		fmt.Printf("%s -> %s\n", k, nid)
+		log.Printf("%s -> %s", k, nid)
 	}
 
 	if len(nids) == 0 {

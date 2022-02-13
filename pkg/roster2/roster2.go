@@ -2,7 +2,7 @@ package roster2
 
 import (
 	"context"
-	"fmt"
+	"log"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -52,10 +52,10 @@ func (ros *Roster2) DumpForDebug() {
 	sort.Strings(keys)
 
 	for _, nid := range keys {
-		fmt.Printf(" - %s\n", nid)
+		log.Printf(" - %s", nid)
 
 		for m, r := range ros.Map[nid].ranges {
-			fmt.Printf("    - %s: %s\n", m.String(), r.String())
+			log.Printf("    - %s: %s", m.String(), r.String())
 		}
 	}
 }
@@ -98,7 +98,7 @@ func (ros *Roster2) discover() {
 		// New Node?
 		if !ok {
 			n = NewShortNode(rem)
-			fmt.Printf("new node: %v -> %s\n", rem.Ident, rem.Addr())
+			log.Printf("new node: %v -> %s", rem.Ident, rem.Addr())
 			ros.Map[rem.Ident] = n
 
 			// TODO: Do this outside of the lock!!
@@ -118,7 +118,7 @@ func (ros *Roster2) expire() {
 	for nid, n := range ros.Map {
 		if n.IsStale(now) {
 			delete(ros.Map, nid)
-			fmt.Printf("node expired: %v\n", nid)
+			log.Printf("node expired: %v", nid)
 
 			// TODO: Do this outside of the lock!!
 			if ros.remove != nil {
@@ -135,19 +135,19 @@ func probeOne(ctx context.Context, n *ShortNode) error {
 
 	res, err := n.client.Ranges(ctx, &pb.RangesRequest{})
 	if err != nil {
-		fmt.Printf("Probe failed: %s\n", err)
+		log.Printf("Probe failed: %s", err)
 		return err
 	}
 
 	for _, r := range res.Ranges {
 		if r.Meta == nil {
-			fmt.Printf("Malformed probe response from node %s: Meta is nil\n", n.remote.Ident)
+			log.Printf("Malformed probe response from node %s: Meta is nil", n.remote.Ident)
 			continue
 		}
 
 		m, err := ranje.MetaFromProto(r.Meta)
 		if r.Meta == nil {
-			fmt.Printf("Malformed probe response from node %s: %s\n", n.remote.Ident, err)
+			log.Printf("Malformed probe response from node %s: %s", n.remote.Ident, err)
 			continue
 		}
 
@@ -185,7 +185,7 @@ func (ros *Roster2) probe() {
 			defer wg.Done()
 			err := probeOne(ctx, n)
 			if err != nil {
-				fmt.Printf("probe error: %s\n", err)
+				log.Printf("probe error: %s", err)
 				return
 			}
 			atomic.AddUint64(&success, 1)
@@ -196,7 +196,7 @@ func (ros *Roster2) probe() {
 
 	t := time.Now()
 	elapsed := t.Sub(start)
-	fmt.Printf("probed %d nodes in %s\n", success, elapsed.String())
+	log.Printf("probed %d nodes in %s", success, elapsed.String())
 }
 
 func (r *Roster2) Tick() {

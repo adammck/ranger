@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -36,11 +37,13 @@ func main() {
 	// Wait for SIGINT
 	go func() {
 		s := <-sig
-		fmt.Fprintf(os.Stderr, "Signal: %v\n", s)
+		log.Printf("Signal: %v", s)
 		done <- true
 	}()
 
 	if *fnod && !*fprx && !*fctl {
+		defaultLogger(fmt.Sprintf("node %s", *addrPub))
+
 		n, err := node.New(*addrLis, *addrPub)
 		if err != nil {
 			exit(err)
@@ -51,6 +54,8 @@ func main() {
 		}
 
 	} else if !*fnod && *fprx && !*fctl {
+		defaultLogger(fmt.Sprintf("prxy %s", *addrPub))
+
 		c, err := proxy.New(*addrLis, *addrPub)
 		if err != nil {
 			exit(err)
@@ -61,7 +66,7 @@ func main() {
 		}
 
 	} else if !*fnod && !*fprx && *fctl {
-		// TODO: This branch seems very similar to the previous...
+		defaultLogger(fmt.Sprintf("ctrl %s", *addrPub))
 
 		c, err := controller.New(*addrLis, *addrPub, *fonce)
 		if err != nil {
@@ -79,6 +84,11 @@ func main() {
 }
 
 func exit(err error) {
-	fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+	log.Fatalf("Error: %s", err)
 	os.Exit(1)
+}
+
+func defaultLogger(prefix string) {
+	logger := log.New(os.Stdout, fmt.Sprintf("[%s] ", prefix), log.Lshortfile)
+	*log.Default() = *logger
 }

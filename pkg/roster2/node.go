@@ -2,7 +2,7 @@ package roster2
 
 import (
 	"context"
-	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -39,7 +39,7 @@ func NewShortNode(rem discovery.Remote) *ShortNode {
 	// Dial in background.
 	conn, err := grpc.DialContext(context.Background(), n.remote.Addr(), grpc.WithInsecure())
 	if err != nil {
-		fmt.Printf("error while dialing: %v\n", err)
+		log.Printf("error while dialing: %v", err)
 		return nil
 	}
 

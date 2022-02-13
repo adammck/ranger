@@ -3,6 +3,7 @@ package ranje
 import (
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 )
@@ -133,7 +134,7 @@ func (p *DurablePlacement) ToState(new StatePlacement) error {
 	}
 
 	p.state = new
-	fmt.Printf("P %s -> %s\n", old, new)
+	log.Printf("P %s -> %s", old, new)
 
 	// Notify range of state change, so it can change its own state.
 	//p.rang.PlacementStateChanged(p)

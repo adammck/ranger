@@ -2,7 +2,7 @@ package proxy
 
 import (
 	"context"
-	"fmt"
+	"log"
 	"net"
 	"sync"
 	"time"
@@ -64,7 +64,7 @@ func (p *Proxy) Add(rem *discovery.Remote) {
 
 	// TODO: Not sure what to do here.
 	if err != nil {
-		fmt.Printf("error while dialing %s: %v\n", rem.Addr(), err)
+		log.Printf("error while dialing %s: %v", rem.Addr(), err)
 		return
 	}
 
@@ -83,7 +83,7 @@ func (p *Proxy) Remove(rem *discovery.Remote) {
 
 	_, ok := p.clients[rem.Ident]
 	if !ok {
-		fmt.Printf("tried to remove non-existent client %s\n", rem.Ident)
+		log.Printf("tried to remove non-existent client %s", rem.Ident)
 		return
 	}
 
@@ -124,8 +124,7 @@ func (c *Proxy) Run(done chan bool) error {
 	go func() {
 		t := time.NewTicker(1 * time.Second)
 		for ; true; <-t.C {
-			fmt.Print("\033[H\033[2J")
-			fmt.Println("roster:")
+			log.Println("roster:")
 			c.rost.DumpForDebug()
 		}
 	}()
@@ -138,7 +137,7 @@ func (c *Proxy) Run(done chan bool) error {
 	c.srv.GracefulStop()
 	err = <-errChan
 	if err != nil {
-		fmt.Printf("Error from server.Serve: ")
+		log.Printf("Error from server.Serve: %v", err)
 		return err
 	}
 

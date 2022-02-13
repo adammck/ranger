@@ -3,6 +3,7 @@ package join
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/adammck/ranger/pkg/operations/utils"
 	"github.com/adammck/ranger/pkg/ranje"
@@ -95,7 +96,7 @@ func (op *JoinOp) Run() {
 			s = op.cleanup()
 		}
 
-		fmt.Printf("Join: %d -> %d\n", op.state, s)
+		log.Printf("Join: %d -> %d", op.state, s)
 		op.state = s
 	}
 }
@@ -137,7 +138,7 @@ func (op *JoinOp) take() state {
 
 	err := g.Wait()
 	if err != nil {
-		fmt.Printf("Join (Take) failed: %s\n", err.Error())
+		log.Printf("Join (Take) failed: %s", err.Error())
 		return Failed
 	}
 
@@ -147,13 +148,13 @@ func (op *JoinOp) take() state {
 func (op *JoinOp) give() state {
 	err := utils.ToState(op.Keyspace, op.r, ranje.Placing)
 	if err != nil {
-		fmt.Printf("Join (give) failed: %s\n", err.Error())
+		log.Printf("Join (give) failed: %s", err.Error())
 		return Failed
 	}
 
 	r3, err := op.Keyspace.GetByIdent(op.r)
 	if err != nil {
-		fmt.Printf("%s\n", err.Error())
+		log.Printf("%s", err.Error())
 		return Failed
 	}
 
@@ -165,7 +166,7 @@ func (op *JoinOp) give() state {
 
 	err = utils.Give(op.Roster, r3, p3)
 	if err != nil {
-		fmt.Printf("Join (Give) failed: %s\n", err.Error())
+		log.Printf("Join (Give) failed: %s", err.Error())
 		// This is a bad situation; the range has been taken from the src, but
 		// can't be given to the dest! So we stay in Moving forever.
 		// TODO: Repair the situation somehow.
@@ -177,7 +178,7 @@ func (op *JoinOp) give() state {
 	err = p3.FetchWait()
 	if err != nil {
 		// TODO: Provide a more useful error here
-		fmt.Printf("Join (Fetch) failed: %s\n", err.Error())
+		log.Printf("Join (Fetch) failed: %s", err.Error())
 		return Failed
 	}
 
@@ -213,7 +214,7 @@ func (op *JoinOp) drop() state {
 	if err != nil {
 		// No range state change. Stay in Moving.
 		// TODO: Repair the situation somehow.
-		fmt.Printf("Join (Drop) failed: %s\n", err.Error())
+		log.Printf("Join (Drop) failed: %s", err.Error())
 		return Failed
 	}
 
@@ -223,13 +224,13 @@ func (op *JoinOp) drop() state {
 func (op *JoinOp) serve() state {
 	r, err := op.Keyspace.GetByIdent(op.r)
 	if err != nil {
-		fmt.Printf("Join (serve) failed: %s\n", err.Error())
+		log.Printf("Join (serve) failed: %s", err.Error())
 		return Failed
 	}
 
 	err = utils.Serve(op.Roster, r.Placement())
 	if err != nil {
-		fmt.Printf("Join (serve) failed: %s\n", err.Error())
+		log.Printf("Join (serve) failed: %s", err.Error())
 		return Failed
 	}
 
@@ -278,7 +279,7 @@ func (op *JoinOp) cleanup() state {
 
 	err := g.Wait()
 	if err != nil {
-		fmt.Printf("Join (cleanup) failed: %s\n", err.Error())
+		log.Printf("Join (cleanup) failed: %s", err.Error())
 		return Failed
 	}
 

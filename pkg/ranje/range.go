@@ -3,6 +3,7 @@ package ranje
 import (
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 
 	pb "github.com/adammck/ranger/pkg/proto/gen"
@@ -69,7 +70,7 @@ func (r *Range) DumpForDebug() {
 	if r.next != nil {
 		f = fmt.Sprintf("%s (next: %s)", f, r.next.DumpForDebug())
 	}
-	fmt.Printf(" - %s%s\n", r.String(), f)
+	log.Printf(" - %s%s", r.String(), f)
 }
 
 func (r *Range) Placement() *DurablePlacement {
@@ -177,7 +178,7 @@ func (r *Range) ToState(new StateLocal) error {
 	old := r.state
 
 	if old == new {
-		fmt.Printf("%s %s -> %s REDUNDANT STATE CHANGE\n", r.String(), old, new)
+		log.Printf("%s %s -> %s REDUNDANT STATE CHANGE", r.String(), old, new)
 		return nil
 	}
 
@@ -287,7 +288,7 @@ func (r *Range) ToState(new StateLocal) error {
 		}
 	}
 
-	fmt.Printf("%s %s -> %s\n", r.String(), old, new)
+	log.Printf("%s %s -> %s", r.String(), old, new)
 
 	return nil
 }

@@ -2,7 +2,7 @@ package roster
 
 import (
 	"context"
-	"fmt"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -37,7 +37,7 @@ func (ros *Roster) DumpForDebug() {
 	defer ros.RUnlock()
 
 	for nid, n := range ros.Nodes {
-		fmt.Printf(" - %s\n", nid)
+		log.Printf(" - %s", nid)
 		n.DumpForDebug()
 	}
 }
@@ -69,7 +69,7 @@ func (ros *Roster) discover() {
 		// New Node?
 		if !ok {
 			n = ranje.NewNode(r)
-			fmt.Printf("new node: %v\n", n.Ident())
+			log.Printf("new node: %v", n.Ident())
 			ros.Nodes[r.Ident] = n
 		}
 
@@ -82,7 +82,7 @@ func (ros *Roster) expire() {
 
 	for k, v := range ros.Nodes {
 		if v.IsStale(now) {
-			fmt.Printf("expiring node: %v\n", v)
+			log.Printf("expiring node: %v", v)
 			// TODO: Don't do this! Mark it as expired instead. There might still be ranges placed on it which need cleaning up.
 			delete(ros.Nodes, k)
 		}
@@ -109,7 +109,7 @@ func (ros *Roster) probe() {
 			defer wg.Done()
 			err := n.Probe(ctx)
 			if err != nil {
-				fmt.Println(err)
+				log.Printf("Error probing %v: %v", n.Ident(), err)
 				return
 			}
 			atomic.AddUint64(&success, 1)
@@ -120,7 +120,7 @@ func (ros *Roster) probe() {
 
 	t := time.Now()
 	elapsed := t.Sub(start)
-	fmt.Printf("probed %d nodes in %s\n", success, elapsed.String())
+	log.Printf("probed %d nodes in %s", success, elapsed.String())
 }
 
 func (r *Roster) Tick() {

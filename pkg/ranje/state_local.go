@@ -1,7 +1,7 @@
 package ranje
 
 import (
-	"fmt"
+	"log"
 
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 )
@@ -69,7 +69,7 @@ func FromProto(s *pb.RangeNodeState) StateLocal {
 	// 	return Taken
 	// }
 
-	fmt.Printf("warn: got unknown state from proto: %s\n", *s)
+	log.Printf("warn: got unknown state from proto: %s", *s)
 	return Unknown
 }
 

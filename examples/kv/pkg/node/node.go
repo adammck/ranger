@@ -659,7 +659,7 @@ func (node *Node) Run(done chan bool) error {
 	node.srv.GracefulStop()
 	err = <-errChan
 	if err != nil {
-		fmt.Printf("Error from server.Serve: ")
+		log.Printf("Error from server.Serve: %v", err)
 		return err
 	}
 

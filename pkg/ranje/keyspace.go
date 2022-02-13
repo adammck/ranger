@@ -3,6 +3,7 @@ package ranje
 import (
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 )
@@ -117,7 +118,7 @@ func (ks *Keyspace) Dump() string {
 // TODO: Replace this with a statusz-type page
 func (ks *Keyspace) DumpForDebug() {
 	for _, r := range ks.ranges {
-		//fmt.Printf(" - %s\n", r.String())
+		//log.Printf(" - %s", r.String())
 		r.DumpForDebug()
 	}
 }
@@ -279,7 +280,7 @@ func (ks *Keyspace) Discard(r *Range) error {
 	ks.mu.Lock()
 	defer ks.mu.Unlock()
 
-	fmt.Printf("discarding: %s\n", r.String())
+	log.Printf("discarding: %s", r.String())
 
 	if r.state != Obsolete {
 		return errors.New("can't discard non-obsolete range")

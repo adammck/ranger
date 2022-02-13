@@ -1,7 +1,8 @@
 package balancer
 
 import (
-	"fmt"
+	"log"
+	"sort"
 	"sync"
 	"time"
 
@@ -48,13 +49,10 @@ func (b *Balancer) Operation(req operations.Operation) {
 }
 
 func (b *Balancer) Tick() {
-	fmt.Printf("rebalancing\n")
-
 	// Find any unknown and complain about them. There should be NONE of these
 	// in the keyspace; it indicates a state bug.
 	for _, r := range b.ks.RangesByState(ranje.Unknown) {
-		panic(fmt.Sprintf("range in unknown state: %s\n", r.String()))
-		//fmt.Printf("range in unknown state: %s\n", r.String())
+		log.Fatalf("range in unknown state: %v", r)
 	}
 
 	// Find any pending ranges and find any node to assign them to.
@@ -81,7 +79,7 @@ func (b *Balancer) Tick() {
 			Node:     nid,
 		}, &b.opsWG)
 		if err != nil {
-			fmt.Printf("Error placing pending range: %v\n", err)
+			log.Printf("Error placing pending range: %v", err)
 		}
 	}
 
@@ -102,7 +100,7 @@ func (b *Balancer) Tick() {
 	for _, req := range ops {
 		err := operations.Run(req, &b.opsWG)
 		if err != nil {
-			fmt.Printf("Error initiating operation: %v\n", err)
+			log.Printf("Error initiating operation: %v", err)
 		}
 	}
 	b.opsMu.RUnlock()
@@ -120,15 +118,26 @@ func (b *Balancer) Candidate(r *ranje.Range) string {
 
 	var best string
 
+	nIDs := make([]string, len(b.rost.Nodes))
+	i := 0
+
+	for nID := range b.rost.Nodes {
+		nIDs[i] = nID
+		i += 1
+	}
+
+	sort.Strings(nIDs)
+
 	// lol
-	for nid := range b.rost.Nodes {
-		best = nid
+	for i, nID := range nIDs {
+		log.Printf("considering %d: %q", i, nID)
+		best = nID
 		break
 	}
 
 	// No suitable nodes?
 	if best == "" {
-		fmt.Printf("no candidate nodes to place range: %s\n", r.String())
+		log.Printf("no candidate nodes to place range: %s", r.String())
 		return ""
 	}
 

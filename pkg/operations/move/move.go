@@ -2,6 +2,7 @@ package move
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/adammck/ranger/pkg/operations/utils"
 	"github.com/adammck/ranger/pkg/ranje"
@@ -103,7 +104,7 @@ func (op *MoveOp) Run() {
 			s = op.drop()
 		}
 
-		fmt.Printf("Move: %d -> %d\n", op.state, s)
+		log.Printf("Move: %d -> %d", op.state, s)
 		op.state = s
 	}
 }
@@ -111,19 +112,19 @@ func (op *MoveOp) Run() {
 func (op *MoveOp) take() state {
 	r, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
-		fmt.Printf("Move (take) failed: %s\n", err.Error())
+		log.Printf("Move (take) failed: %s", err.Error())
 		return Failed
 	}
 
 	p := r.Placement()
 	if p == nil {
-		fmt.Printf("Move (take) failed: Placement returned nil")
+		log.Println("Move (take) failed: Placement returned nil")
 		return Failed
 	}
 
 	err = utils.Take(op.Roster, p)
 	if err != nil {
-		fmt.Printf("Move (take) failed: %s\n", err.Error())
+		log.Printf("Move (take) failed: %s", err.Error())
 		r.MustState(ranje.Ready) // ???
 		return Failed
 	}
@@ -134,19 +135,19 @@ func (op *MoveOp) take() state {
 func (op *MoveOp) give() state {
 	r, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
-		fmt.Printf("Move (give) failed: %s\n", err.Error())
+		log.Printf("Move (give) failed: %s", err.Error())
 		return Failed
 	}
 
 	p, err := ranje.NewPlacement(r, op.Node)
 	if err != nil {
-		fmt.Printf("Move (give) failed: %s\n", err.Error())
+		log.Printf("Move (give) failed: %s", err.Error())
 		return Failed
 	}
 
 	err = utils.Give(op.Roster, r, p)
 	if err != nil {
-		fmt.Printf("Move (give) failed: %s\n", err.Error())
+		log.Printf("Move (give) failed: %s", err.Error())
 
 		// Clean up p. No return value.
 		r.ClearNextPlacement()
@@ -184,19 +185,19 @@ func (op *MoveOp) give() state {
 func (op *MoveOp) untake() state {
 	r, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
-		fmt.Printf("Move (untake) failed: %s\n", err.Error())
+		log.Printf("Move (untake) failed: %s", err.Error())
 		return Failed
 	}
 
 	p := r.Placement()
 	if p == nil {
-		fmt.Printf("Move (untake) failed: Placement returned nil")
+		log.Println("Move (untake) failed: Placement returned nil")
 		return Failed
 	}
 
 	err = utils.Untake(op.Roster, p)
 	if err != nil {
-		fmt.Printf("Move (untake) failed: %s\n", err.Error())
+		log.Printf("Move (untake) failed: %s", err.Error())
 		return Failed // TODO: Try again?!
 	}
 
@@ -212,19 +213,19 @@ func (op *MoveOp) untake() state {
 func (op *MoveOp) fetchWait() state {
 	r, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
-		fmt.Printf("Move (fetchWait) failed: %s\n", err.Error())
+		log.Printf("Move (fetchWait) failed: %s", err.Error())
 		return Failed
 	}
 
 	p := r.NextPlacement()
 	if p == nil {
-		fmt.Printf("Move (fetchWait) failed: NextPlacement is nil")
+		log.Println("Move (fetchWait) failed: NextPlacement is nil")
 		return Failed
 	}
 
 	err = p.FetchWait()
 	if err != nil {
-		fmt.Printf("Move (fetchWait) failed: %s\n", err.Error())
+		log.Printf("Move (fetchWait) failed: %s", err.Error())
 		return Failed
 	}
 
@@ -234,19 +235,19 @@ func (op *MoveOp) fetchWait() state {
 func (op *MoveOp) serve() state {
 	r, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
-		fmt.Printf("Move (serve) failed: %s\n", err.Error())
+		log.Printf("Move (serve) failed: %s", err.Error())
 		return Failed
 	}
 
 	p := r.NextPlacement()
 	if p == nil {
-		fmt.Printf("Move (serve) failed: NextPlacement is nil")
+		log.Println("Move (serve) failed: NextPlacement is nil")
 		return Failed
 	}
 
 	err = utils.Serve(op.Roster, p)
 	if err != nil {
-		fmt.Printf("Move (serve) failed: %s\n", err.Error())
+		log.Printf("Move (serve) failed: %s", err.Error())
 		return Failed
 	}
 
@@ -271,19 +272,19 @@ func (op *MoveOp) serve() state {
 func (op *MoveOp) drop() state {
 	r, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
-		fmt.Printf("Move (drop) failed: %s\n", err.Error())
+		log.Printf("Move (drop) failed: %s", err.Error())
 		return Failed
 	}
 
 	p := r.Placement()
 	if p == nil {
-		fmt.Printf("Move (drop) failed: Placement is nil")
+		log.Println("Move (drop) failed: Placement is nil")
 		return Failed
 	}
 
 	err = utils.Drop(op.Roster, p)
 	if err != nil {
-		fmt.Printf("Move (drop) failed: %s\n", err.Error())
+		log.Printf("Move (drop) failed: %s", err.Error())
 		return Failed
 	}
 

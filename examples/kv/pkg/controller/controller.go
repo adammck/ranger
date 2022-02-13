@@ -1,7 +1,7 @@
 package controller
 
 import (
-	"fmt"
+	"log"
 	"net"
 	"time"
 
@@ -96,24 +96,24 @@ func (c *Controller) Run(done chan bool) error {
 	// TODO: Fetch current assignment status from nodes
 	// TODO: Reconcile divergence etc
 
-	if c.once {
-		// Perform a single blocking cycle.
-		c.rost.Tick()
+	// Perform a single blocking probe cycle, to ensure that the first rebalance
+	// happens after we have the current state of the nodes.
+	c.rost.Tick()
 
-	} else {
-		// Start roster. Periodically probes all nodes to get their state.
+	if !c.once {
+		// Periodically probe all nodes to keep their state up to date.
 		ticker := time.NewTicker(time.Second)
 		go c.rost.Run(ticker)
 	}
 
 	if c.once {
-		fmt.Println("before rebalance:")
+		log.Println("before rebalance:")
 		c.printState()
 
 		c.bal.Tick()
 		c.bal.FinishOps()
 
-		fmt.Println("after rebalance:")
+		log.Println("after rebalance:")
 		c.printState()
 
 	} else {
@@ -127,7 +127,6 @@ func (c *Controller) Run(done chan bool) error {
 		go func() {
 			t := time.NewTicker(3 * time.Second)
 			for ; true; <-t.C {
-				fmt.Print("\033[H\033[2J")
 				c.printState()
 			}
 		}()
@@ -143,7 +142,7 @@ func (c *Controller) Run(done chan bool) error {
 	c.srv.GracefulStop()
 	err = <-errChan
 	if err != nil {
-		fmt.Printf("Error from server.Serve: ")
+		log.Printf("Error from server.Serve: ")
 		return err
 	}
 
@@ -158,9 +157,9 @@ func (c *Controller) Run(done chan bool) error {
 }
 
 func (c *Controller) printState() {
-	fmt.Println("nodes:")
+	log.Println("nodes:")
 	c.rost.DumpForDebug()
-	fmt.Println("ranges:")
+	log.Println("ranges:")
 	c.ks.DumpForDebug()
-	fmt.Println("----")
+	log.Println("----")
 }

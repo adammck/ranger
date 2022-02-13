@@ -67,6 +67,8 @@ teardown() {
     start_node 8003
     start_controller 9000
 
+    sleep 0.5
+
     # Write a key on either side of the split.
     run bin/client.sh 8001 kv.KV.Put '{"key": "'$a'", "value": "'$zzz'"}'
     assert_success

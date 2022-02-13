@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -53,7 +54,7 @@ func NewNode(remote discovery.Remote) *Node {
 	// todo: inherit context to allow global cancellation
 	conn, err := grpc.DialContext(context.Background(), n.remote.Addr(), grpc.WithInsecure())
 	if err != nil {
-		fmt.Printf("error while dialing: %v\n", err)
+		log.Printf("error while dialing: %v", err)
 	}
 
 	n.muConn.Lock()
@@ -255,7 +256,7 @@ func updateLocalState(p *DurablePlacement, rns pb.RangeNodeState) {
 	rs := RemoteStateFromProto(rns)
 	switch rs {
 	case StateUnknown:
-		//fmt.Printf("Got range in unexpected state from node %s: %s\n", n.addr(), rr.String())
+		//log.Printf("Got range in unexpected state from node %s: %s", n.addr(), rr.String())
 
 	case StateFetching:
 		p.ToState(SpFetching)
@@ -290,20 +291,20 @@ func (n *Node) Probe(ctx context.Context) error {
 
 	res, err := n.client.Info(ctx, &pb.InfoRequest{})
 	if err != nil {
-		fmt.Printf("Probe failed: %s\n", err)
+		log.Printf("Probe failed: %s", err)
 		return err
 	}
 
 	for _, r := range res.Ranges {
 		rr := r.Range
 		if rr == nil {
-			fmt.Printf("Malformed probe response from node %s: Range is nil\n", n.remote.Ident)
+			log.Printf("Malformed probe response from node %s: Range is nil", n.remote.Ident)
 			continue
 		}
 
 		// id, err := IdentFromProto(rr.Ident)
 		// if err != nil {
-		// 	fmt.Printf("Got malformed ident from node %s: %s\n", n.addr(), err.Error())
+		// 	log.Printf("Got malformed ident from node %s: %s", n.addr(), err.Error())
 		// 	continue
 		// }
 
@@ -312,7 +313,7 @@ func (n *Node) Probe(ctx context.Context) error {
 		// p, ok := n.ranges[*id]
 
 		// if !ok {
-		// 	fmt.Printf("Got unexpected range from node %s: %s\n", n.addr(), id.String())
+		// 	log.Printf("Got unexpected range from node %s: %s", n.addr(), id.String())
 		// 	n.unexpectedRanges[*id] = rr
 		// 	continue
 		// }
@@ -321,7 +322,7 @@ func (n *Node) Probe(ctx context.Context) error {
 
 		// TODO: We compare the Ident here even though we just fetched the assignment by ID. Is that... why
 		// if !p.rang.SameMeta(*id, rr.Start, rr.End) {
-		// 	fmt.Printf("Remote range did not match local range with same ident: %s\n", id.String())
+		// 	log.Printf("Remote range did not match local range with same ident: %s", id.String())
 		// 	continue
 		// }
 

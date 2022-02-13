@@ -3,6 +3,7 @@ package split
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/adammck/ranger/pkg/operations/utils"
 	"github.com/adammck/ranger/pkg/ranje"
@@ -99,7 +100,7 @@ func (op *SplitOp) Run() {
 			s = op.serve()
 		}
 
-		fmt.Printf("Split: %d -> %d\n", op.state, s)
+		log.Printf("Split: %d -> %d", op.state, s)
 		op.state = s
 	}
 }
@@ -107,13 +108,13 @@ func (op *SplitOp) Run() {
 func (op *SplitOp) take() state {
 	r0, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
-		fmt.Printf("Split (Take) failed: %s\n", err.Error())
+		log.Printf("Split (Take) failed: %s", err.Error())
 		return Failed
 	}
 
 	err = utils.Take(op.Roster, r0.Placement())
 	if err != nil {
-		fmt.Printf("Split (Take) failed: %s\n", err.Error())
+		log.Printf("Split (Take) failed: %s", err.Error())
 		return Failed
 	}
 
@@ -176,7 +177,7 @@ func (op *SplitOp) give() state {
 
 	err := g.Wait()
 	if err != nil {
-		fmt.Printf("Give failed: %s\n", err.Error())
+		log.Printf("Give failed: %s", err.Error())
 		return Failed
 	}
 
@@ -186,13 +187,13 @@ func (op *SplitOp) give() state {
 func (op *SplitOp) drop() state {
 	r, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
-		fmt.Printf("Split (Drop) failed: %s\n", err.Error())
+		log.Printf("Split (Drop) failed: %s", err.Error())
 		return Failed
 	}
 
 	err = utils.Drop(op.Roster, r.Placement())
 	if err != nil {
-		fmt.Printf("Split (Drop) failed: %s\n", err.Error())
+		log.Printf("Split (Drop) failed: %s", err.Error())
 		return Failed
 	}
 
@@ -244,14 +245,14 @@ func (op *SplitOp) serve() state {
 	if err != nil {
 		// No state change. Stay in Moving.
 		// TODO: Repair the situation somehow.
-		fmt.Printf("Serve (Drop) failed: %s\n", err.Error())
+		log.Printf("Serve (Drop) failed: %s", err.Error())
 		return Failed
 	}
 
 	// TODO: Should this happen via CompletePlacement, too?
 	r0, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
-		fmt.Printf("Split (Serve) failed: %s\n", err.Error())
+		log.Printf("Split (Serve) failed: %s", err.Error())
 		return Failed
 	}
 	r0.Placement().Forget()
@@ -263,7 +264,7 @@ func (op *SplitOp) serve() state {
 	// TODO: Move this to some background GC routine in the balancer.
 	err = op.Keyspace.Discard(r0)
 	if err != nil {
-		fmt.Printf("Discard failed: %s\n", err.Error())
+		log.Printf("Discard failed: %s", err.Error())
 	}
 
 	return Complete
