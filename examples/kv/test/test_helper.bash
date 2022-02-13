@@ -37,6 +37,11 @@ start_controller() {
     start_cmd "$1" ./kv -controller -addr ":$1"
 }
 
+start_proxy() {
+    #>&3 echo "# start_proxy $@"
+    start_cmd "$1" ./kv -proxy -addr ":$1"
+}
+
 stop_controller() {
     #>&3 echo "# start_controller $@"
     stop_cmd "$PID_9000"

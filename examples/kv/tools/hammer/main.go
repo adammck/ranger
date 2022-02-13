@@ -5,10 +5,12 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"math/rand"
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -27,28 +29,45 @@ func main() {
 	faddrs := flag.String("addr", "localhost:8000", "addresses to hammer (comma-separated)")
 	fworkers := flag.Int("workers", 100, "number of workers to run in parallel")
 	finterval := flag.Int("interval", 100, "max time to sleep between rpcs (ms)")
+	fcount := flag.Int("count", 0, "number of requests to send before terminating (default: no limit)")
 	flag.Parse()
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 
 	sig := make(chan os.Signal, 1)
-	done := make(chan bool, 1)
 	signal.Notify(sig, syscall.SIGINT)
 
 	go func() {
 		s := <-sig
 		log.Printf("Signal: %v", s)
-		done <- true
+		cancel()
 	}()
 
 	defaultLogger("hammer")
+	wg := sync.WaitGroup{}
 
 	addrs := strings.Split(*faddrs, ",")
 	for n := 0; n < *fworkers; n++ {
-		go runWorker(ctx, addrs[n%len(addrs)], *finterval)
+
+		// If a request limit was set, divide it up equally-ish between the
+		// workers. Otherwise leave it as MaxInt.
+		c := math.MaxInt
+		if *fcount > 0 {
+			c = *fcount / *fworkers
+
+			// add remainder to the last worker
+			if n == *fworkers-1 {
+				c += *fcount % *fworkers
+			}
+		}
+
+		wg.Add(1)
+		go runWorker(ctx, &wg, addrs[n%len(addrs)], *finterval, c)
 	}
 
-	<-done
+	// Block until workers self-terminate (because they hit the request limit)
+	// or SIGINT is received and workers are cancelled.
+	wg.Wait()
 }
 
 func newClient(ctx context.Context, addr string) pbkv.KVClient {
@@ -60,14 +79,28 @@ func newClient(ctx context.Context, addr string) pbkv.KVClient {
 	return pbkv.NewKVClient(conn)
 }
 
-func runWorker(ctx context.Context, addr string, interval int) {
+func runWorker(ctx context.Context, wg *sync.WaitGroup, addr string, interval int, count int) {
 	c := newClient(ctx, addr)
+	cnt := 0
 
 	// Keys which have been PUT
 	keys := [][]byte{}
 	vals := [][]byte{}
 
 	for {
+
+		// Probably cancellation
+		if ctx.Err() != nil {
+			break
+		}
+
+		// Stop once this worker has sent enough requests. (Note: when -count is
+		// lower than -workers, some will have zero requests, so we might return
+		// before sending any.)
+		if cnt >= count {
+			break
+		}
+
 		n := rand.Intn(10)
 
 		// always PUT new values until minKeys reached, then 10% until maxKeys.
@@ -97,7 +130,10 @@ func runWorker(ctx context.Context, addr string, interval int) {
 		}
 
 		time.Sleep(time.Duration(rand.Intn(interval)) * time.Millisecond)
+		cnt += 1
 	}
+
+	wg.Done()
 }
 
 func getOnce(ctx context.Context, client pbkv.KVClient, key []byte, val []byte) {
