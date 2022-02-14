@@ -4,6 +4,13 @@ This is a very simple volatile in-memory key-value store to demonstrate the
 Ranger API. It exposes an HTTP interface to GET and PUT things, and a gRPC
 interface to move those things around.
 
+## Dependencies
+
+```console
+$ brew bundle --file Brewfile
+Homebrew Bundle complete! 2 Brewfile dependencies now installed.
+```
+
 ## Usage
 
 ```console
