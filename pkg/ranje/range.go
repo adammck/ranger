@@ -59,18 +59,6 @@ func (r *Range) String() string {
 	return fmt.Sprintf("R{%s %s}", r.Meta.String(), r.state)
 }
 
-// TODO: Replace this with a statusz-type page
-func (r *Range) DumpForDebug() {
-	f := ""
-	if r.curr != nil {
-		f = fmt.Sprintf("%s (curr: %s)", f, r.curr.DumpForDebug())
-	}
-	if r.next != nil {
-		f = fmt.Sprintf("%s (next: %s)", f, r.next.DumpForDebug())
-	}
-	log.Printf(" - %s%s", r.String(), f)
-}
-
 func (r *Range) Placement() *DurablePlacement {
 	return r.curr
 }
@@ -119,7 +107,7 @@ func (r *Range) ToState(new StateLocal) error {
 	old := r.state
 
 	if old == new {
-		log.Printf("%s %s -> %s REDUNDANT STATE CHANGE", r.String(), old, new)
+		log.Printf("R%v: %s -> %s (redundant)", r.Meta.Ident.Key, old, new)
 		return nil
 	}
 
@@ -229,7 +217,7 @@ func (r *Range) ToState(new StateLocal) error {
 		}
 	}
 
-	log.Printf("%s %s -> %s", r.String(), old, new)
+	log.Printf("R%v: %s -> %s", r.Meta.Ident.Key, old, new)
 
 	return nil
 }

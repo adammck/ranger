@@ -627,18 +627,20 @@ func New(addrLis, addrPub string) (*Node, error) {
 	return n, nil
 }
 
-func (node *Node) Run(done chan bool) error {
+func (n *Node) Run(done chan bool) error {
 
 	// For the gRPC server.
-	lis, err := net.Listen("tcp", node.addrLis)
+	lis, err := net.Listen("tcp", n.addrLis)
 	if err != nil {
 		return err
 	}
 
+	log.Printf("listening on: %s", n.addrLis)
+
 	// Start the gRPC server in a background routine.
 	errChan := make(chan error)
 	go func() {
-		err := node.srv.Serve(lis)
+		err := n.srv.Serve(lis)
 		if err != nil {
 			errChan <- err
 		}
@@ -646,7 +648,7 @@ func (node *Node) Run(done chan bool) error {
 	}()
 
 	// Register with service discovery
-	err = node.disc.Start()
+	err = n.disc.Start()
 	if err != nil {
 		return err
 	}
@@ -655,17 +657,17 @@ func (node *Node) Run(done chan bool) error {
 	<-done
 
 	// Let in-flight RPCs finish and then stop. errChan will contain the error
-	// returned by server.Serve (above) or be closed with no error.
-	node.srv.GracefulStop()
+	// returned by srv.Serve (above) or be closed with no error.
+	n.srv.GracefulStop()
 	err = <-errChan
 	if err != nil {
-		log.Printf("Error from server.Serve: %v", err)
+		log.Printf("error from srv.Serve: %v", err)
 		return err
 	}
 
 	// Remove ourselves from service discovery. Not strictly necessary, but lets
 	// the other nodes respond quicker.
-	err = node.disc.Stop()
+	err = n.disc.Stop()
 	if err != nil {
 		return err
 	}

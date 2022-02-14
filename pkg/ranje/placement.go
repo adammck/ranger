@@ -35,11 +35,6 @@ func (p *DurablePlacement) NodeID() string {
 	return p.nodeID
 }
 
-// TODO: Replace this with a statusz-type page
-func (p *DurablePlacement) DumpForDebug() string {
-	return fmt.Sprintf("P{%s %s}", p.nodeID, p.state)
-}
-
 func NewPlacement(r *Range, nodeID string) (*DurablePlacement, error) {
 	p := &DurablePlacement{
 		rang:   r,

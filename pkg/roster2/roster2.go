@@ -3,7 +3,6 @@ package roster2
 import (
 	"context"
 	"log"
-	"sort"
 	"sync"
 	"time"
 
@@ -35,27 +34,6 @@ func New(disc discovery.Discoverable, add, remove func(rem *discovery.Remote)) *
 		disc:   disc,
 		add:    add,
 		remove: remove,
-	}
-}
-
-// TODO: Replace this with a statusz-type page
-func (ros *Roster2) DumpForDebug() {
-	ros.RLock()
-	defer ros.RUnlock()
-
-	// Sorted list of keys for stable output.
-	keys := make([]string, 0, len(ros.Map))
-	for k := range ros.Map {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	for _, nid := range keys {
-		log.Printf(" - %s", nid)
-
-		for m, r := range ros.Map[nid].ranges {
-			log.Printf("    - %s: %s", m.String(), r.String())
-		}
 	}
 }
 
@@ -97,7 +75,7 @@ func (ros *Roster2) discover() {
 		// New Node?
 		if !ok {
 			n = NewShortNode(rem)
-			log.Printf("new node: %v -> %s", rem.Ident, rem.Addr())
+			log.Printf("new node: %s", rem.Ident)
 			ros.Map[rem.Ident] = n
 
 			// TODO: Do this outside of the lock!!
@@ -117,7 +95,7 @@ func (ros *Roster2) expire() {
 	for nid, n := range ros.Map {
 		if n.IsStale(now) {
 			delete(ros.Map, nid)
-			log.Printf("node expired: %v", nid)
+			log.Printf("expired node: %v", nid)
 
 			// TODO: Do this outside of the lock!!
 			if ros.remove != nil {
@@ -134,19 +112,19 @@ func probeOne(ctx context.Context, n *ShortNode) error {
 
 	res, err := n.client.Ranges(ctx, &pb.RangesRequest{})
 	if err != nil {
-		log.Printf("Probe failed: %s", err)
+		log.Printf("probe failed: %s", err)
 		return err
 	}
 
 	for _, r := range res.Ranges {
 		if r.Meta == nil {
-			log.Printf("Malformed probe response from node %s: Meta is nil", n.remote.Ident)
+			log.Printf("malformed probe response from %v: Meta is nil", n.remote.Ident)
 			continue
 		}
 
 		m, err := ranje.MetaFromProto(r.Meta)
 		if r.Meta == nil {
-			log.Printf("Malformed probe response from node %s: %s", n.remote.Ident, err)
+			log.Printf("malformed probe response from %v: %v", n.remote.Ident, err)
 			continue
 		}
 
@@ -180,7 +158,7 @@ func (ros *Roster2) probe() {
 			defer wg.Done()
 			err := probeOne(ctx, n)
 			if err != nil {
-				log.Printf("probe error: %s", err)
+				log.Printf("probe error from %v: %s", n.remote.Ident, err)
 				return
 			}
 		}(node)

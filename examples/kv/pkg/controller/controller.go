@@ -74,6 +74,8 @@ func (c *Controller) Run(done chan bool) error {
 		return err
 	}
 
+	log.Printf("listening on: %s", c.addrLis)
+
 	// Start the gRPC server in a background routine.
 	errChan := make(chan error)
 	go func() {
@@ -107,29 +109,14 @@ func (c *Controller) Run(done chan bool) error {
 	}
 
 	if c.once {
-		log.Println("before rebalance:")
-		c.printState()
-
 		c.bal.Tick()
 		c.bal.FinishOps()
-
-		log.Println("after rebalance:")
-		c.printState()
 
 	} else {
 
 		// Start rebalancing loop.
 		// TODO: This should probably be reactive rather than running in a loop. Could run after probes complete.
 		go c.bal.Run(time.NewTicker(1005 * time.Millisecond))
-
-		// Dump range state periodically
-		// TODO: Move this to a statusz type page
-		go func() {
-			t := time.NewTicker(3 * time.Second)
-			for ; true; <-t.C {
-				c.printState()
-			}
-		}()
 	}
 
 	// Block until channel closes, indicating that caller wants shutdown.
@@ -138,11 +125,11 @@ func (c *Controller) Run(done chan bool) error {
 	}
 
 	// Let in-flight RPCs finish and then stop. errChan will contain the error
-	// returned by server.Serve (above) or be closed with no error.
+	// returned by srv.Serve (above) or be closed with no error.
 	c.srv.GracefulStop()
 	err = <-errChan
 	if err != nil {
-		log.Printf("Error from server.Serve: ")
+		log.Printf("Error from srv.Serve: ")
 		return err
 	}
 
@@ -154,9 +141,4 @@ func (c *Controller) Run(done chan bool) error {
 	}
 
 	return nil
-}
-
-func (c *Controller) printState() {
-	c.rost.DumpForDebug()
-	c.ks.DumpForDebug()
 }

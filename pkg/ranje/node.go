@@ -77,10 +77,6 @@ func (n *Node) String() string {
 	return fmt.Sprintf("N{%s}", n.remote.Ident)
 }
 
-// TODO: Replace this with a statusz-type page
-func (n *Node) DumpForDebug() {
-}
-
 // UnsafeForgetPlacement removes the given placement from the ranges map of this
 // node. Works by address, not value.
 // TODO: Remove this method. It's useless now that nodes don't know placements.

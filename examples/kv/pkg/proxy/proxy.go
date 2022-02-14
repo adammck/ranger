@@ -90,18 +90,20 @@ func (p *Proxy) Remove(rem *discovery.Remote) {
 	delete(p.clients, rem.Ident)
 }
 
-func (c *Proxy) Run(done chan bool) error {
+func (p *Proxy) Run(done chan bool) error {
 
 	// For the gRPC server.
-	lis, err := net.Listen("tcp", c.addrLis)
+	lis, err := net.Listen("tcp", p.addrLis)
 	if err != nil {
 		return err
 	}
 
+	log.Printf("listening on: %s", p.addrLis)
+
 	// Start the gRPC server in a background routine.
 	errChan := make(chan error)
 	go func() {
-		err := c.srv.Serve(lis)
+		err := p.srv.Serve(lis)
 		if err != nil {
 			errChan <- err
 		}
@@ -110,38 +112,29 @@ func (c *Proxy) Run(done chan bool) error {
 
 	// Make the proxy discoverable.
 	// TODO: Do we actually need this? Clients can just call any proxy.
-	err = c.disc.Start()
+	err = p.disc.Start()
 	if err != nil {
 		return err
 	}
 
 	// Start roster. Periodically asks all nodes for their ranges.
 	ticker := time.NewTicker(1005 * time.Millisecond)
-	go c.rost.Run(ticker)
-
-	// Dump range state periodically
-	// TODO: Move this to a statusz type page
-	go func() {
-		t := time.NewTicker(1 * time.Second)
-		for ; true; <-t.C {
-			c.rost.DumpForDebug()
-		}
-	}()
+	go p.rost.Run(ticker)
 
 	// Block until channel closes, indicating that caller wants shutdown.
 	<-done
 
 	// Let in-flight RPCs finish and then stop. errChan will contain the error
-	// returned by server.Serve (above) or be closed with no error.
-	c.srv.GracefulStop()
+	// returned by srv.Serve (above) or be closed with no error.
+	p.srv.GracefulStop()
 	err = <-errChan
 	if err != nil {
-		log.Printf("Error from server.Serve: %v", err)
+		log.Printf("error from srv.Serve: %v", err)
 		return err
 	}
 
 	// Remove ourselves from service discovery.
-	err = c.disc.Stop()
+	err = p.disc.Stop()
 	if err != nil {
 		return err
 	}

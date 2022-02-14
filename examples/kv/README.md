@@ -18,17 +18,23 @@ $ foreman start -m controller=1,proxy=1,node=3
 ```
 
 ```console
-$ # Read and write some data.
-$ bin/put.sh 8000 a aaaa
-$ bin/get.sh 8000 a
+$ # Read and write some data.to n1.
+$ bin/put.sh 5200 a aaaa
+$ bin/get.sh 5200 a
 
 $ # Run a load test.
 $ cd tools/hammer
 $ go build
-$ ./hammer -addr localhost:8000 -workers 10 -interval 100
+$ ./hammer -addr localhost:5100 -workers 10 -interval 100
 
-$ # Move range 1 (the only range, for now) to n2.
-$ bin/client.sh 9000 ranger.Balancer.Move '{"range": {"key": 1}, "node": "8002"}'
+$ # Move R1 (the only range, for now) to N2.
+$ bin/client.sh 5000 ranger.Balancer.Move '{"range": {"key": 1}, "node": "5201"}'
+
+$ # Split R1 onto N1 and N3.
+$ bin/client.sh 5000 ranger.Balancer.Split '{"range": {"key": 1}, "boundary": "'$(echo -n "M0000000" | base64)'", "node_left": "5200", "node_right": "5202"}'
+
+$ # Join R1 and R3 back onto N2.
+$ bin/client.sh 5000 ranger.Balancer.Join '{"range_left": {"key": 2}, "range_right": {"key": 3}, "node": "5201"}'
 ```
 
 ## Tests

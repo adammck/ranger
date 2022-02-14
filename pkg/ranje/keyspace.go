@@ -115,14 +115,6 @@ func (ks *Keyspace) Dump() string {
 	return strings.Join(s, " ")
 }
 
-// TODO: Replace this with a statusz-type page
-func (ks *Keyspace) DumpForDebug() {
-	for _, r := range ks.ranges {
-		//log.Printf(" - %s", r.String())
-		r.DumpForDebug()
-	}
-}
-
 // Get returns a range by its ident, or an error if no such range exists.
 // TODO: Allow getting by other things.
 // TODO: Should this lock ranges? Or the caller do it?

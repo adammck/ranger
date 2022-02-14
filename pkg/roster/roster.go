@@ -30,17 +30,6 @@ func New(disc discovery.Discoverable) *Roster {
 	}
 }
 
-// TODO: Replace this with a statusz-type page
-func (ros *Roster) DumpForDebug() {
-	ros.RLock()
-	defer ros.RUnlock()
-
-	for nid, n := range ros.Nodes {
-		log.Printf(" - %s", nid)
-		n.DumpForDebug()
-	}
-}
-
 //func (ros *Roster) NodeBy(opts... NodeByOpts)
 // TODO: Return an error from this func, to avoid duplicating it in callers.
 func (ros *Roster) NodeByIdent(nodeIdent string) *ranje.Node {
@@ -68,8 +57,8 @@ func (ros *Roster) discover() {
 		// New Node?
 		if !ok {
 			n = ranje.NewNode(r)
-			log.Printf("new node: %v", n.Ident())
 			ros.Nodes[r.Ident] = n
+			log.Printf("added node: %v", n.Ident())
 		}
 
 		n.Seen(time.Now())
@@ -79,11 +68,11 @@ func (ros *Roster) discover() {
 func (ros *Roster) expire() {
 	now := time.Now()
 
-	for k, v := range ros.Nodes {
-		if v.IsStale(now) {
-			log.Printf("expiring node: %v", v)
+	for nID, n := range ros.Nodes {
+		if n.IsStale(now) {
 			// TODO: Don't do this! Mark it as expired instead. There might still be ranges placed on it which need cleaning up.
-			delete(ros.Nodes, k)
+			delete(ros.Nodes, nID)
+			log.Printf("expired node: %v", n.Ident())
 		}
 	}
 }
@@ -104,7 +93,7 @@ func (ros *Roster) probe() {
 			defer wg.Done()
 			err := n.Probe(ctx)
 			if err != nil {
-				log.Printf("Error probing %v: %v", n.Ident(), err)
+				log.Printf("error probing %v: %v", n.Ident(), err)
 				return
 			}
 		}(node)

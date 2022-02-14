@@ -129,15 +129,14 @@ func (b *Balancer) Candidate(r *ranje.Range) string {
 	sort.Strings(nIDs)
 
 	// lol
-	for i, nID := range nIDs {
-		log.Printf("considering %d: %q", i, nID)
+	for _, nID := range nIDs {
 		best = nID
 		break
 	}
 
 	// No suitable nodes?
 	if best == "" {
-		log.Printf("no candidate nodes to place range: %s", r.String())
+		log.Printf("No candidates for range: %v", r)
 		return ""
 	}
 
