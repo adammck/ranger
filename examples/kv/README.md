@@ -21,7 +21,7 @@ $ # Start consul in the background.
 $ brew services run consul
 
 # Run a simple cluster (see Procfile)
-$ foreman start -m controller=1,proxy=1,node=3
+$ bin/dev.sh
 ```
 
 ```console
