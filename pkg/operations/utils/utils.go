@@ -44,23 +44,16 @@ func Give(rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacem
 		}
 	}
 
-	// Build a list of the ancestors of this range (including itself), and the
-	// nodes they're currently placed on where applicable. When moving a range,
-	// the first will be the current placement of the exact same range, with the
-	// same ident and boundaries. When splitting a range, the first will be the
-	// range which this range (either the left or right) was split from, with a
-	// different ident and boundaries which are a superset. When joining, the
-	// first two will be the ranges which this range were joined from, with
-	// different idents and boundaries which are a subset.
-	//
-	// TODO: There is currently no history pruning, so this will grow forever.
 	// TODO: Rename pb.Placement to something else. It's not a placement!
-	parents := []*pb.Placement{}
-	addParents(rost, rang, &parents)
+	parents := map[ranje.Ident]*pb.Placement{}
+	addParents(rost, rang, parents)
 
 	req := &pb.GiveRequest{
-		Range:   rang.Meta.ToProto(),
-		Parents: parents,
+		Range: rang.Meta.ToProto(),
+	}
+
+	for _, p := range parents {
+		req.Parents = append(req.Parents, p)
 	}
 
 	err := node.Give(placement, req)
@@ -71,8 +64,16 @@ func Give(rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacem
 	return nil
 }
 
-func addParents(rost *roster.Roster, rang *ranje.Range, parents *[]*pb.Placement) {
-	*parents = append(*parents, pbPlacement(rost, rang))
+func addParents(rost *roster.Roster, rang *ranje.Range, parents map[ranje.Ident]*pb.Placement) {
+
+	// Don't bother serializing the same placement many times. (The range tree
+	// won't have cycles, but is also not a DAG.)
+	_, ok := parents[rang.Meta.Ident]
+	if ok {
+		return
+	}
+
+	parents[rang.Meta.Ident] = pbPlacement(rost, rang)
 	for _, rr := range rang.Parents() {
 		addParents(rost, rr, parents)
 	}
@@ -80,13 +81,20 @@ func addParents(rost *roster.Roster, rang *ranje.Range, parents *[]*pb.Placement
 
 func pbPlacement(rost *roster.Roster, r *ranje.Range) *pb.Placement {
 
-	// Include the node where the parent range can currently be found, if
-	// it's still placed, such as during a split. Older ranges might not be.
+	// Include the address of the node where the range is currently placed, if
+	// it's in a state where it can be fetched.
+	//
+	// TODO: The kv example doesn't care about range history, because it has no
+	//       external write log, so can only fetch from nodes. So we can skip
+	//       sending them at all. Maybe add a controller feature flag?
+	//
 	node := ""
 	if p := r.Placement(); p != nil {
-		n := rost.NodeByIdent(p.NodeID())
-		if n != nil {
-			node = n.Addr()
+		if p.State() == ranje.SpReady || p.State() == ranje.SpTaken {
+			n := rost.NodeByIdent(p.NodeID())
+			if n != nil {
+				node = n.Addr()
+			}
 		}
 	}
 
@@ -140,6 +148,9 @@ func Drop(rost *roster.Roster, placement *ranje.DurablePlacement) error {
 	if err != nil {
 		return err
 	}
+
+	// TODO: Move state changes out of Node, put them here.
+	//placement.ToState(ranje.SpDropped)
 
 	return nil
 }
