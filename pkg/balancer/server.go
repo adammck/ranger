@@ -118,16 +118,25 @@ func (bs *balancerServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.Jo
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 
+	cb := func(e error) {
+		err = e
+		wg.Done()
+	}
+
 	bs.bal.Operation(&join.JoinOp{
 		Keyspace:   bs.bal.ks,
 		Roster:     bs.bal.rost,
-		Done:       wg.Done,
+		Done:       cb,
 		RangeLeft:  *left,
 		RangeRight: *right,
 		Node:       node,
 	})
 
 	wg.Wait()
+
+	if err != nil {
+		return nil, status.Error(codes.Aborted, fmt.Sprintf("join operation failed: %v", err))
+	}
 
 	return &pb.JoinResponse{}, nil
 }
