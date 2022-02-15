@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"log"
@@ -13,6 +14,10 @@ import (
 	"github.com/adammck/ranger/examples/kv/pkg/proxy"
 )
 
+type Runner interface {
+	Run(ctx context.Context) error
+}
+
 func main() {
 	fnod := flag.Bool("node", false, "start a node")
 	fprx := flag.Bool("proxy", false, "start a proxy")
@@ -23,60 +28,50 @@ func main() {
 	fonce := flag.Bool("once", false, "controller: perform one rebalance cycle and exit")
 	flag.Parse()
 
-	// Replace default logger.
-	logger := log.New(os.Stdout, "", 0)
-	*log.Default() = *logger
-
 	if *addrPub == "" {
 		*addrPub = *addrLis
 	}
 
+	// Replace default logger.
+	logger := log.New(os.Stdout, "", 0)
+	*log.Default() = *logger
+
+	ctx, cancel := context.WithCancel(context.Background())
+
 	sig := make(chan os.Signal, 1)
-	done := make(chan bool, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
 		<-sig
-		done <- true
+		cancel()
 	}()
 
-	if *fnod && !*fprx && !*fctl {
-		n, err := node.New(*addrLis, *addrPub)
-		if err != nil {
-			exit(err)
-		}
+	var cmd Runner
+	var err error
 
-		if err := n.Run(done); err != nil {
-			exit(err)
-		}
+	if *fnod && !*fprx && !*fctl {
+		cmd, err = node.New(*addrLis, *addrPub)
 
 	} else if !*fnod && *fprx && !*fctl {
-		c, err := proxy.New(*addrLis, *addrPub)
-		if err != nil {
-			exit(err)
-		}
-
-		if err := c.Run(done); err != nil {
-			exit(err)
-		}
+		cmd, err = proxy.New(*addrLis, *addrPub)
 
 	} else if !*fnod && !*fprx && *fctl {
-		c, err := controller.New(*addrLis, *addrPub, *fonce)
-		if err != nil {
-			exit(err)
-		}
-
-		if err := c.Run(done); err != nil {
-			exit(err)
-		}
+		cmd, err = controller.New(*addrLis, *addrPub, *fonce)
 
 	} else {
-		exit(errors.New("must provide one of -controller, -node, -proxy"))
+		err = errors.New("must provide one of -controller, -node, -proxy")
 	}
 
+	if err != nil {
+		exit(err)
+	}
+
+	err = cmd.Run(ctx)
+	if err != nil {
+		exit(err)
+	}
 }
 
 func exit(err error) {
 	log.Fatalf("Error: %s", err)
-	os.Exit(1)
 }

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"log"
 	"net"
 	"time"
@@ -66,7 +67,7 @@ func New(addrLis, addrPub string, once bool) (*Controller, error) {
 	}, nil
 }
 
-func (c *Controller) Run(done chan bool) error {
+func (c *Controller) Run(ctx context.Context) error {
 
 	// For the gRPC server.
 	lis, err := net.Listen("tcp", c.addrLis)
@@ -119,9 +120,10 @@ func (c *Controller) Run(done chan bool) error {
 		go c.bal.Run(time.NewTicker(1005 * time.Millisecond))
 	}
 
-	// Block until channel closes, indicating that caller wants shutdown.
+	// If we're staying active (not --once), block until context is cancelled,
+	// indicating that caller wants shutdown.
 	if !c.once {
-		<-done
+		<-ctx.Done()
 	}
 
 	// Let in-flight RPCs finish and then stop. errChan will contain the error

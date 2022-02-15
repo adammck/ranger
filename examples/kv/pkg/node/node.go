@@ -627,7 +627,7 @@ func New(addrLis, addrPub string) (*Node, error) {
 	return n, nil
 }
 
-func (n *Node) Run(done chan bool) error {
+func (n *Node) Run(ctx context.Context) error {
 
 	// For the gRPC server.
 	lis, err := net.Listen("tcp", n.addrLis)
@@ -653,8 +653,8 @@ func (n *Node) Run(done chan bool) error {
 		return err
 	}
 
-	// Block until channel closes, indicating that caller wants shutdown.
-	<-done
+	// Block until context is cancelled, indicating that caller wants shutdown.
+	<-ctx.Done()
 
 	// Let in-flight RPCs finish and then stop. errChan will contain the error
 	// returned by srv.Serve (above) or be closed with no error.

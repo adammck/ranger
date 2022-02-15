@@ -90,7 +90,7 @@ func (p *Proxy) Remove(rem *discovery.Remote) {
 	delete(p.clients, rem.Ident)
 }
 
-func (p *Proxy) Run(done chan bool) error {
+func (p *Proxy) Run(ctx context.Context) error {
 
 	// For the gRPC server.
 	lis, err := net.Listen("tcp", p.addrLis)
@@ -121,8 +121,8 @@ func (p *Proxy) Run(done chan bool) error {
 	ticker := time.NewTicker(1005 * time.Millisecond)
 	go p.rost.Run(ticker)
 
-	// Block until channel closes, indicating that caller wants shutdown.
-	<-done
+	// Block until context is cancelled, indicating that caller wants shutdown.
+	<-ctx.Done()
 
 	// Let in-flight RPCs finish and then stop. errChan will contain the error
 	// returned by srv.Serve (above) or be closed with no error.
