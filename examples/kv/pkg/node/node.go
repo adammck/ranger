@@ -166,6 +166,19 @@ func (rd *RangeData) fetchMany(dest RangeMeta, parents []*pbr.Placement) {
 	// Fetch each source range in parallel.
 	g, ctx := errgroup.WithContext(ctx)
 	for i := range parents {
+
+		// Ignore ranges which aren't currently assigned to any node. This kv
+		// example doesn't have an external write log, so if it isn't placed,
+		// there's nothing we can do with it.
+		//
+		// This includes ranges which are being placed for the first time, which
+		// includes new split/join ranges! That isn't an error. Their state is
+		// reassembled from their parents.
+		if parents[i].Node == "" {
+			//log.Printf("not fetching unplaced range: %s", rms[i].ident)
+			continue
+		}
+
 		// lol, golang
 		// https://golang.org/doc/faq#closures_and_goroutines
 		i := i

@@ -116,6 +116,12 @@ func (p *DurablePlacement) ToState(new StatePlacement) error {
 
 	} else if old == SpTaken {
 		if new == SpDropped { // 8
+
+			// Throw away the nodeID when entering Dropped. It's mostly useless,
+			// because the data has been dropped from the node, and confusing to
+			// see in the logs.
+			p.nodeID = ""
+
 			ok = true
 		}
 
