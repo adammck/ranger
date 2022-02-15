@@ -57,11 +57,6 @@ func NewPlacement(r *Range, nodeID string) (*DurablePlacement, error) {
 	return p, nil
 }
 
-// TODO: Remove this
-func (p *DurablePlacement) Forget() error {
-	return nil
-}
-
 func (p *DurablePlacement) State() StatePlacement {
 	return p.state
 }

@@ -43,6 +43,8 @@ type JoinOp struct {
 }
 
 func (op *JoinOp) Init() error {
+	log.Printf("joining: left=%v, right=%v, node=%v", op.RangeLeft, op.RangeRight, op.Node)
+
 	r1, err := op.Keyspace.GetByIdent(op.RangeLeft)
 	if err != nil {
 		return fmt.Errorf("can't initiate join; GetByIdent(left) failed: %v", err)
@@ -52,8 +54,6 @@ func (op *JoinOp) Init() error {
 	if err != nil {
 		return fmt.Errorf("can't initiate join; GetByIdent(right) failed: %v", err)
 	}
-
-	log.Printf("joining: (%s, %s)", r1, r2)
 
 	// Moves r1 and r2 into Joining state.
 	// Starts dest in Pending state. (Like all ranges!)
@@ -87,12 +87,16 @@ func (op *JoinOp) Run() {
 			if op.Done != nil {
 				op.Done(err)
 			}
+
+			log.Printf("join failed: left=%v, right=%v, node=%v, err: %v", op.RangeLeft, op.RangeRight, op.Node, err)
 			return
 
 		case Complete:
 			if op.Done != nil {
 				op.Done(nil)
 			}
+
+			log.Printf("join complete: left=%v, right=%v, node=%v", op.RangeLeft, op.RangeRight, op.Node)
 			return
 
 		case Init:

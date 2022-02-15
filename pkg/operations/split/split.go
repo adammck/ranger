@@ -44,6 +44,8 @@ type SplitOp struct {
 }
 
 func (op *SplitOp) Init() error {
+	log.Printf("splitting: range=%v, boundary=%q, left=%v, right=%v", op.Range, op.Boundary, op.NodeLeft, op.NodeRight)
+
 	r0, err := op.Keyspace.GetByIdent(op.Range)
 	if err != nil {
 		return fmt.Errorf("can't initiate split; GetByIdent failed: %v", err)
@@ -86,6 +88,7 @@ func (op *SplitOp) Run() {
 
 	op.Keyspace.LogRanges()
 	defer op.Keyspace.LogRanges()
+
 	for {
 		if err != nil && op.state != Failed {
 			panic(fmt.Sprintf("split operation has error while in state: %s", op.state))
@@ -99,12 +102,16 @@ func (op *SplitOp) Run() {
 			if op.Done != nil {
 				op.Done(err)
 			}
+
+			log.Printf("split failed: range=%v, boundary=%q, left=%v, right=%v, err: %v", op.Range, op.Boundary, op.NodeLeft, op.NodeRight, err)
 			return
 
 		case Complete:
 			if op.Done != nil {
 				op.Done(nil)
 			}
+
+			log.Printf("split complete: range=%v, boundary=%q, left=%v, right=%v", op.Range, op.Boundary, op.NodeLeft, op.NodeRight)
 			return
 
 		case Init:
