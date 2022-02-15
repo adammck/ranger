@@ -38,15 +38,24 @@ func (bs *balancerServer) Move(ctx context.Context, req *pb.MoveRequest) (*pb.Mo
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 
+	cb := func(e error) {
+		err = e
+		wg.Done()
+	}
+
 	bs.bal.Operation(&move.MoveOp{
 		Keyspace: bs.bal.ks,
 		Roster:   bs.bal.rost,
-		Done:     wg.Done,
+		Done:     cb,
 		Range:    *id,
 		Node:     nid,
 	})
 
 	wg.Wait()
+
+	if err != nil {
+		return nil, status.Error(codes.Aborted, fmt.Sprintf("move operation failed: %v", err))
+	}
 
 	return &pb.MoveResponse{}, nil
 }
