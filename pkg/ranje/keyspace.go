@@ -73,6 +73,22 @@ func NewWithSplits(splits []string) *Keyspace {
 	return ks
 }
 
+func (ks *Keyspace) LogRanges() {
+	ks.mu.Lock()
+	defer ks.mu.Unlock()
+
+	var sb strings.Builder
+	for i, r := range ks.ranges {
+		sb.WriteString(r.LogString())
+
+		if i < len(ks.ranges)-1 {
+			sb.WriteString(", ")
+		}
+	}
+
+	log.Printf("Keyspace: {%s}", sb.String())
+}
+
 // Range returns a new range with the next available ident. This is the only
 // way that a Range should be constructed. Callers must call Range.InitPersist
 // on the resulting range, maybe after mutating it once.

@@ -55,6 +55,20 @@ func (r *Range) SameMeta(id Ident, start, end []byte) bool {
 	return r.Meta.Ident.Key == id.Key && r.Meta.Start == Key(start) && r.Meta.End == Key(end)
 }
 
+func (r *Range) LogString() string {
+	c := "nil"
+	if r.curr != nil {
+		c = fmt.Sprintf("(%s:%s)", r.curr.NodeID(), r.curr.State())
+	}
+
+	n := "nil"
+	if r.next != nil {
+		n = fmt.Sprintf("(%s:%s)", r.next.NodeID(), r.next.State())
+	}
+
+	return fmt.Sprintf("{%s:%s c=%s n=%s}", r.Meta, r.state, c, n)
+}
+
 func (r *Range) String() string {
 	return fmt.Sprintf("R{%s %s}", r.Meta.String(), r.state)
 }

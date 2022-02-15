@@ -75,6 +75,9 @@ func (op *JoinOp) Run() {
 	s := op.state
 	var err error
 
+	op.Keyspace.LogRanges()
+	defer op.Keyspace.LogRanges()
+
 	for {
 		switch op.state {
 		case Failed:

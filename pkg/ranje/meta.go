@@ -14,7 +14,7 @@ type Meta struct {
 	End   Key // exclusive
 }
 
-func (m *Meta) String() string {
+func (m Meta) String() string {
 	var s, e string
 
 	if m.Start == ZeroKey {

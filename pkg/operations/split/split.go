@@ -84,6 +84,8 @@ func (op *SplitOp) Run() {
 	s := op.state
 	var err error
 
+	op.Keyspace.LogRanges()
+	defer op.Keyspace.LogRanges()
 	for {
 		if err != nil && op.state != Failed {
 			panic(fmt.Sprintf("split operation has error while in state: %s", op.state))

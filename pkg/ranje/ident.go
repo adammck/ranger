@@ -15,9 +15,9 @@ type Ident struct {
 	Key   uint64
 }
 
-func (id *Ident) String() string {
+func (id Ident) String() string {
 	if id.Scope == "" {
-		return fmt.Sprint(id.Key)
+		return fmt.Sprintf("%d", id.Key)
 	}
 
 	return fmt.Sprintf("%s:%d", id.Scope, id.Key)

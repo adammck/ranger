@@ -78,6 +78,8 @@ func (op *MoveOp) Run() {
 	s := op.state
 	var err error
 
+	op.Keyspace.LogRanges()
+	defer op.Keyspace.LogRanges()
 	// TODO: Keep track of the *previous* state so we can include it in error messages.
 
 	for {
