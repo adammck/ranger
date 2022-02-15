@@ -260,13 +260,16 @@ func (op *SplitOp) serve() (state, error) {
 	if err != nil {
 		return Failed, fmt.Errorf("split (Serve) failed: %s", err)
 	}
-	r0.Placement().Forget()
 
-	// This happens in Range.ChildStateChanged once children are Ready.
+	// This also happens in Range.ChildStateChanged once children are Ready.
 	// TODO: Is that a good idea? Here would be more explicit.
 	r0.MustState(ranje.Obsolete)
+	r0.DropPlacement()
 
-	// TODO: Move this to some background GC routine in the balancer.
+	// TODO: This part should probably be handled later by some kind of optional
+	//       GC. We won't want to discard the old ranges for systems which need
+	//       to reassemble the state from history rather than fetching it from
+	//       the current node.
 	err = op.Keyspace.Discard(r0)
 	if err != nil {
 		return Failed, fmt.Errorf("split (discard) failed: %s", err)

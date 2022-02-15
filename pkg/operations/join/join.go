@@ -142,7 +142,7 @@ func (op *JoinOp) take() (state, error) {
 
 			p := r.Placement()
 			if p == nil {
-				return fmt.Errorf("%s: NextPlacement returned nil", s)
+				return fmt.Errorf("%s: Placement returned nil", s)
 			}
 
 			err = utils.Take(op.Roster, p)
@@ -239,7 +239,12 @@ func (op *JoinOp) serve() (state, error) {
 		return Failed, fmt.Errorf("serve (GetByIdent) failed: %s", err)
 	}
 
-	err = utils.Serve(op.Roster, r.Placement())
+	p := r.NextPlacement()
+	if p == nil {
+		return Failed, fmt.Errorf("serve: NextPlacement returned nil")
+	}
+
+	err = utils.Serve(op.Roster, p)
 	if err != nil {
 		return Failed, fmt.Errorf("serve (utils.Serve) failed: %s", err)
 	}
@@ -270,18 +275,19 @@ func (op *JoinOp) cleanup() (state, error) {
 				return fmt.Errorf("%s: NextPlacement returned nil", s)
 			}
 
-			p.Forget()
+			// This also happens implicitly in Range.ChildStateChanged.
+			// TODO: Is this a good idea? Here would be more explicit.
+			r.MustState(ranje.Obsolete)
+			r.DropPlacement()
 
-			// TODO: This part should probably be handled later by some kind of GC.
+			// TODO: This part should probably be handled later by some kind of
+			//       optional GC. We won't want to discard the old ranges for
+			//       systems which need to reassemble the state from history
+			//       rather than fetching it from the current node.
 			err = op.Keyspace.Discard(r)
 			if err != nil {
 				return err
-
 			}
-
-			// This happens implicitly in Range.ChildStateChanged.
-			// TODO: Is this a good idea? Here would be more explicit.
-			// r.MustState(ranje.Obsolete)
 
 			return nil
 		})

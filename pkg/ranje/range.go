@@ -14,7 +14,7 @@ type Range struct {
 	Meta Meta
 
 	state    StateLocal
-	parents  []*Range
+	parents  []*Range // TODO: Just store the ident?
 	children []*Range
 
 	// Which node currently has the range, and which it is moving to.
@@ -271,6 +271,29 @@ func (r *Range) ChildStateChanged() error {
 	return nil
 }
 
+// Clear the current placement. This should be called when a range is dropped
+// from a node.
+func (r *Range) DropPlacement() {
+	r.Lock()
+	defer r.Unlock()
+
+	if r.State() != Obsolete {
+		panic("can't drop current placement until range is obsolete")
+	}
+
+	if r.curr == nil {
+		// This method should not even be called in this state!
+		panic("can't drop current placement when it is nil")
+	}
+
+	if r.curr.State() != SpDropped {
+		panic("can't drop current placement until it's dropped")
+	}
+
+	r.curr = nil
+}
+
+// Clear the next placement. This should be called when an operation fails.
 // Caller must NOT hold the range lock.
 func (r *Range) ClearNextPlacement() {
 	r.Lock()
@@ -284,6 +307,8 @@ func (r *Range) ClearNextPlacement() {
 	r.next = nil
 }
 
+// CompleteNextPlacement moves the next placement to current. This should be
+// called when an operation succeeds.
 // Caller must NOT hold the range lock.
 func (r *Range) CompleteNextPlacement() error {
 	r.Lock()
@@ -292,17 +317,6 @@ func (r *Range) CompleteNextPlacement() error {
 	if r.next == nil {
 		// This method should not even be called in this state!
 		panic("can't complete move when next placement is nil")
-	}
-
-	// During inital placement, it's okay for there to be no current placement.
-	// Otherwise notify the placement that we're about to destroy it. (This is
-	// a gross hack, because Node also has a pointer to the placement for now.)
-	// TODO: Should this be a totally separate path?
-	if r.curr != nil {
-		err := r.curr.Forget()
-		if err != nil {
-			return err
-		}
 	}
 
 	r.curr = r.next
