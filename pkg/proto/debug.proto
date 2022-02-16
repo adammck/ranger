@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+option go_package = "github.com/adammck/ranger/pkg/proto";
+
+import "ranje.proto";
+
+package ranger;
+
+message RangeRequest {
+    Ident range = 1;
+}
+
+message RangeResponse {
+    RangeMeta meta = 1;
+    RangeState state = 2; 
+    PlacementTwo current_placement = 3;
+    PlacementTwo next_placement = 4;
+}
+
+service Debug {
+    rpc Range (RangeRequest) returns (RangeResponse) {}
+}

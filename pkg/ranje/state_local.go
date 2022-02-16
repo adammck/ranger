@@ -73,6 +73,30 @@ func FromProto(s *pb.RangeNodeState) StateLocal {
 	return Unknown
 }
 
-func (s *StateLocal) ToProto() pb.RangeNodeState {
-	return pb.RangeNodeState_UNKNOWN
+func (s StateLocal) ToProto() pb.RangeState {
+	switch s {
+	case Unknown:
+		return pb.RangeState_RS_UNKNOWN
+	case Pending:
+		return pb.RangeState_RS_PENDING
+	case Placing:
+		return pb.RangeState_RS_PLACING
+	case PlaceError:
+		return pb.RangeState_RS_PLACEERROR
+	case Quarantined:
+		return pb.RangeState_RS_QUARANTINED
+	case Ready:
+		return pb.RangeState_RS_READY
+	case Moving:
+		return pb.RangeState_RS_MOVING
+	case Splitting:
+		return pb.RangeState_RS_SPLITTING
+	case Joining:
+		return pb.RangeState_RS_JOINING
+	case Obsolete:
+		return pb.RangeState_RS_OBSOLETE
+	}
+
+	// Probably a state was added but this method wasn't updated.
+	panic("unknown StateLocal value!")
 }

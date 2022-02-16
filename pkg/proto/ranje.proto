@@ -27,6 +27,12 @@ message Placement {
   string node = 2;
 }
 
+// TODO: Rename this to placement when the above is out of the way!
+message PlacementTwo {
+  string node = 1;
+  PlacementState state = 2;
+}
+
 // Keep synced with RangeState (in node.go for now)
 enum RangeNodeState {
   UNKNOWN = 0;
@@ -35,4 +41,32 @@ enum RangeNodeState {
   FETCH_FAILED = 3;
   READY = 4;
   TAKEN = 5;
+}
+
+// This is only for debugging purposes, for now.
+// Keep synced with ranje.StatePlacement (in pkg/ranje/state_local.go)
+enum RangeState {
+  RS_UNKNOWN = 0;
+  RS_PENDING = 1;
+  RS_PLACING = 2;
+  RS_PLACEERROR = 3;
+  RS_QUARANTINED = 4;
+  RS_READY = 5;
+  RS_MOVING = 6;
+  RS_SPLITTING = 7;
+  RS_JOINING = 8;
+  RS_OBSOLETE = 9;
+}
+
+// This is only for debugging purposes, for now.
+// Keep synced with ranje.StatePlacement (in pkg/ranje/state_placement.go)
+enum PlacementState {
+  PS_UNKNOWN = 0;
+  PS_PENDING = 1;
+  PS_FETCHING = 2;
+  PS_FETCHED = 3;
+  PS_FETCH_FAILED = 4;
+  PS_READY = 5;
+  PS_TAKEN = 6;
+  PS_DROPPED = 7;
 }

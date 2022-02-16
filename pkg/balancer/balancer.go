@@ -19,6 +19,7 @@ type Balancer struct {
 	rost *roster.Roster
 	srv  *grpc.Server
 	bs   *balancerServer
+	dbg  *debugServer
 
 	ops   []operations.Operation
 	opsMu sync.RWMutex
@@ -36,6 +37,12 @@ func New(ks *ranje.Keyspace, rost *roster.Roster, srv *grpc.Server) *Balancer {
 	// will hopefully not be necessary once balancing actually works!
 	b.bs = &balancerServer{bal: b}
 	pb.RegisterBalancerServer(srv, b.bs)
+
+	// Register the debug server, to fetch info about the state of the world.
+	// One could arguably pluck this straight from Consul -- since it's totally
+	// consistent *right?* -- but it's a much richer interface to do it here.
+	b.dbg = &debugServer{bal: b}
+	pb.RegisterDebugServer(srv, b.dbg)
 
 	return b
 }

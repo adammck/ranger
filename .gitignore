@@ -1,7 +1,8 @@
 # binaries
+__debug_bin
+/cmd/client/client
 /examples/kv/kv
 /examples/kv/tools/hammer/hammer
-__debug_bin
 
 # no need to lock development deps
 /examples/kv/Brewfile.lock.json

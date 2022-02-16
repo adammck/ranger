@@ -1,5 +1,7 @@
 package ranje
 
+import pb "github.com/adammck/ranger/pkg/proto/gen"
+
 type StatePlacement uint8
 
 const (
@@ -19,3 +21,27 @@ const (
 )
 
 //go:generate stringer -type=StatePlacement -output=zzz_state_placement_string.go
+
+func (s StatePlacement) ToProto() pb.PlacementState {
+	switch s {
+	case SpUnknown:
+		return pb.PlacementState_PS_UNKNOWN
+	case SpPending:
+		return pb.PlacementState_PS_PENDING
+	case SpFetching:
+		return pb.PlacementState_PS_FETCHING
+	case SpFetched:
+		return pb.PlacementState_PS_FETCHED
+	case SpFetchFailed:
+		return pb.PlacementState_PS_FETCH_FAILED
+	case SpReady:
+		return pb.PlacementState_PS_READY
+	case SpTaken:
+		return pb.PlacementState_PS_TAKEN
+	case SpDropped:
+		return pb.PlacementState_PS_DROPPED
+	}
+
+	// Probably a state was added but this method wasn't updated.
+	panic("unknown StatePlacement value!")
+}
