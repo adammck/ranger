@@ -121,6 +121,40 @@ func (ks *Keyspace) RangesByState(s StateLocal) []*Range {
 	return out
 }
 
+type PBNID struct {
+	Range     *Range
+	Placement *DurablePlacement
+	Position  uint8
+}
+
+// PlacementsByNodeID returns a list of (range, placement, position) tuples for
+// the given nodeID.
+//
+// This is intended for debugging. If you are using this during rebalancing,
+// you're probably doing something very wrong. It's currently extremely slow.
+//
+// Note that the placements are pointers, so may mutate after returning! Don't
+// fuck around with them.
+func (ks *Keyspace) PlacementsByNodeID(nID string) []PBNID {
+	out := []PBNID{}
+
+	ks.mu.Lock()
+	defer ks.mu.Unlock()
+
+	// TODO: Wow this is dumb! Keep an index of this somewhere.
+	for _, r := range ks.ranges {
+		for _, p := range [2]*DurablePlacement{r.curr, r.next} {
+			if p != nil {
+				if p.nodeID == nID {
+					out = append(out, PBNID{r, p, 0})
+				}
+			}
+		}
+	}
+
+	return out
+}
+
 func (ks *Keyspace) Dump() string {
 	s := make([]string, len(ks.ranges))
 

@@ -70,3 +70,9 @@ enum PlacementState {
   PS_TAKEN = 6;
   PS_DROPPED = 7;
 }
+
+enum PlacementPosition {
+  PP_UNKNOWN = 0;
+  PP_CURRENT = 1;
+  PP_NEXT = 2;
+}

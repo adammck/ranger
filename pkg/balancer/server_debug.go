@@ -56,3 +56,44 @@ func (srv *debugServer) Range(ctx context.Context, req *pb.RangeRequest) (*pb.Ra
 
 	return res, nil
 }
+
+func (srv *debugServer) Node(ctx context.Context, req *pb.NodeRequest) (*pb.NodeResponse, error) {
+	nID := req.Node
+	if nID == "" {
+		return nil, status.Error(codes.InvalidArgument, "missing: node")
+	}
+
+	node := srv.bal.rost.NodeByIdent(nID)
+	if node == nil {
+		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("No such node: %s", nID))
+	}
+
+	res := &pb.NodeResponse{
+		Node: &pb.NodeMeta{
+			Ident:   node.Ident(),
+			Address: node.Addr(),
+		},
+	}
+
+	for _, pl := range srv.bal.ks.PlacementsByNodeID(node.Ident()) {
+
+		// TODO: Move this somewhere.
+		var pos pb.PlacementPosition
+		switch pl.Position {
+		case 0:
+			pos = pb.PlacementPosition_PP_CURRENT
+		case 1:
+			pos = pb.PlacementPosition_PP_CURRENT
+		default:
+			pos = pb.PlacementPosition_PP_UNKNOWN
+		}
+
+		res.Ranges = append(res.Ranges, &pb.NodeRange{
+			Meta:     pl.Range.Meta.ToProto(),
+			State:    pl.Placement.State().ToProto(),
+			Position: pos,
+		})
+	}
+
+	return res, nil
+}

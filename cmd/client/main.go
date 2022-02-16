@@ -10,6 +10,7 @@ import (
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 func main() {
@@ -20,6 +21,7 @@ func main() {
 		fmt.Fprintf(w, "\n")
 		fmt.Fprintf(w, "Action and args must be one of:\n")
 		fmt.Fprintf(w, "  - range <rangeID>\n")
+		fmt.Fprintf(w, "  - node <nodeID>\n")
 		//fmt.Fprintf(w, "  - move <rangeID> [<nodeID>]\n")
 		fmt.Fprintf(w, "\n")
 		fmt.Fprintf(w, "Flags:\n")
@@ -47,7 +49,7 @@ func main() {
 	action := flag.Arg(0)
 	switch action {
 	case "range", "r":
-		if flag.NArg() == 0 {
+		if flag.NArg() != 2 {
 			fmt.Fprintf(w, "Usage: %s range <rangeID>\n", os.Args[0])
 			os.Exit(1)
 		}
@@ -59,6 +61,14 @@ func main() {
 		}
 
 		cmdRange(client, ctx, rID)
+
+	case "node", "n":
+		if flag.NArg() != 2 {
+			fmt.Fprintf(w, "Usage: %s node <nodeID>\n", os.Args[0])
+			os.Exit(1)
+		}
+
+		cmdNode(client, ctx, flag.Arg(1))
 
 	default:
 		flag.Usage()
@@ -74,10 +84,27 @@ func cmdRange(client pb.DebugClient, ctx context.Context, rID uint64) {
 	}})
 
 	if err != nil {
-		fmt.Fprintf(w, "Controller returned error: %v", err)
+		fmt.Fprintf(w, "Range service returned: %v\n", err)
 		os.Exit(1)
 	}
 
+	output(res)
+}
+
+func cmdNode(client pb.DebugClient, ctx context.Context, nID string) {
+	w := flag.CommandLine.Output()
+
+	res, err := client.Node(ctx, &pb.NodeRequest{Node: nID})
+
+	if err != nil {
+		fmt.Fprintf(w, "Node service returned: %v\n", err)
+		os.Exit(1)
+	}
+
+	output(res)
+}
+
+func output(res protoreflect.ProtoMessage) {
 	opts := protojson.MarshalOptions{
 		Multiline:       true,
 		EmitUnpopulated: true,

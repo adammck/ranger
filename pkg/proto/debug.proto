@@ -17,6 +17,27 @@ message RangeResponse {
     PlacementTwo next_placement = 4;
 }
 
+message NodeRequest {
+    string node = 1;
+}
+
+message NodeMeta {
+    string ident = 1;
+    string address = 2;
+}
+
+message NodeRange {
+    RangeMeta meta = 1;
+    PlacementPosition position = 2;
+    PlacementState state = 3;
+}
+
+message NodeResponse {
+    NodeMeta node = 1;
+    repeated NodeRange ranges = 2;
+}
+
 service Debug {
     rpc Range (RangeRequest) returns (RangeResponse) {}
+    rpc Node (NodeRequest) returns (NodeResponse) {}
 }
