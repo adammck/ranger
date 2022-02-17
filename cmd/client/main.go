@@ -27,6 +27,7 @@ func main() {
 		fmt.Fprintf(w, "  - node <nodeID>\n")
 		fmt.Fprintf(w, "  - move <rangeID> <nodeID>\n")
 		fmt.Fprintf(w, "  - split <rangeID> <boundary> <nodeID> <nodeID>\n")
+		fmt.Fprintf(w, "  - join <rangeID> <rangeID> <nodeID>\n")
 		fmt.Fprintf(w, "\n")
 		fmt.Fprintf(w, "Flags:\n")
 		flag.PrintDefaults()
@@ -123,6 +124,25 @@ func main() {
 
 		client := pb.NewBalancerClient(conn)
 		cmdSplit(*printReq, client, ctx, rID, boundary, flag.Arg(3), flag.Arg(4))
+
+	case "join", "j":
+		if flag.NArg() != 4 {
+			fmt.Fprintf(w, "Usage: %s join <rangeID> <rangeID> <nodeID>\n", os.Args[0])
+			os.Exit(1)
+		}
+
+		rIDs := [2]uint64{}
+		for i, s := range []string{flag.Arg(2), flag.Arg(3)} {
+			rID, err := strconv.ParseUint(s, 10, 64)
+			if err != nil {
+				fmt.Fprintf(w, "Invalid rangeID: %v\n", err)
+				os.Exit(1)
+			}
+			rIDs[i] = rID
+		}
+
+		client := pb.NewBalancerClient(conn)
+		cmdJoin(*printReq, client, ctx, rIDs[0], rIDs[1], flag.Arg(3))
 
 	default:
 		flag.Usage()
@@ -230,6 +250,37 @@ func cmdSplit(printReq bool, client pb.BalancerClient, ctx context.Context, rID 
 
 	if err != nil {
 		fmt.Fprintf(w, "Debug.Split returned: %v\n", err)
+		os.Exit(1)
+	}
+
+	output(res)
+}
+
+func cmdJoin(printReq bool, client pb.BalancerClient, ctx context.Context, rID1, rID2 uint64, nID string) {
+	w := flag.CommandLine.Output()
+
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	req := &pb.JoinRequest{
+		RangeLeft: &pb.Ident{
+			Key: rID1,
+		},
+		RangeRight: &pb.Ident{
+			Key: rID2,
+		},
+		Node: nID,
+	}
+
+	if printReq {
+		output(req)
+		return
+	}
+
+	res, err := client.Join(ctx, req)
+
+	if err != nil {
+		fmt.Fprintf(w, "Debug.Join returned: %v\n", err)
 		os.Exit(1)
 	}
 
