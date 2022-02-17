@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"google.golang.org/grpc"
@@ -22,7 +23,7 @@ func main() {
 		fmt.Fprintf(w, "Action and args must be one of:\n")
 		fmt.Fprintf(w, "  - range <rangeID>\n")
 		fmt.Fprintf(w, "  - node <nodeID>\n")
-		//fmt.Fprintf(w, "  - move <rangeID> [<nodeID>]\n")
+		fmt.Fprintf(w, "  - move <rangeID> <nodeID>\n")
 		fmt.Fprintf(w, "\n")
 		fmt.Fprintf(w, "Flags:\n")
 		flag.PrintDefaults()
@@ -39,12 +40,14 @@ func main() {
 	// TODO: Catch signals for cancellation.
 	ctx := context.Background()
 
-	conn, err := grpc.DialContext(ctx, *addr, grpc.WithInsecure(), grpc.WithBlock())
-	if err != nil {
-		fmt.Printf("Error dialing controller: %v", err)
-	}
+	ctxDial, cancel := context.WithTimeout(ctx, 1*time.Second)
+	defer cancel()
 
-	client := pb.NewDebugClient(conn)
+	conn, err := grpc.DialContext(ctxDial, *addr, grpc.WithInsecure(), grpc.WithBlock())
+	if err != nil {
+		fmt.Printf("Error dialing controller: %v\n", err)
+		os.Exit(1)
+	}
 
 	action := flag.Arg(0)
 	switch action {
@@ -56,10 +59,11 @@ func main() {
 
 		rID, err := strconv.ParseUint(flag.Arg(1), 10, 64)
 		if err != nil {
-			fmt.Fprintf(w, "Invalid rangeID: %v", err)
+			fmt.Fprintf(w, "Invalid rangeID: %v\n", err)
 			os.Exit(1)
 		}
 
+		client := pb.NewDebugClient(conn)
 		cmdRange(client, ctx, rID)
 
 	case "node", "n":
@@ -68,7 +72,23 @@ func main() {
 			os.Exit(1)
 		}
 
+		client := pb.NewDebugClient(conn)
 		cmdNode(client, ctx, flag.Arg(1))
+
+	case "move", "m":
+		if flag.NArg() != 3 {
+			fmt.Fprintf(w, "Usage: %s move <rangeID> <nodeID>\n", os.Args[0])
+			os.Exit(1)
+		}
+
+		rID, err := strconv.ParseUint(flag.Arg(1), 10, 64)
+		if err != nil {
+			fmt.Fprintf(w, "Invalid rangeID: %v\n", err)
+			os.Exit(1)
+		}
+
+		client := pb.NewBalancerClient(conn)
+		cmdMove(client, ctx, rID, flag.Arg(2))
 
 	default:
 		flag.Usage()
@@ -84,7 +104,7 @@ func cmdRange(client pb.DebugClient, ctx context.Context, rID uint64) {
 	}})
 
 	if err != nil {
-		fmt.Fprintf(w, "Range service returned: %v\n", err)
+		fmt.Fprintf(w, "Debug.Range returned: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -97,7 +117,28 @@ func cmdNode(client pb.DebugClient, ctx context.Context, nID string) {
 	res, err := client.Node(ctx, &pb.NodeRequest{Node: nID})
 
 	if err != nil {
-		fmt.Fprintf(w, "Node service returned: %v\n", err)
+		fmt.Fprintf(w, "Debug.Node returned: %v\n", err)
+		os.Exit(1)
+	}
+
+	output(res)
+}
+
+func cmdMove(client pb.BalancerClient, ctx context.Context, rID uint64, nID string) {
+	w := flag.CommandLine.Output()
+
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	res, err := client.Move(ctx, &pb.MoveRequest{
+		Range: &pb.Ident{
+			Key: rID,
+		},
+		Node: nID,
+	})
+
+	if err != nil {
+		fmt.Fprintf(w, "Debug.Move returned: %v\n", err)
 		os.Exit(1)
 	}
 
