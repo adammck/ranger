@@ -17,24 +17,7 @@ type debugServer struct {
 	bal *Balancer
 }
 
-func (srv *debugServer) Range(ctx context.Context, req *pb.RangeRequest) (*pb.RangeResponse, error) {
-	if req.Range == nil {
-		return nil, status.Error(codes.InvalidArgument, "missing: range")
-	}
-
-	rID, err := ranje.IdentFromProto(req.Range)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("IdentFromProto failed: %v", err))
-	}
-
-	r, err := srv.bal.ks.GetByIdent(*rID)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("GetByIdent failed: %v", err))
-	}
-
-	r.Mutex.Lock()
-	defer r.Mutex.Unlock()
-
+func rangeResponse(r *ranje.Range) *pb.RangeResponse {
 	res := &pb.RangeResponse{
 		Meta:  r.Meta.ToProto(),
 		State: r.State().ToProto(),
@@ -53,6 +36,41 @@ func (srv *debugServer) Range(ctx context.Context, req *pb.RangeRequest) (*pb.Ra
 			State: p.State().ToProto(),
 		}
 	}
+
+	return res
+}
+
+func (srv *debugServer) RangesList(ctx context.Context, req *pb.RangesListRequest) (*pb.RangesListResponse, error) {
+	ks := srv.bal.ks.DangerousDebuggingMethods()
+	res := &pb.RangesListResponse{}
+
+	for _, r := range ks.NonObsoleteRanges() {
+		r.Mutex.Lock()
+		defer r.Mutex.Unlock()
+		res.Ranges = append(res.Ranges, rangeResponse(r))
+	}
+
+	return res, nil
+}
+
+func (srv *debugServer) Range(ctx context.Context, req *pb.RangeRequest) (*pb.RangeResponse, error) {
+	if req.Range == nil {
+		return nil, status.Error(codes.InvalidArgument, "missing: range")
+	}
+
+	rID, err := ranje.IdentFromProto(req.Range)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("IdentFromProto failed: %v", err))
+	}
+
+	r, err := srv.bal.ks.GetByIdent(*rID)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("GetByIdent failed: %v", err))
+	}
+
+	r.Mutex.Lock()
+	defer r.Mutex.Unlock()
+	res := rangeResponse(r)
 
 	return res, nil
 }

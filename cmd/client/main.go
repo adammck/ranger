@@ -23,6 +23,7 @@ func main() {
 		fmt.Fprintf(w, "Usage: %s [-addr=host:port] <action> [<args>]\n", os.Args[0])
 		fmt.Fprintf(w, "\n")
 		fmt.Fprintf(w, "Action and args must be one of:\n")
+		fmt.Fprintf(w, "  - ranges\n")
 		fmt.Fprintf(w, "  - range <rangeID>\n")
 		fmt.Fprintf(w, "  - node <nodeID>\n")
 		fmt.Fprintf(w, "  - move <rangeID> <nodeID>\n")
@@ -56,6 +57,15 @@ func main() {
 
 	action := flag.Arg(0)
 	switch action {
+	case "ranges":
+		if flag.NArg() != 1 {
+			fmt.Fprintf(w, "Usage: %s ranges\n", os.Args[0])
+			os.Exit(1)
+		}
+
+		client := pb.NewDebugClient(conn)
+		cmdRanges(*printReq, client, ctx)
+
 	case "range", "r":
 		if flag.NArg() != 2 {
 			fmt.Fprintf(w, "Usage: %s range <rangeID>\n", os.Args[0])
@@ -148,6 +158,29 @@ func main() {
 		flag.Usage()
 		os.Exit(1)
 	}
+}
+
+func cmdRanges(printReq bool, client pb.DebugClient, ctx context.Context) {
+	w := flag.CommandLine.Output()
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	req := &pb.RangesListRequest{}
+
+	if printReq {
+		output(req)
+		return
+	}
+
+	res, err := client.RangesList(ctx, req)
+
+	if err != nil {
+		fmt.Fprintf(w, "Debug.RangesList returned: %v\n", err)
+		os.Exit(1)
+	}
+
+	output(res)
 }
 
 func cmdRange(printReq bool, client pb.DebugClient, ctx context.Context, rID uint64) {

@@ -36,6 +36,11 @@ func New(persister Persister) *Keyspace {
 	return ks
 }
 
+// DangerousDebuggingMethods returns a keyspaceDebug. Handle with care!
+func (ks *Keyspace) DangerousDebuggingMethods() *keyspaceDebug {
+	return &keyspaceDebug{ks}
+}
+
 // NewWithSplits is just for testing.
 // TODO: Move this to the tests, why is it here?
 func NewWithSplits(splits []string) *Keyspace {

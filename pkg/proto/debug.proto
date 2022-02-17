@@ -6,6 +6,13 @@ import "ranje.proto";
 
 package ranger;
 
+message RangesListRequest {
+}
+
+message RangesListResponse {
+    repeated RangeResponse ranges = 1;
+}
+
 message RangeRequest {
     Ident range = 1;
 }
@@ -38,6 +45,7 @@ message NodeResponse {
 }
 
 service Debug {
+    rpc RangesList (RangesListRequest) returns (RangesListResponse) {}
     rpc Range (RangeRequest) returns (RangeResponse) {}
     rpc Node (NodeRequest) returns (NodeResponse) {}
 }
