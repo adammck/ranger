@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -15,14 +17,73 @@ import (
 	"time"
 
 	pbkv "github.com/adammck/ranger/examples/kv/proto/gen"
+	"github.com/mroth/weightedrand"
 	"google.golang.org/grpc"
 )
 
 const minKeys = 10
 const maxKeys = 1000000
 
+var keyChooser KeyChooser
+
+type KeyChooser struct {
+	*weightedrand.Chooser
+	sync.RWMutex
+}
+
+type Choice struct {
+	Prefix []byte `json:"prefix"`
+	Weight uint   `json:"weight"`
+}
+
+type HammerFile struct {
+	Choices []Choice `json:"choices"`
+}
+
+func (kc *KeyChooser) Replace(c *weightedrand.Chooser) {
+	kc.Lock()
+	defer kc.Unlock()
+	kc.Chooser = c
+}
+
+func (kc *KeyChooser) Load(path string) {
+	f, err := os.ReadFile(path)
+	if err != nil {
+		exit(err)
+	}
+
+	var config HammerFile
+	err = json.Unmarshal(f, &config)
+	if err != nil {
+		exit(err)
+	}
+
+	choices := []weightedrand.Choice{}
+	for _, c := range config.Choices {
+		choices = append(choices, weightedrand.NewChoice(c.Prefix, c.Weight))
+	}
+
+	chooser, err := weightedrand.NewChooser(choices...)
+	if err != nil {
+		exit(err)
+	}
+
+	kc.Replace(chooser)
+}
+
+func (kc *KeyChooser) Key() []byte {
+	kc.RLock()
+	defer kc.RUnlock()
+
+	// what
+	prefix := kc.Pick().([]byte)
+	suffix := randomKey(8 - len(prefix))
+	return bytes.Join([][]byte{prefix, suffix}, []byte{})
+}
+
 func init() {
 	rand.Seed(time.Now().UnixNano())
+	keyChooser = KeyChooser{}
 }
 
 func main() {
@@ -30,6 +91,7 @@ func main() {
 	fworkers := flag.Int("workers", 100, "number of workers to run in parallel")
 	finterval := flag.Int("interval", 100, "max time to sleep between rpcs (ms)")
 	fcount := flag.Int("count", 0, "number of requests to send before terminating (default: no limit)")
+	ffile := flag.String("keys-file", "", "path to config")
 	flag.Parse()
 
 	// Replace default logger.
@@ -47,6 +109,31 @@ func main() {
 	}()
 
 	wg := sync.WaitGroup{}
+
+	if *ffile != "" {
+		keyChooser.Load(*ffile)
+
+		ticker := time.NewTicker(1000 * time.Second)
+		done := make(chan bool)
+
+		go func() {
+			for {
+				select {
+				case <-done:
+					return
+				case <-ticker.C:
+					keyChooser.Load(*ffile)
+				}
+			}
+		}()
+	} else {
+		chooser, err := weightedrand.NewChooser(weightedrand.NewChoice("", 1))
+		if err != nil {
+			exit(err)
+		}
+
+		keyChooser.Replace(chooser)
+	}
 
 	addrs := strings.Split(*faddrs, ",")
 	for n := 0; n < *fworkers; n++ {

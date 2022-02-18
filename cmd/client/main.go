@@ -323,6 +323,7 @@ func cmdJoin(printReq bool, client pb.BalancerClient, ctx context.Context, rID1,
 func output(res protoreflect.ProtoMessage) {
 	opts := protojson.MarshalOptions{
 		Multiline:       true,
+		UseProtoNames:   true,
 		EmitUnpopulated: true,
 	}
 

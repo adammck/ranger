@@ -1,0 +1,30 @@
+{
+  "choices": [
+    { "prefix": "a", "weight": 100 },
+    { "prefix": "b", "weight": 100 },
+    { "prefix": "c", "weight": 100 },
+    { "prefix": "d", "weight": 100 },
+    { "prefix": "e", "weight": 100 },
+    { "prefix": "f", "weight": 100 },
+    { "prefix": "g", "weight": 100 },
+    { "prefix": "h", "weight": 100 },
+    { "prefix": "i", "weight": 100 },
+    { "prefix": "j", "weight": 100 },
+    { "prefix": "k", "weight": 100 },
+    { "prefix": "l", "weight": 100 },
+    { "prefix": "m", "weight": 100 },
+    { "prefix": "n", "weight": 100 },
+    { "prefix": "o", "weight": 100 },
+    { "prefix": "p", "weight": 100 },
+    { "prefix": "q", "weight": 100 },
+    { "prefix": "r", "weight": 100 },
+    { "prefix": "s", "weight": 100 },
+    { "prefix": "t", "weight": 100 },
+    { "prefix": "u", "weight": 100 },
+    { "prefix": "v", "weight": 100 },
+    { "prefix": "w", "weight": 100 },
+    { "prefix": "x", "weight": 100 },
+    { "prefix": "y", "weight": 100 },
+    { "prefix": "z", "weight": 100 }
+  ]
+}
