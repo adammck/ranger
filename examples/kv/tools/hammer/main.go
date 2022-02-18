@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"math"
 	"math/rand"
 	"os"
 	"os/signal"
@@ -17,81 +16,48 @@ import (
 	"time"
 
 	pbkv "github.com/adammck/ranger/examples/kv/proto/gen"
-	"github.com/mroth/weightedrand"
+	"github.com/lthibault/jitterbug"
 	"google.golang.org/grpc"
 )
 
-const minKeys = 10
-const maxKeys = 1000000
-
-var keyChooser KeyChooser
-
-type KeyChooser struct {
-	*weightedrand.Chooser
-	sync.RWMutex
+type ConfigQPS struct {
+	Create uint `json:"create"`
+	Read   uint `json:"read"`
+	Update uint `json:"update"`
+	Delete uint `json:"delete"`
 }
 
-type Choice struct {
-	Prefix []byte `json:"prefix"`
-	Weight uint   `json:"weight"`
+type ConfigWorker struct {
+	Prefix string    `json:"prefix"`
+	QPS    ConfigQPS `json:"qps"`
 }
 
-type HammerFile struct {
-	Choices []Choice `json:"choices"`
+type Config struct {
+	Workers []ConfigWorker `json:"workers"`
 }
 
-func (kc *KeyChooser) Replace(c *weightedrand.Chooser) {
-	kc.Lock()
-	defer kc.Unlock()
-	kc.Chooser = c
-}
-
-func (kc *KeyChooser) Load(path string) {
+func Load(path string) Config {
 	f, err := os.ReadFile(path)
 	if err != nil {
-		exit(err)
+		exit(fmt.Errorf("os.ReadFile: %v", err))
 	}
 
-	var config HammerFile
-	err = json.Unmarshal(f, &config)
+	var c Config
+	err = json.Unmarshal(f, &c)
 	if err != nil {
-		exit(err)
+		exit(fmt.Errorf("json.Unmarshal: %v", err))
 	}
 
-	choices := []weightedrand.Choice{}
-	for _, c := range config.Choices {
-		choices = append(choices, weightedrand.NewChoice(c.Prefix, c.Weight))
-	}
-
-	chooser, err := weightedrand.NewChooser(choices...)
-	if err != nil {
-		exit(err)
-	}
-
-	kc.Replace(chooser)
-}
-
-func (kc *KeyChooser) Key() []byte {
-	kc.RLock()
-	defer kc.RUnlock()
-
-	// what
-	prefix := kc.Pick().([]byte)
-	suffix := randomKey(8 - len(prefix))
-	return bytes.Join([][]byte{prefix, suffix}, []byte{})
+	return c
 }
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
-	keyChooser = KeyChooser{}
 }
 
 func main() {
 	faddrs := flag.String("addr", "localhost:8000", "addresses to hammer (comma-separated)")
-	fworkers := flag.Int("workers", 100, "number of workers to run in parallel")
-	finterval := flag.Int("interval", 100, "max time to sleep between rpcs (ms)")
-	fcount := flag.Int("count", 0, "number of requests to send before terminating (default: no limit)")
-	ffile := flag.String("keys-file", "", "path to config")
+	fconfig := flag.String("config", "", "path to config")
 	flag.Parse()
 
 	// Replace default logger.
@@ -110,52 +76,23 @@ func main() {
 
 	wg := sync.WaitGroup{}
 
-	if *ffile != "" {
-		keyChooser.Load(*ffile)
-
-		ticker := time.NewTicker(1000 * time.Second)
-		done := make(chan bool)
-
-		go func() {
-			for {
-				select {
-				case <-done:
-					return
-				case <-ticker.C:
-					keyChooser.Load(*ffile)
-				}
-			}
-		}()
-	} else {
-		chooser, err := weightedrand.NewChooser(weightedrand.NewChoice("", 1))
-		if err != nil {
-			exit(err)
-		}
-
-		keyChooser.Replace(chooser)
+	if *fconfig == "" {
+		exit(fmt.Errorf("required: -config"))
 	}
 
+	config := Load(*fconfig)
+
+	// Set up pool of clients, one per address
 	addrs := strings.Split(*faddrs, ",")
-	for n := 0; n < *fworkers; n++ {
-
-		// If a request limit was set, divide it up equally-ish between the
-		// workers. Otherwise leave it as MaxInt.
-		c := math.MaxInt
-		if *fcount > 0 {
-			c = *fcount / *fworkers
-
-			// add remainder to the last worker
-			if n == *fworkers-1 {
-				c += *fcount % *fworkers
-			}
-		}
-
-		wg.Add(1)
-		go runWorker(ctx, &wg, addrs[n%len(addrs)], *finterval, c)
+	clients := make([]pbkv.KVClient, len(addrs))
+	for i := range addrs {
+		clients[i] = newClient(ctx, addrs[i])
 	}
 
-	// Block until workers self-terminate (because they hit the request limit)
-	// or SIGINT is received and workers are cancelled.
+	for _, w := range config.Workers {
+		RunGroup(ctx, clients, &wg, w)
+	}
+
 	wg.Wait()
 }
 
@@ -168,61 +105,127 @@ func newClient(ctx context.Context, addr string) pbkv.KVClient {
 	return pbkv.NewKVClient(conn)
 }
 
-func runWorker(ctx context.Context, wg *sync.WaitGroup, addr string, interval int, count int) {
-	c := newClient(ctx, addr)
-	cnt := 0
+type Group struct {
+	config  ConfigWorker
+	clients []pbkv.KVClient
 
-	// Keys which have been PUT
-	keys := [][]byte{}
-	vals := [][]byte{}
+	keys [][]byte
+	vals [][]byte
+	mu   sync.RWMutex
+}
 
-	for {
-
-		// Probably cancellation
-		if ctx.Err() != nil {
-			break
-		}
-
-		// Stop once this worker has sent enough requests. (Note: when -count is
-		// lower than -workers, some will have zero requests, so we might return
-		// before sending any.)
-		if cnt >= count {
-			break
-		}
-
-		n := rand.Intn(10)
-
-		// always PUT new values until minKeys reached, then 10% until maxKeys.
-		if len(keys) < minKeys || (n == 0 && len(keys) < maxKeys) {
-			k := randomKey(8)
-			v := randomKey(1 + rand.Intn(255))
-			ok := putOnce(ctx, c, k, v)
-			if ok {
-				keys = append(keys, k)
-				vals = append(vals, v)
-			}
-
-		} else if n == 0 {
-			// Replace values 10% of the time after maxKeys
-			i := rand.Intn(len(keys))
-			k := keys[i]
-			v := randomKey(1 + rand.Intn(255))
-			ok := putOnce(ctx, c, k, v)
-			if ok {
-				vals[i] = v
-			}
-
-		} else {
-			// GET a random key which we have put.
-			i := rand.Intn(len(keys))
-			getOnce(ctx, c, keys[i], vals[i])
-		}
-
-		time.Sleep(time.Duration(rand.Intn(interval)) * time.Millisecond)
-		cnt += 1
+func RunGroup(ctx context.Context, clients []pbkv.KVClient, wg *sync.WaitGroup, w ConfigWorker) {
+	g := Group{
+		config:  w,
+		clients: clients,
+		keys:    [][]byte{},
+		vals:    [][]byte{},
 	}
 
+	wg.Add(4)
+
+	// TODO: Dispatch the RPCs into goroutine pools rather than on the ticker
+	//       thread. There is no way we can reach significant qps right now.
+
+	// Create
+	go g.run(ctx, wg, g.config.QPS.Create, func() {
+		k := g.RandomKey() // With prefix
+		v := randomLetters(1 + rand.Intn(255))
+
+		// Outside the lock.
+		ok := putOnce(ctx, g.client(), k, v)
+		if ok {
+			g.mu.Lock()
+			g.keys = append(g.keys, k)
+			g.vals = append(g.vals, v)
+			g.mu.Unlock()
+		}
+	})
+
+	// Read
+	go g.run(ctx, wg, g.config.QPS.Read, func() {
+		g.mu.RLock()
+		l := len(g.keys)
+		if l == 0 {
+			g.mu.RUnlock()
+			return
+		}
+		i := rand.Intn(l)
+		k := g.keys[i]
+		v := g.vals[i]
+		g.mu.RUnlock()
+
+		// Outside the lock.
+		getOnce(ctx, g.client(), k, v)
+	})
+
+	// Update
+	go g.run(ctx, wg, g.config.QPS.Update, func() {
+		g.mu.RLock()
+		l := len(g.keys)
+		if l == 0 {
+			g.mu.RUnlock()
+			return
+		}
+		i := rand.Intn(l)
+		k := g.keys[i]
+		v := randomLetters(1 + rand.Intn(255))
+		g.mu.RUnlock()
+
+		// Note that we release the lock while sending the request, but we don't
+		// worry about update because this is the only thread *updating* vals.
+
+		ok := putOnce(ctx, g.client(), k, v)
+		if ok {
+			g.mu.Lock()
+			g.vals[i] = v
+			g.mu.Unlock()
+		}
+	})
+
+	// Delete
+	go g.run(ctx, wg, g.config.QPS.Delete, func() {
+		// Not implemented
+	})
+}
+
+func (g *Group) run(ctx context.Context, wg *sync.WaitGroup, qps uint, f func()) {
+	if qps == 0 {
+		wg.Done()
+		return
+	}
+
+	nsInterval := int(1*time.Second) / int(qps)
+	d := time.Duration(nsInterval)
+
+	// Sleep randomly up to the interval to stagger workers with same QPS.
+	//time.Sleep(time.Duration(rand.Intn(nsInterval)))
+
+	// Jitter by 10%
+	ticker := jitterbug.New(d, &jitterbug.Norm{Stdev: d / 10})
+
+	for {
+		select {
+		case <-ctx.Done():
+			goto exit // looooool
+		case <-ticker.C:
+			f()
+		}
+	}
+
+exit:
 	wg.Done()
+}
+
+// client returns a random client to send a request via.
+func (g *Group) client() pbkv.KVClient {
+	return g.clients[rand.Intn(len(g.clients))]
+}
+
+func (g *Group) RandomKey() []byte {
+	prefix := []byte(g.config.Prefix)
+	suffix := randomLetters(8 - len(prefix))
+	return bytes.Join([][]byte{prefix, suffix}, []byte{})
 }
 
 func getOnce(ctx context.Context, client pbkv.KVClient, key []byte, val []byte) {
@@ -261,7 +264,7 @@ func putOnce(ctx context.Context, client pbkv.KVClient, key []byte, val []byte) 
 	return ok
 }
 
-func randomKey(n int) []byte {
+func randomLetters(n int) []byte {
 	b := make([]byte, n)
 	for i := range b {
 		b[i] = letters[rand.Intn(len(letters))]
