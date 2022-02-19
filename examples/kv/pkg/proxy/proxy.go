@@ -26,9 +26,12 @@ type Proxy struct {
 
 	clients   map[string]pbkv.KVClient
 	clientsMu sync.RWMutex
+
+	// Options
+	logReqs bool
 }
 
-func New(addrLis, addrPub string) (*Proxy, error) {
+func New(addrLis, addrPub string, logReqs bool) (*Proxy, error) {
 	var opts []grpc.ServerOption
 	srv := grpc.NewServer(opts...)
 
@@ -49,6 +52,7 @@ func New(addrLis, addrPub string) (*Proxy, error) {
 		disc:    disc,
 		rost:    nil,
 		clients: make(map[string]pbkv.KVClient),
+		logReqs: logReqs,
 	}
 
 	p.rost = roster2.New(disc, p.Add, p.Remove)

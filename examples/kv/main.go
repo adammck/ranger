@@ -26,6 +26,7 @@ func main() {
 	addrLis := flag.String("addr", "localhost:8000", "address to start grpc server on")
 	addrPub := flag.String("pub-addr", "", "address for other nodes to reach this (default: same as -listen)")
 	fonce := flag.Bool("once", false, "controller: perform one rebalance cycle and exit")
+	LogReqs := flag.Bool("log-reqs", false, "proxy, node: enable request logging")
 	flag.Parse()
 
 	if *addrPub == "" {
@@ -50,10 +51,10 @@ func main() {
 	var err error
 
 	if *fnod && !*fprx && !*fctl {
-		cmd, err = node.New(*addrLis, *addrPub)
+		cmd, err = node.New(*addrLis, *addrPub, *LogReqs)
 
 	} else if !*fnod && *fprx && !*fctl {
-		cmd, err = proxy.New(*addrLis, *addrPub)
+		cmd, err = proxy.New(*addrLis, *addrPub, *LogReqs)
 
 	} else if !*fnod && !*fprx && *fctl {
 		cmd, err = controller.New(*addrLis, *addrPub, *fonce)

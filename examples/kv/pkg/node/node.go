@@ -258,6 +258,9 @@ type Node struct {
 	addrPub string
 	srv     *grpc.Server
 	disc    discovery.Discoverable
+
+	// Options
+	logReqs bool
 }
 
 // ---- control plane
@@ -558,7 +561,10 @@ func (s *kvServer) Get(ctx context.Context, req *pbkv.GetRequest) (*pbkv.GetResp
 		return nil, status.Error(codes.NotFound, "no such key")
 	}
 
-	log.Printf("get %q", k)
+	if s.node.logReqs {
+		log.Printf("get %q", k)
+	}
+
 	return &pbkv.GetResponse{
 		Value: v,
 	}, nil
@@ -593,7 +599,10 @@ func (s *kvServer) Put(ctx context.Context, req *pbkv.PutRequest) (*pbkv.PutResp
 		rd.data[k] = req.Value
 	}
 
-	log.Printf("put %q", k)
+	if s.node.logReqs {
+		log.Printf("put %q", k)
+	}
+
 	return &pbkv.PutResponse{}, nil
 }
 
@@ -608,7 +617,7 @@ func init() {
 
 }
 
-func New(addrLis, addrPub string) (*Node, error) {
+func New(addrLis, addrPub string, logReqs bool) (*Node, error) {
 	var opts []grpc.ServerOption
 	srv := grpc.NewServer(opts...)
 
@@ -629,6 +638,8 @@ func New(addrLis, addrPub string) (*Node, error) {
 		addrPub: addrPub,
 		srv:     srv,
 		disc:    disc,
+
+		logReqs: logReqs,
 	}
 
 	ns := nodeServer{node: n}

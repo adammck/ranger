@@ -18,8 +18,10 @@ type proxyServer struct {
 func (ps *proxyServer) getClient(k []byte) (pbkv.KVClient, error) {
 	nids := ps.proxy.rost.Locate(ranje.Key(k))
 
-	for _, nid := range nids {
-		log.Printf("%s -> %s", k, nid)
+	if ps.proxy.logReqs {
+		for _, nid := range nids {
+			log.Printf("%s -> %s", k, nid)
+		}
 	}
 
 	if len(nids) == 0 {
