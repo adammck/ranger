@@ -1,4 +1,6 @@
-cmds=()
+# map of port -> pid
+declare -A cmds
+controller_ports=()
 
 # keys
 a=$(echo -n a | base64); export a
@@ -15,11 +17,32 @@ yyy=$(echo -n yyy | base64); export yyy
 xxx=$(echo -n xxx | base64); export xxx
 www=$(echo -n www | base64); export www
 
+# Returns a command which can be `run` to access the ranger client aimed at a
+# controller which must have already been started.
+ranger_client() {
+    #>&3 echo "# ranger_client $@"
+
+    if [[ -z "${RANGER_CLIENT}" ]]; then
+        fail "RANGER_CLIENT must be set"
+    fi
+
+    if test ${#controller_ports[@]} -eq 0; then
+        fail "no controller running"
+    fi
+
+    if test ${#controller_ports[@]} -gt 1; then
+        fail "more than one controller running"
+    fi
+
+    echo "$RANGER_CLIENT" -addr "127.0.0.1:${controller_ports[0]}"
+}
+
 # Fail if the given port number is currently in use. This is better than trying
 # to run some command and failing with a weird error.
 assert_port_available() {
     #>&3 echo "# assert_port_available $@"
-    nc -z localhost "$1" && fail "port $1 is already in use"
+    local port=$1
+    nc -z localhost "$port" && fail "port $port is already in use"
     return 0
 }
 
@@ -27,24 +50,23 @@ assert_port_available() {
 # Stop it by calling defer_stop_cmds in teardown.
 start_node() {
     #>&3 echo "# start_node $@"
-    start_cmd "$1" ./kv -node -addr ":$1"
+    local port=$1
+    start_cmd "$port" ./kv -node -addr "127.0.0.1:$port" -log-reqs
 }
 
 # Start a controller in the background on the given port.
 # Stop it by calling defer_stop_cmds in teardown.
 start_controller() {
     #>&3 echo "# start_controller $@"
-    start_cmd "$1" ./kv -controller -addr ":$1"
+    local port=$1
+    start_cmd "$port" ./kv -controller -addr "127.0.0.1:$port"
+    controller_ports+=("$port")
 }
 
 start_proxy() {
     #>&3 echo "# start_proxy $@"
-    start_cmd "$1" ./kv -proxy -addr ":$1"
-}
-
-stop_controller() {
-    #>&3 echo "# start_controller $@"
-    stop_cmd "$PID_9000"
+    local port=$1
+    start_cmd "$port" ./kv -proxy -addr "127.0.0.1:$port" -log-reqs
 }
 
 # Run a command which is expected to listen on a port in the background. Block
@@ -62,26 +84,65 @@ start_cmd() {
     "$@" &
     local pid=$!
 
-    defer_stop_cmds "$pid"
+    defer_stop_cmds "$port" "$pid"
     wait_port "$port" "$pid"
 }
 
-stop_cmd() {
-    #>&3 echo "# stop_cmd $@"
-    if test -n "$1"; then # if non-empty
-        if kill -s 0 "$1" 2>/dev/null; then # and still running
-            kill "$1"
+# Send the given signal to the command serving the given port.
+send_signal() {
+    #>&3 echo "# send_signal $@"
+    local pid=$1
+    local signal=$2
+
+    if test -n "$pid"; then # if non-empty
+        if kill -s 0 "$pid" 2>/dev/null; then # and still running
+            kill -s "$signal" "$pid"
         fi
     fi
 }
 
+stop_cmd() {
+    #>&3 echo "# stop_cmd $@"
+    send_signal "$pid" "INT"
+}
+
+# Sends SIGQUIT to the command serving the given port.
+crash() {
+    #>&3 echo "# crash_cmd $@"
+    local port=$1
+    local pid=${cmds[$port]}
+
+    if test "$pid" -eq ""; then
+        fail "no command serving port $port"
+    fi
+
+    kill -s QUIT "$pid"
+
+    # Block until the process is no longer running.
+    while : ; do
+        if ! kill -s 0 "$pid" 2>/dev/null; then
+            break
+        fi
+
+        sleep 0.1
+    done
+}
+
 defer_stop_cmds() {
-    #>&3 echo "# defer_stop_cmds $1"
-    cmds+=("$1")
+    #>&3 echo "# defer_stop_cmds $@"
+    local port=$1
+    local pid=$2
+
+    if test -n "${cmds[$port]}"; then
+        fail "already have command on port $port"
+        return
+    fi
+
+    cmds[$port]=$pid
 }
 
 stop_cmds() {
-    #>&3 echo "# stop_cmds $1"
+    #>&3 echo "# stop_cmds $@"
     for pid in "${cmds[@]}"; do
         stop_cmd "$pid"
     done
@@ -90,6 +151,7 @@ stop_cmds() {
 # Block until either the given port is listening, or the given PID is no longer
 # running.
 wait_port() {
+    #>&3 echo "# wait_port $@"
     local port=$1
     local pid=$2
 

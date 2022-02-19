@@ -50,7 +50,8 @@ teardown() {
     assert_line -n 2 '  Message: no valid range'
 
     # Move the range from node 1 to node 2.
-    run bin/client.sh 9000 ranger.Balancer.Move '{"range": {"key": 1}, "node": "8002"}'
+    run $(ranger_client) move 1 8002
+    assert_success
 
     # Check that the range is gone from node 1.
     run bin/client.sh 8001 kv.KV.Put '{"key": "'$a'", "value": "'$zzz'"}'
@@ -76,7 +77,7 @@ teardown() {
     assert_success
 
     # Split the range from node 1 to nodes 2 and three.
-    run bin/client.sh 9000 ranger.Balancer.Split '{"range": {"key": 1}, "boundary": "'$b'", "node_left": "8002", "node_right": "8003"}'
+    run $(ranger_client) split 1 b64:"$b" 8002 8003
     assert_success
 
     # Check that the range is gone from node 1.
