@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -19,6 +20,17 @@ import (
 	"github.com/lthibault/jitterbug"
 	"google.golang.org/grpc"
 )
+
+type Stats struct {
+	creates uint64
+	reads   uint64
+	updates uint64
+	deletes uint64
+}
+
+func (s *Stats) Total() int {
+	return int(s.creates + s.reads + s.updates + s.deletes)
+}
 
 type ConfigQPS struct {
 	Create uint `json:"create"`
@@ -89,11 +101,23 @@ func main() {
 		clients[i] = newClient(ctx, addrs[i])
 	}
 
+	t := time.Now()
+	stats := Stats{}
+
 	for _, w := range config.Workers {
-		RunGroup(ctx, clients, &wg, w)
+		RunGroup(ctx, clients, &stats, &wg, w)
 	}
 
 	wg.Wait()
+
+	runTime := time.Since(t)
+
+	fmt.Printf("Ran for %s\n", runTime)
+	fmt.Printf("- Creates: %d (%d/s)\n", stats.creates, int(float64(stats.creates)/runTime.Seconds()))
+	fmt.Printf("- Reads: %d (%d/s)\n", stats.reads, int(float64(stats.reads)/runTime.Seconds()))
+	fmt.Printf("- Updates: %d (%d/s)\n", stats.updates, int(float64(stats.updates)/runTime.Seconds()))
+	fmt.Printf("- Deletes: %d (%d/s)\n", stats.deletes, int(float64(stats.deletes)/runTime.Seconds()))
+	fmt.Printf("- Total: %d (%d/s)\n", stats.Total(), int(float64(stats.Total())/runTime.Seconds()))
 }
 
 func newClient(ctx context.Context, addr string) pbkv.KVClient {
@@ -109,23 +133,28 @@ type Group struct {
 	config  ConfigWorker
 	clients []pbkv.KVClient
 
+	// Must be the same number of both.
 	keys [][]byte
-	vals [][]byte
-	mu   sync.RWMutex
+	vals []Value
+
+	// Only take this lock when adding new key+val pairs.
+	mu sync.RWMutex
 }
 
-func RunGroup(ctx context.Context, clients []pbkv.KVClient, wg *sync.WaitGroup, w ConfigWorker) {
+type Value struct {
+	value  []byte
+	locker uint32
+}
+
+func RunGroup(ctx context.Context, clients []pbkv.KVClient, stats *Stats, wg *sync.WaitGroup, w ConfigWorker) {
 	g := Group{
 		config:  w,
 		clients: clients,
 		keys:    [][]byte{},
-		vals:    [][]byte{},
+		vals:    []Value{},
 	}
 
 	wg.Add(4)
-
-	// TODO: Dispatch the RPCs into goroutine pools rather than on the ticker
-	//       thread. There is no way we can reach significant qps right now.
 
 	// Create
 	go g.run(ctx, wg, g.config.QPS.Create, func() {
@@ -137,50 +166,64 @@ func RunGroup(ctx context.Context, clients []pbkv.KVClient, wg *sync.WaitGroup, 
 		if ok {
 			g.mu.Lock()
 			g.keys = append(g.keys, k)
-			g.vals = append(g.vals, v)
+			g.vals = append(g.vals, Value{value: v})
 			g.mu.Unlock()
 		}
+
+		atomic.AddUint64(&stats.creates, 1)
 	})
 
 	// Read
 	go g.run(ctx, wg, g.config.QPS.Read, func() {
 		g.mu.RLock()
 		l := len(g.keys)
-		if l == 0 {
-			g.mu.RUnlock()
-			return
-		}
-		i := rand.Intn(l)
-		k := g.keys[i]
-		v := g.vals[i]
 		g.mu.RUnlock()
 
-		// Outside the lock.
-		getOnce(ctx, g.client(), k, v)
+		// Skip if no values have been written yet.
+		if l == 0 {
+			return
+		}
+
+		i := rand.Intn(l)
+
+		// Try to lock the value while we get it, so no update can change it
+		// from under us. (This is likely to happen when the number of values is
+		// small and the query rate is high.) Skip if we can't get the lock.
+		if !atomic.CompareAndSwapUint32(&g.vals[i].locker, 0, 1) {
+			return
+		}
+
+		getOnce(ctx, g.client(), g.keys[i], g.vals[i].value)
+
+		atomic.StoreUint32(&g.vals[i].locker, 0)
+		atomic.AddUint64(&stats.reads, 1)
 	})
 
 	// Update
 	go g.run(ctx, wg, g.config.QPS.Update, func() {
 		g.mu.RLock()
 		l := len(g.keys)
-		if l == 0 {
-			g.mu.RUnlock()
-			return
-		}
-		i := rand.Intn(l)
-		k := g.keys[i]
-		v := randomLetters(1 + rand.Intn(255))
 		g.mu.RUnlock()
 
-		// Note that we release the lock while sending the request, but we don't
-		// worry about update because this is the only thread *updating* vals.
-
-		ok := putOnce(ctx, g.client(), k, v)
-		if ok {
-			g.mu.Lock()
-			g.vals[i] = v
-			g.mu.Unlock()
+		// Skip if no values have been written yet.
+		if l == 0 {
+			return
 		}
+
+		i := rand.Intn(l)
+
+		if !atomic.CompareAndSwapUint32(&g.vals[i].locker, 0, 1) {
+			return
+		}
+
+		v := randomLetters(1 + rand.Intn(255))
+		ok := putOnce(ctx, g.client(), g.keys[i], v)
+		if ok {
+			g.vals[i].value = v
+		}
+
+		atomic.StoreUint32(&g.vals[i].locker, 0)
+		atomic.AddUint64(&stats.updates, 1)
 	})
 
 	// Delete
@@ -208,8 +251,13 @@ func (g *Group) run(ctx context.Context, wg *sync.WaitGroup, qps uint, f func())
 		select {
 		case <-ctx.Done():
 			goto exit // looooool
+
 		case <-ticker.C:
-			f()
+			wg.Add(1)
+			go func() {
+				f()
+				wg.Done()
+			}()
 		}
 	}
 
@@ -234,15 +282,20 @@ func getOnce(ctx context.Context, client pbkv.KVClient, key []byte, val []byte) 
 	}
 
 	status := "OK"
+	ok := true
 
 	res, err := client.Get(ctx, req)
 	if err != nil {
 		status = fmt.Sprintf("Error: %s", err)
+		ok = false
 	} else if string(res.Value) != string(val) {
 		status = fmt.Sprintf("Bad: %q != %q", val, res.Value)
+		ok = false
 	}
 
-	log.Printf("GET: %s -- %s", req.Key, status)
+	if !ok {
+		log.Printf("GET: %s -- %s", req.Key, status)
+	}
 }
 
 func putOnce(ctx context.Context, client pbkv.KVClient, key []byte, val []byte) bool {
@@ -251,16 +304,19 @@ func putOnce(ctx context.Context, client pbkv.KVClient, key []byte, val []byte) 
 		Value: val,
 	}
 
-	res := "OK"
+	status := "OK"
 	ok := true
 
 	_, err := client.Put(ctx, req)
 	if err != nil {
-		res = fmt.Sprintf("Error: %s", err)
+		status = fmt.Sprintf("Error: %s", err)
 		ok = false
 	}
 
-	log.Printf("PUT: %s -- %s", req.Key, res)
+	if !ok {
+		log.Printf("PUT: %s -- %s", req.Key, status)
+	}
+
 	return ok
 }
 
