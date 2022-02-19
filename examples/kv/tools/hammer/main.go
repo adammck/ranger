@@ -19,6 +19,8 @@ import (
 	pbkv "github.com/adammck/ranger/examples/kv/proto/gen"
 	"github.com/lthibault/jitterbug"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type Stats struct {
@@ -69,6 +71,7 @@ func init() {
 
 func main() {
 	faddrs := flag.String("addr", "localhost:8000", "addresses to hammer (comma-separated)")
+	fdur := flag.Duration("duration", 0, "how long to run for (default: forever)")
 	fconfig := flag.String("config", "", "path to config")
 	flag.Parse()
 
@@ -106,6 +109,13 @@ func main() {
 
 	for _, w := range config.Workers {
 		RunGroup(ctx, clients, &stats, &wg, w)
+	}
+
+	if *fdur != 0 {
+		go func() {
+			time.Sleep(*fdur)
+			cancel()
+		}()
 	}
 
 	wg.Wait()
@@ -281,20 +291,22 @@ func getOnce(ctx context.Context, client pbkv.KVClient, key []byte, val []byte) 
 		Key: key,
 	}
 
-	status := "OK"
+	msg := "OK"
 	ok := true
 
 	res, err := client.Get(ctx, req)
 	if err != nil {
-		status = fmt.Sprintf("Error: %s", err)
-		ok = false
+		if status.Code(err) != codes.Canceled {
+			msg = fmt.Sprintf("Error: %s", err)
+			ok = false
+		}
 	} else if string(res.Value) != string(val) {
-		status = fmt.Sprintf("Bad: %q != %q", val, res.Value)
+		msg = fmt.Sprintf("Bad: %q != %q", val, res.Value)
 		ok = false
 	}
 
 	if !ok {
-		log.Printf("GET: %s -- %s", req.Key, status)
+		log.Printf("GET: %s -- %s", req.Key, msg)
 	}
 }
 
@@ -304,17 +316,19 @@ func putOnce(ctx context.Context, client pbkv.KVClient, key []byte, val []byte) 
 		Value: val,
 	}
 
-	status := "OK"
+	msg := "OK"
 	ok := true
 
 	_, err := client.Put(ctx, req)
 	if err != nil {
-		status = fmt.Sprintf("Error: %s", err)
-		ok = false
+		if status.Code(err) != codes.Canceled {
+			msg = fmt.Sprintf("Error: %s", err)
+			ok = false
+		}
 	}
 
 	if !ok {
-		log.Printf("PUT: %s -- %s", req.Key, status)
+		log.Printf("PUT: %s -- %s", req.Key, msg)
 	}
 
 	return ok
