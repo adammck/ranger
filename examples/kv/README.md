@@ -32,7 +32,7 @@ $ bin/get.sh 5200 a
 $ # Run a load test.
 $ cd tools/hammer
 $ go build
-$ ./hammer -addr localhost:5100 -workers 10 -interval 100
+$ ./hammer -addr localhost:5100 -duration 30s
 
 $ # Move R1 (the only range, for now) to N2.
 $ bin/client.sh 5000 ranger.Balancer.Move '{"range": {"key": 1}, "node": "5201"}'

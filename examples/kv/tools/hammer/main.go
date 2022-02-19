@@ -50,14 +50,18 @@ type Config struct {
 	Workers []ConfigWorker `json:"workers"`
 }
 
-func Load(path string) Config {
+func LoadConfig(path string) Config {
 	f, err := os.ReadFile(path)
 	if err != nil {
 		exit(fmt.Errorf("os.ReadFile: %v", err))
 	}
 
+	return ParseConfig(f)
+}
+
+func ParseConfig(j []byte) Config {
 	var c Config
-	err = json.Unmarshal(f, &c)
+	err := json.Unmarshal(j, &c)
 	if err != nil {
 		exit(fmt.Errorf("json.Unmarshal: %v", err))
 	}
@@ -69,8 +73,18 @@ func init() {
 	rand.Seed(time.Now().UnixNano())
 }
 
+const defaultConfig = `
+{
+	"workers": [
+		{ "prefix": "a", "qps": { "create": 10, "read": 50, "update": 20, "delete": 0 } },
+		{ "prefix": "b", "qps": { "create": 10, "read": 50, "update": 20, "delete": 0 } },
+		{ "prefix": "c", "qps": { "create": 10, "read": 50, "update": 20, "delete": 0 } }
+	]
+}
+`
+
 func main() {
-	faddrs := flag.String("addr", "localhost:8000", "addresses to hammer (comma-separated)")
+	faddrs := flag.String("addr", "127.0.0.1:8000", "addresses to hammer (comma-separated)")
 	fdur := flag.Duration("duration", 0, "how long to run for (default: forever)")
 	fconfig := flag.String("config", "", "path to config")
 	flag.Parse()
@@ -91,11 +105,12 @@ func main() {
 
 	wg := sync.WaitGroup{}
 
-	if *fconfig == "" {
-		exit(fmt.Errorf("required: -config"))
+	var config Config
+	if *fconfig != "" {
+		config = LoadConfig(*fconfig)
+	} else {
+		config = ParseConfig([]byte(defaultConfig))
 	}
-
-	config := Load(*fconfig)
 
 	// Set up pool of clients, one per address
 	addrs := strings.Split(*faddrs, ",")
