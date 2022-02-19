@@ -47,5 +47,5 @@ $ bin/client.sh 5000 ranger.Balancer.Join '{"range_left": {"key": 2}, "range_rig
 ## Tests
 
 ```console
-$ bats test/test.bats
+$ bats test
 ```

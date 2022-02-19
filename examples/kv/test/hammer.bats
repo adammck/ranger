@@ -22,5 +22,5 @@ teardown() {
 
     sleep 0.5
 
-    go run tools/hammer/main.go -addr localhost:8000 -workers 10 -interval 100 -count 1000
+    go run tools/hammer/main.go -addr localhost:8000 -duration 10s
 }
