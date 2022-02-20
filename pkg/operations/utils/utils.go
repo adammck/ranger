@@ -12,12 +12,12 @@ import (
 // TODO: These are ironically very repetitive; refactor them.
 
 func ToState(ks *ranje.Keyspace, rID ranje.Ident, state ranje.StateLocal) error {
-	r, err := ks.GetByIdent(rID)
+	r, err := ks.Get(rID)
 	if err != nil {
 		return err
 	}
 
-	err = r.ToState(state)
+	err = ks.ToState(r, state)
 	if err != nil {
 		return err
 	}
@@ -25,7 +25,7 @@ func ToState(ks *ranje.Keyspace, rID ranje.Ident, state ranje.StateLocal) error 
 	return nil
 }
 
-func Give(rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacement) error {
+func Give(ks *ranje.Keyspace, rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacement) error {
 	node := rost.NodeByIdent(placement.NodeID)
 	if node == nil {
 		return fmt.Errorf("no such node: %s", placement.NodeID)
@@ -46,7 +46,7 @@ func Give(rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacem
 
 	// TODO: Rename pb.Placement to something else. It's not a placement!
 	parents := map[ranje.Ident]*pb.Placement{}
-	addParents(rost, rang, parents)
+	addParents(ks, rost, rang, parents)
 
 	req := &pb.GiveRequest{
 		Range: rang.Meta.ToProto(),
@@ -64,7 +64,7 @@ func Give(rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacem
 	return nil
 }
 
-func addParents(rost *roster.Roster, rang *ranje.Range, parents map[ranje.Ident]*pb.Placement) {
+func addParents(ks *ranje.Keyspace, rost *roster.Roster, rang *ranje.Range, parents map[ranje.Ident]*pb.Placement) {
 
 	// Don't bother serializing the same placement many times. (The range tree
 	// won't have cycles, but is also not a DAG.)
@@ -74,8 +74,14 @@ func addParents(rost *roster.Roster, rang *ranje.Range, parents map[ranje.Ident]
 	}
 
 	parents[rang.Meta.Ident] = pbPlacement(rost, rang)
-	for _, rr := range rang.Parents() {
-		addParents(rost, rr, parents)
+	for _, rID := range rang.Parents {
+		r, err := ks.Get(rID)
+		if err != nil {
+			// TODO: Think about how to recover from this. It's bad.
+			panic(fmt.Sprintf("getting range with ident %v: %v", rID, err))
+		}
+
+		addParents(ks, rost, r, parents)
 	}
 }
 

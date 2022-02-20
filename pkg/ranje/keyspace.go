@@ -21,6 +21,10 @@ type Keyspace struct {
 	maxIdent uint64
 }
 
+type RangeGetter interface {
+	Get(id Ident) (*Range, error)
+}
+
 func New(persister Persister) *Keyspace {
 	ks := &Keyspace{
 		pers: persister,
@@ -39,7 +43,7 @@ func New(persister Persister) *Keyspace {
 		r := ks.Range()
 		r.State = Pending
 		ks.ranges = []*Range{r}
-		ks.pers.Put(r)
+		ks.pers.PutRange(r)
 		return ks
 	}
 
@@ -65,24 +69,6 @@ func New(persister Persister) *Keyspace {
 	return ks
 }
 
-// TODO: Make this private. Tests should use an empty persister instead.
-func NewEmpty(persister Persister) *Keyspace {
-	ks := &Keyspace{
-		pers: persister,
-	}
-
-	// Start with one range that covers all keys.
-	r := ks.Range()
-	r.State = Pending
-
-	if err := r.InitPersist(); err != nil {
-		panic(fmt.Sprintf("failed to persist range: %s", err))
-	}
-
-	ks.ranges = []*Range{r}
-	return ks
-}
-
 // DangerousDebuggingMethods returns a keyspaceDebug. Handle with care!
 func (ks *Keyspace) DangerousDebuggingMethods() *keyspaceDebug {
 	return &keyspaceDebug{ks}
@@ -90,9 +76,9 @@ func (ks *Keyspace) DangerousDebuggingMethods() *keyspaceDebug {
 
 // NewWithSplits is just for testing.
 // TODO: Move this to the tests, why is it here?
-func NewWithSplits(splits []string) *Keyspace {
+func NewWithSplits(persister Persister, splits []string) *Keyspace {
 	ks := &Keyspace{
-		pers: nil, // TODO: Not ideal.
+		pers: persister,
 	}
 	rs := make([]*Range, len(splits)+1)
 
@@ -207,11 +193,11 @@ func (ks *Keyspace) PlacementsByNodeID(nID string) []PBNID {
 	return out
 }
 
-func (ks *Keyspace) Dump() string {
+func (ks *Keyspace) LogString() string {
 	s := make([]string, len(ks.ranges))
 
 	for i, r := range ks.ranges {
-		s[i] = r.String()
+		s[i] = r.LogString()
 	}
 
 	return strings.Join(s, " ")
@@ -220,7 +206,7 @@ func (ks *Keyspace) Dump() string {
 // Get returns a range by its ident, or an error if no such range exists.
 // TODO: Allow getting by other things.
 // TODO: Should this lock ranges? Or the caller do it?
-func (ks *Keyspace) GetByIdent(id Ident) (*Range, error) {
+func (ks *Keyspace) Get(id Ident) (*Range, error) {
 	for _, r := range ks.ranges {
 		if r.Meta.Ident == id {
 			return r, nil
@@ -230,23 +216,19 @@ func (ks *Keyspace) GetByIdent(id Ident) (*Range, error) {
 	return nil, fmt.Errorf("no such range: %s", id.String())
 }
 
-// Get returns a range by its index.
-// TODO: WTF is this method? Remove it!
-func (ks *Keyspace) Get(ident int) *Range {
-	for _, r := range ks.ranges {
-		if int(r.Meta.Ident.Key) == ident {
-			return r
-		}
-	}
-
-	// TODO: Make this an error, lol
-	panic("no such ident")
-}
-
 // Len returns the number of ranges.
 // This is mostly for testing, maybe remove it.
 func (ks *Keyspace) Len() int {
 	return len(ks.ranges)
+}
+
+func (ks *Keyspace) ToState(rang *Range, state StateLocal) error {
+	err := rang.toState(state, ks)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // TODO: Rename to Split once the old one is gone
@@ -263,8 +245,8 @@ func (ks *Keyspace) DoSplit(r *Range, k Key) error {
 	}
 
 	// This should not be possible. Panic?
-	if len(r.children) > 0 {
-		return fmt.Errorf("range %s already has %d children", r, len(r.children))
+	if len(r.Children) > 0 {
+		return fmt.Errorf("range %s already has %d children", r, len(r.Children))
 	}
 
 	if !r.Meta.Contains(k) {
@@ -275,7 +257,7 @@ func (ks *Keyspace) DoSplit(r *Range, k Key) error {
 		return fmt.Errorf("range %s starts with key: %s", r, k)
 	}
 
-	err := r.ToState(Splitting)
+	err := ks.ToState(r, Splitting)
 	if err != nil {
 		// The error is clear enough, no need to wrap it.
 		return err
@@ -286,7 +268,7 @@ func (ks *Keyspace) DoSplit(r *Range, k Key) error {
 	one := ks.Range()
 	one.Meta.Start = r.Meta.Start
 	one.Meta.End = k
-	one.parents = []*Range{r}
+	one.Parents = []Ident{r.Meta.Ident}
 	if err := one.InitPersist(); err != nil {
 		panic(fmt.Sprintf("failed to persist range: %s", err))
 	}
@@ -294,7 +276,7 @@ func (ks *Keyspace) DoSplit(r *Range, k Key) error {
 	two := ks.Range()
 	two.Meta.Start = k
 	two.Meta.End = r.Meta.End
-	two.parents = []*Range{r}
+	two.Parents = []Ident{r.Meta.Ident}
 	if err := two.InitPersist(); err != nil {
 		panic(fmt.Sprintf("failed to persist range: %s", err))
 	}
@@ -304,7 +286,10 @@ func (ks *Keyspace) DoSplit(r *Range, k Key) error {
 	ks.ranges = append(ks.ranges, one)
 	ks.ranges = append(ks.ranges, two)
 
-	r.children = []*Range{one, two}
+	r.Children = []Ident{
+		one.Meta.Ident,
+		two.Meta.Ident,
+	}
 
 	return nil
 }
@@ -319,8 +304,8 @@ func (ks *Keyspace) JoinTwo(one *Range, two *Range) (*Range, error) {
 		}
 
 		// This should not be possible. Panic?
-		if len(r.children) > 0 {
-			return nil, fmt.Errorf("range %s already has %d children", r, len(r.children))
+		if len(r.Children) > 0 {
+			return nil, fmt.Errorf("range %s already has %d children", r, len(r.Children))
 		}
 	}
 
@@ -328,20 +313,12 @@ func (ks *Keyspace) JoinTwo(one *Range, two *Range) (*Range, error) {
 		return nil, fmt.Errorf("not adjacent: %s, %s", one, two)
 	}
 
-	for _, r := range []*Range{one, two} {
-		err := r.ToState(Joining)
-		if err != nil {
-			// The error is clear enough, no need to wrap it.
-			return nil, err
-		}
-	}
-
 	// TODO: Move this part into Range?
 
 	three := ks.Range()
 	three.Meta.Start = one.Meta.Start
 	three.Meta.End = two.Meta.End
-	three.parents = []*Range{one, two}
+	three.Parents = []Ident{one.Meta.Ident, two.Meta.Ident}
 	if err := three.InitPersist(); err != nil {
 		panic(fmt.Sprintf("failed to persist range: %s", err))
 	}
@@ -349,8 +326,16 @@ func (ks *Keyspace) JoinTwo(one *Range, two *Range) (*Range, error) {
 	// Insert new range at the end.
 	ks.ranges = append(ks.ranges, three)
 
-	one.children = []*Range{three}
-	two.children = []*Range{three}
+	one.Children = []Ident{three.Meta.Ident}
+	two.Children = []Ident{three.Meta.Ident}
+
+	for _, r := range []*Range{one, two} {
+		err := ks.ToState(r, Joining)
+		if err != nil {
+			// The error is clear enough, no need to wrap it.
+			return nil, err
+		}
+	}
 
 	return three, nil
 }
@@ -381,7 +366,7 @@ func (ks *Keyspace) Discard(r *Range) error {
 	}
 
 	// TODO: Is this necessary? Ranges are generally discarded after split/join, but so what?
-	if len(r.children) == 0 {
+	if len(r.Children) == 0 {
 		return fmt.Errorf("range %s has no children", r)
 	}
 

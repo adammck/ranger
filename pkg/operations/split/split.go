@@ -46,9 +46,9 @@ type SplitOp struct {
 func (op *SplitOp) Init() error {
 	log.Printf("splitting: range=%v, boundary=%q, left=%v, right=%v", op.Range, op.Boundary, op.NodeLeft, op.NodeRight)
 
-	r0, err := op.Keyspace.GetByIdent(op.Range)
+	r0, err := op.Keyspace.Get(op.Range)
 	if err != nil {
-		return fmt.Errorf("can't initiate split; GetByIdent failed: %v", err)
+		return fmt.Errorf("can't initiate split; Get failed: %v", err)
 	}
 
 	// Moves r into Splitting state
@@ -59,16 +59,16 @@ func (op *SplitOp) Init() error {
 	}
 
 	r12 := [2]ranje.Ident{}
-	for n := range r12 {
-		r, err := r0.Child(n)
+	for n, rID := range r0.Children {
+		r, err := op.Keyspace.Get(rID)
 		if err != nil {
-			return fmt.Errorf("can't initiate split; r0.Child(%d) failed: %v", n, err)
+			return fmt.Errorf("can't initiate split; getting child failed: %v", err)
 		}
 
 		// Immediately move the new ranges into Placing, so the balancer loop
 		// doesn't try to place them in a separate op. (Feels kind of weird to
 		// be doing this explicitly while we do so much else implicitly?)
-		r.MustState(ranje.Placing)
+		op.Keyspace.ToState(r, ranje.Placing)
 
 		r12[n] = r.Meta.Ident
 	}
@@ -136,7 +136,7 @@ func (op *SplitOp) Run() {
 }
 
 func (op *SplitOp) take() (state, error) {
-	r0, err := op.Keyspace.GetByIdent(op.Range)
+	r0, err := op.Keyspace.Get(op.Range)
 	if err != nil {
 		return Failed, fmt.Errorf("split (take) failed: %s", err)
 	}
@@ -165,9 +165,9 @@ func (op *SplitOp) give() (state, error) {
 		n := n
 
 		g.Go(func() error {
-			r, err := op.Keyspace.GetByIdent(ranges[n])
+			r, err := op.Keyspace.Get(ranges[n])
 			if err != nil {
-				return fmt.Errorf("GetByIdent (%s): %v", sides[n], err)
+				return fmt.Errorf("Get (%s): %v", sides[n], err)
 			}
 
 			p, err := ranje.NewPlacement(r, nodeIDs[n])
@@ -175,7 +175,7 @@ func (op *SplitOp) give() (state, error) {
 				return fmt.Errorf("give failed: %v", err)
 			}
 
-			err = utils.Give(op.Roster, r, p)
+			err = utils.Give(op.Keyspace, op.Roster, r, p)
 			if err != nil {
 				return fmt.Errorf("give failed: %v", err)
 			}
@@ -201,7 +201,7 @@ func (op *SplitOp) give() (state, error) {
 }
 
 func (op *SplitOp) drop() (state, error) {
-	r, err := op.Keyspace.GetByIdent(op.Range)
+	r, err := op.Keyspace.Get(op.Range)
 	if err != nil {
 		return Failed, fmt.Errorf("split (drop) failed: %s", err)
 	}
@@ -224,9 +224,9 @@ func (op *SplitOp) serve() (state, error) {
 		n := n
 
 		g.Go(func() error {
-			r, err := op.Keyspace.GetByIdent(ranges[n])
+			r, err := op.Keyspace.Get(ranges[n])
 			if err != nil {
-				return fmt.Errorf("GetByIdent (%s): %s", sides[n], err)
+				return fmt.Errorf("Get (%s): %s", sides[n], err)
 			}
 
 			p := r.NextPlacement
@@ -249,7 +249,7 @@ func (op *SplitOp) serve() (state, error) {
 				return fmt.Errorf("CompleteNextPlacement (%s): %s", sides[n], err)
 			}
 
-			r.MustState(ranje.Ready)
+			op.Keyspace.ToState(r, ranje.Ready)
 
 			return nil
 		})
@@ -263,14 +263,14 @@ func (op *SplitOp) serve() (state, error) {
 	}
 
 	// TODO: Should this happen via CompletePlacement, too?
-	r0, err := op.Keyspace.GetByIdent(op.Range)
+	r0, err := op.Keyspace.Get(op.Range)
 	if err != nil {
 		return Failed, fmt.Errorf("split (Serve) failed: %s", err)
 	}
 
 	// This also happens in Range.ChildStateChanged once children are Ready.
 	// TODO: Is that a good idea? Here would be more explicit.
-	r0.MustState(ranje.Obsolete)
+	op.Keyspace.ToState(r0, ranje.Obsolete)
 	r0.DropPlacement()
 
 	// TODO: This part should probably be handled later by some kind of optional

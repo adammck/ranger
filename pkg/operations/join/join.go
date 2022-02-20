@@ -45,14 +45,14 @@ type JoinOp struct {
 func (op *JoinOp) Init() error {
 	log.Printf("joining: left=%v, right=%v, node=%v", op.RangeLeft, op.RangeRight, op.Node)
 
-	r1, err := op.Keyspace.GetByIdent(op.RangeLeft)
+	r1, err := op.Keyspace.Get(op.RangeLeft)
 	if err != nil {
-		return fmt.Errorf("can't initiate join; GetByIdent(left) failed: %v", err)
+		return fmt.Errorf("can't initiate join; Get(left) failed: %v", err)
 	}
 
-	r2, err := op.Keyspace.GetByIdent(op.RangeRight)
+	r2, err := op.Keyspace.Get(op.RangeRight)
 	if err != nil {
-		return fmt.Errorf("can't initiate join; GetByIdent(right) failed: %v", err)
+		return fmt.Errorf("can't initiate join; Get(right) failed: %v", err)
 	}
 
 	// Moves r1 and r2 into Joining state.
@@ -139,7 +139,7 @@ func (op *JoinOp) take() (state, error) {
 		rid := rangeIDs[n]
 
 		g.Go(func() error {
-			r, err := op.Keyspace.GetByIdent(rid)
+			r, err := op.Keyspace.Get(rid)
 			if err != nil {
 				return fmt.Errorf("%s: %s", s, err.Error())
 			}
@@ -172,9 +172,9 @@ func (op *JoinOp) give() (state, error) {
 		return Failed, fmt.Errorf("give failed: ToState: %v", err)
 	}
 
-	r3, err := op.Keyspace.GetByIdent(op.r)
+	r3, err := op.Keyspace.Get(op.r)
 	if err != nil {
-		return Failed, fmt.Errorf("give failed: GetByIdent: %v", err)
+		return Failed, fmt.Errorf("give failed: Get: %v", err)
 	}
 
 	p3, err := ranje.NewPlacement(r3, op.Node)
@@ -183,12 +183,12 @@ func (op *JoinOp) give() (state, error) {
 		return Failed, fmt.Errorf("give failed: NewPlacement: %v", err)
 	}
 
-	err = utils.Give(op.Roster, r3, p3)
+	err = utils.Give(op.Keyspace, op.Roster, r3, p3)
 	if err != nil {
 		// This is a bad situation; the range has been taken from the src, but
 		// can't be given to the dest! So we stay in Moving forever.
 		// TODO: Repair the situation somehow.
-		//r.MustState(ranje.MoveError)
+		//op.Keyspace.ToState(r, ranje.MoveError)
 		return Failed, fmt.Errorf("give failed: utils.Give: %v", err)
 	}
 
@@ -213,9 +213,9 @@ func (op *JoinOp) drop() (state, error) {
 		rID := rangeIDs[i]
 
 		g.Go(func() error {
-			r, err := op.Keyspace.GetByIdent(rID)
+			r, err := op.Keyspace.Get(rID)
 			if err != nil {
-				return fmt.Errorf("GetByIdent (%s): %s", s, err.Error())
+				return fmt.Errorf("Get (%s): %s", s, err.Error())
 			}
 
 			err = utils.Drop(op.Roster, r.CurrentPlacement)
@@ -238,9 +238,9 @@ func (op *JoinOp) drop() (state, error) {
 }
 
 func (op *JoinOp) serve() (state, error) {
-	r, err := op.Keyspace.GetByIdent(op.r)
+	r, err := op.Keyspace.Get(op.r)
 	if err != nil {
-		return Failed, fmt.Errorf("serve (GetByIdent) failed: %s", err)
+		return Failed, fmt.Errorf("serve (Get) failed: %s", err)
 	}
 
 	p := r.NextPlacement
@@ -254,7 +254,7 @@ func (op *JoinOp) serve() (state, error) {
 	}
 
 	r.CompleteNextPlacement()
-	r.MustState(ranje.Ready)
+	op.Keyspace.ToState(r, ranje.Ready)
 
 	return Cleanup, nil
 }
@@ -269,9 +269,9 @@ func (op *JoinOp) cleanup() (state, error) {
 		rID := rangeIDs[i]
 
 		g.Go(func() error {
-			r, err := op.Keyspace.GetByIdent(rID)
+			r, err := op.Keyspace.Get(rID)
 			if err != nil {
-				return fmt.Errorf("GetByIdent (%s): %s", s, err.Error())
+				return fmt.Errorf("Get (%s): %s", s, err.Error())
 			}
 
 			p := r.CurrentPlacement
@@ -281,7 +281,7 @@ func (op *JoinOp) cleanup() (state, error) {
 
 			// This also happens implicitly in Range.ChildStateChanged.
 			// TODO: Is this a good idea? Here would be more explicit.
-			r.MustState(ranje.Obsolete)
+			op.Keyspace.ToState(r, ranje.Obsolete)
 			r.DropPlacement()
 
 			// TODO: This part should probably be handled later by some kind of

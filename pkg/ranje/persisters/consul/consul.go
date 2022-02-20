@@ -72,7 +72,7 @@ func (cp *Persister) GetRanges() ([]*ranje.Range, error) {
 	return out, nil
 }
 
-func (cp *Persister) Put(r *ranje.Range) error {
+func (cp *Persister) PutRange(r *ranje.Range) error {
 	v, err := json.Marshal(r)
 	if err != nil {
 		return err

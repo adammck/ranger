@@ -14,8 +14,8 @@ type Range struct {
 	Meta Meta
 
 	State    StateLocal
-	parents  []*Range // TODO: Just store the ident?
-	children []*Range
+	Parents  []Ident
+	Children []Ident
 
 	// Which node currently has the range, and which it is moving to.
 	// TODO: Each of these are probably only valid in some states. Doc that.
@@ -32,26 +32,13 @@ type Range struct {
 }
 
 func (r *Range) Put() error {
-	err := r.pers.Put(r)
+	err := r.pers.PutRange(r)
 	if err != nil {
 		panic(fmt.Sprintf("failed to put range %d: %s", r.Meta.Ident.Key, err))
 		//return err
 	}
 
 	return nil
-}
-
-func (r *Range) Child(index int) (*Range, error) {
-	// TODO: Locking!
-
-	if index < 0 {
-		return nil, errors.New("negative index")
-	}
-	if index > len(r.children)-1 {
-		return nil, errors.New("invalid index")
-	}
-
-	return r.children[index], nil
 }
 
 func (r *Range) AssertState(s StateLocal) {
@@ -66,17 +53,17 @@ func (r *Range) SameMeta(id Ident, start, end []byte) bool {
 }
 
 func (r *Range) LogString() string {
-	c := "nil"
+	c := ""
 	if r.CurrentPlacement != nil {
-		c = fmt.Sprintf("(%s:%s)", r.CurrentPlacement.NodeID, r.CurrentPlacement.State)
+		c = fmt.Sprintf(" c=(%s:%s)", r.CurrentPlacement.NodeID, r.CurrentPlacement.State)
 	}
 
-	n := "nil"
+	n := ""
 	if r.NextPlacement != nil {
-		n = fmt.Sprintf("(%s:%s)", r.NextPlacement.NodeID, r.NextPlacement.State)
+		n = fmt.Sprintf(" n=(%s:%s)", r.NextPlacement.NodeID, r.NextPlacement.State)
 	}
 
-	return fmt.Sprintf("{%s:%s c=%s n=%s}", r.Meta, r.State, c, n)
+	return fmt.Sprintf("{%s %s%s%s}", r.Meta, r.State, c, n)
 }
 
 func (r *Range) String() string {
@@ -105,15 +92,15 @@ func (r *Range) MoveSrc() *DurablePlacement {
 // MustState attempts to change the state of the range to s, and panics if the
 // transition is invalid. Callers should only ever attempt valid state changes
 // anyway, but...
-func (r *Range) MustState(s StateLocal) {
-	err := r.ToState(s)
+func (r *Range) MustState(s StateLocal, rg RangeGetter) {
+	err := r.toState(s, rg)
 	if err != nil {
 		panic(fmt.Sprintf("MustState: %s", err.Error()))
 	}
 }
 
 // ToState change the state of the range to s or returns an error.
-func (r *Range) ToState(new StateLocal) error {
+func (r *Range) toState(new StateLocal, rg RangeGetter) error {
 	r.Lock()
 	defer r.Unlock()
 	old := r.State
@@ -196,9 +183,8 @@ func (r *Range) ToState(new StateLocal) error {
 		ok = true
 	}
 
-	// This transition should only happen via CheckState.
 	if (old == Splitting || old == Joining) && new == Obsolete {
-		if !r.childrenReady() {
+		if !childrenReady(r, rg) {
 			return fmt.Errorf("invalid state transition: %s -> %s; children not ready", old, new)
 		}
 
@@ -212,21 +198,10 @@ func (r *Range) ToState(new StateLocal) error {
 	r.State = new
 
 	// Try to persist the new state, and rewind+abort if it fails.
-	err := r.pers.Put(r)
+	err := r.pers.PutRange(r)
 	if err != nil {
 		r.State = old
 		return fmt.Errorf("while persisting range: %s", err)
-	}
-
-	// Notify parent(s) of state change, so they can change their own state in
-	// response.
-	// TODO: Does this need to be transactional with the above state change? This won't be called again during rehydration.
-	for _, parent := range r.parents {
-		err := parent.ChildStateChanged()
-		if err != nil {
-			r.State = old
-			return err
-		}
 	}
 
 	log.Printf("R%v: %s -> %s", r.Meta.Ident.Key, old, new)
@@ -234,6 +209,7 @@ func (r *Range) ToState(new StateLocal) error {
 	return nil
 }
 
+// TODO: Remove this. Callers can just call Put.
 func (r *Range) InitPersist() error {
 
 	// Calling this method any time other than immediately after instantiating
@@ -242,31 +218,12 @@ func (r *Range) InitPersist() error {
 		panic("InitPersist called on non-pending range")
 	}
 
-	return r.pers.Put(r)
+	return r.pers.PutRange(r)
 }
 
+// TODO: Remove this. It's pointless now.
 func (r *Range) ParentIdents() []Ident {
-	ids := make([]Ident, len(r.parents))
-	for i, r := range r.parents {
-		ids[i] = r.Meta.Ident
-	}
-	return ids
-}
-
-func (r *Range) Parents() []*Range {
-	return r.parents
-}
-
-func (r *Range) ChildStateChanged() error {
-
-	// Splitting and joining ranges become obsolete once their children become ready.
-	if r.State == Splitting || r.State == Joining {
-		if r.childrenReady() {
-			return r.ToState(Obsolete)
-		}
-	}
-
-	return nil
+	return r.Parents
 }
 
 // Clear the current placement. This should be called when a range is dropped
@@ -325,8 +282,13 @@ func (r *Range) CompleteNextPlacement() error {
 
 // childrenReady returns true if all of the ranges children are ready. (Doesn't
 // care if the range has no children.)
-func (r *Range) childrenReady() bool {
-	for _, rr := range r.children {
+func childrenReady(r *Range, rg RangeGetter) bool {
+	for _, rID := range r.Children {
+		rr, err := rg.Get(rID)
+		if err != nil {
+			panic(err)
+		}
+
 		if rr.State != Ready {
 			return false
 		}

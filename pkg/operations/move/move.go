@@ -42,9 +42,9 @@ func (op *MoveOp) Init() error {
 	log.Printf("moving: range=%v, node=%v", op.Range, op.Node)
 	var err error
 
-	r, err := op.Keyspace.GetByIdent(op.Range)
+	r, err := op.Keyspace.Get(op.Range)
 	if err != nil {
-		return fmt.Errorf("can't initiate move; GetByIdent failed: %v", err)
+		return fmt.Errorf("can't initiate move; Get failed: %v", err)
 	}
 
 	// If the range is currently ready, it's placed on some node.
@@ -58,14 +58,14 @@ func (op *MoveOp) Init() error {
 		// do try to do this, but involves a brief unavailability because it
 		// will Take, then try to Give (and fail), then Untake.
 
-		r.MustState(ranje.Moving)
+		op.Keyspace.ToState(r, ranje.Moving)
 		op.state = Take
 		return nil
 
 	} else if r.State == ranje.Quarantined || r.State == ranje.Pending {
 		// Not ready, but still eligible to be placed. (This isn't necessarily
 		// an error state. All ranges are pending when created.)
-		r.MustState(ranje.Placing)
+		op.Keyspace.ToState(r, ranje.Placing)
 		op.state = Give
 		return nil
 
@@ -132,7 +132,7 @@ func (op *MoveOp) Run() {
 }
 
 func (op *MoveOp) take() (state, error) {
-	r, err := op.Keyspace.GetByIdent(op.Range)
+	r, err := op.Keyspace.Get(op.Range)
 	if err != nil {
 		return Failed, fmt.Errorf("take failed: %v", err)
 	}
@@ -144,7 +144,7 @@ func (op *MoveOp) take() (state, error) {
 
 	err = utils.Take(op.Roster, p)
 	if err != nil {
-		r.MustState(ranje.Ready) // ???
+		op.Keyspace.ToState(r, ranje.Ready) // ???
 		return Failed, fmt.Errorf("take failed: %v", err)
 	}
 
@@ -152,7 +152,7 @@ func (op *MoveOp) take() (state, error) {
 }
 
 func (op *MoveOp) give() (state, error) {
-	r, err := op.Keyspace.GetByIdent(op.Range)
+	r, err := op.Keyspace.Get(op.Range)
 	if err != nil {
 		return Failed, fmt.Errorf("give failed: %v", err)
 	}
@@ -162,7 +162,7 @@ func (op *MoveOp) give() (state, error) {
 		return Failed, fmt.Errorf("give failed: %v", err)
 	}
 
-	err = utils.Give(op.Roster, r, p)
+	err = utils.Give(op.Keyspace, op.Roster, r, p)
 	if err != nil {
 		log.Printf("give failed: %v", err)
 
@@ -174,7 +174,7 @@ func (op *MoveOp) give() (state, error) {
 			// During initial placement, we can just fail without cleanup. The
 			// range is still not assigned. The balancer should retry the
 			// placement, perhaps on a different node.
-			r.MustState(ranje.PlaceError)
+			op.Keyspace.ToState(r, ranje.PlaceError)
 			return Failed, fmt.Errorf("give failed: %v", err)
 
 		case ranje.Moving:
@@ -192,14 +192,14 @@ func (op *MoveOp) give() (state, error) {
 	// when the range isn't being moved from anywhere, or if the transfer
 	// happens very quickly.)
 	if p.State == ranje.SpReady {
-		return complete(r)
+		return complete(op, r)
 	}
 
 	return FetchWait, nil
 }
 
 func (op *MoveOp) untake() (state, error) {
-	r, err := op.Keyspace.GetByIdent(op.Range)
+	r, err := op.Keyspace.Get(op.Range)
 	if err != nil {
 		return Failed, fmt.Errorf("untake failed: %v", err)
 	}
@@ -217,7 +217,7 @@ func (op *MoveOp) untake() (state, error) {
 
 	// The range is now ready again, because the current placement is ready.
 	// (and the next placement is gone.)
-	r.MustState(ranje.Ready)
+	op.Keyspace.ToState(r, ranje.Ready)
 
 	// Always transition into failed, because even though this step succeeded
 	// and service has been restored to src, the move was a failure.
@@ -226,7 +226,7 @@ func (op *MoveOp) untake() (state, error) {
 }
 
 func (op *MoveOp) fetchWait() (state, error) {
-	r, err := op.Keyspace.GetByIdent(op.Range)
+	r, err := op.Keyspace.Get(op.Range)
 	if err != nil {
 		return Failed, fmt.Errorf("fetchWait failed: %v", err)
 	}
@@ -245,7 +245,7 @@ func (op *MoveOp) fetchWait() (state, error) {
 }
 
 func (op *MoveOp) serve() (state, error) {
-	r, err := op.Keyspace.GetByIdent(op.Range)
+	r, err := op.Keyspace.Get(op.Range)
 	if err != nil {
 		return Failed, fmt.Errorf("serve failed: %v", err)
 	}
@@ -271,7 +271,7 @@ func (op *MoveOp) serve() (state, error) {
 	case ranje.Placing:
 		// This is an initial placement, so we have no previous node to drop
 		// data from. We're done.
-		return complete(r)
+		return complete(op, r)
 
 	default:
 		panic(fmt.Sprintf("impossible range state: %s", r.State))
@@ -279,7 +279,7 @@ func (op *MoveOp) serve() (state, error) {
 }
 
 func (op *MoveOp) drop() (state, error) {
-	r, err := op.Keyspace.GetByIdent(op.Range)
+	r, err := op.Keyspace.Get(op.Range)
 	if err != nil {
 		return Failed, fmt.Errorf("drop failed: %v", err)
 	}
@@ -294,11 +294,11 @@ func (op *MoveOp) drop() (state, error) {
 		return Failed, fmt.Errorf("drop failed: %v", err)
 	}
 
-	return complete(r)
+	return complete(op, r)
 }
 
-func complete(r *ranje.Range) (state, error) {
+func complete(op *MoveOp, r *ranje.Range) (state, error) {
 	r.CompleteNextPlacement()
-	r.MustState(ranje.Ready)
+	op.Keyspace.ToState(r, ranje.Ready)
 	return Complete, nil
 }

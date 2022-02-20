@@ -1,6 +1,7 @@
 package balancer
 
 import (
+	"fmt"
 	"log"
 	"sort"
 	"sync"
@@ -72,7 +73,10 @@ func (b *Balancer) Tick() {
 		// No candidates? That's a problem
 		// TODO: Will result in quarantine? Might not be range's fault.
 		if nid == "" {
-			r.MustState(ranje.PlaceError)
+			err := b.ks.ToState(r, ranje.PlaceError)
+			if err != nil {
+				panic(err)
+			}
 			continue
 		}
 
@@ -93,10 +97,15 @@ func (b *Balancer) Tick() {
 	// Find any ranges in PlaceError and move them to Pending or Quarantine
 	for _, r := range b.ks.RangesByState(ranje.PlaceError) {
 		if r.NeedsQuarantine() {
-			r.MustState(ranje.Quarantined)
+			if err := b.ks.ToState(r, ranje.Quarantined); err != nil {
+				panic(fmt.Sprintf("ToState: %s", err.Error()))
+			}
 			continue
 		}
-		r.MustState(ranje.Pending)
+
+		if err := b.ks.ToState(r, ranje.Pending); err != nil {
+			panic(fmt.Sprintf("ToState: %s", err.Error()))
+		}
 	}
 
 	// Kick off any pending operator-initiated actions in goroutines.

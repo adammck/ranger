@@ -29,7 +29,7 @@ func (m Meta) String() string {
 		e = fmt.Sprintf("%s]", m.End)
 	}
 
-	return fmt.Sprintf("M{%s %s, %s}", m.Ident.String(), s, e)
+	return fmt.Sprintf("%s %s, %s", m.Ident.String(), s, e)
 }
 
 func (m *Meta) Contains(k Key) bool {
