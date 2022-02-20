@@ -8,9 +8,8 @@ import (
 	"time"
 )
 
-// DurablePlacement represents a pair of range+node.
-// TODO: Rename this back to Placement once VolatilePlacement stuff has been extracted.
-type DurablePlacement struct {
+// Placement represents a pair of range+node.
+type Placement struct {
 	rang   *Range // owned by Keyspace.
 	NodeID string
 
@@ -25,8 +24,8 @@ type DurablePlacement struct {
 	sync.Mutex
 }
 
-func NewPlacement(r *Range, nodeID string) (*DurablePlacement, error) {
-	p := &DurablePlacement{
+func NewPlacement(r *Range, nodeID string) (*Placement, error) {
+	p := &Placement{
 		rang:   r,
 		NodeID: nodeID,
 		State:  SpPending,
@@ -47,7 +46,7 @@ func NewPlacement(r *Range, nodeID string) (*DurablePlacement, error) {
 	return p, nil
 }
 
-func (p *DurablePlacement) ToState(new StatePlacement) error {
+func (p *Placement) ToState(new StatePlacement) error {
 	p.Lock()
 	defer p.Unlock()
 	old := p.State
@@ -137,7 +136,7 @@ func (p *DurablePlacement) ToState(new StatePlacement) error {
 // FetchWait blocks until the placement becomes SpFetched, which hopefully happens
 // in some other goroutine.
 // TODO: Add a timeout
-func (p *DurablePlacement) FetchWait() error {
+func (p *Placement) FetchWait() error {
 	for {
 		p.Lock()
 		s := p.State

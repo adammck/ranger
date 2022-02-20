@@ -79,7 +79,7 @@ func (n *Node) String() string {
 // UnsafeForgetPlacement removes the given placement from the ranges map of this
 // node. Works by address, not value.
 // TODO: Remove this method. It's useless now that nodes don't know placements.
-func (n *Node) ForgetPlacement(p *ranje.DurablePlacement) error {
+func (n *Node) ForgetPlacement(p *ranje.Placement) error {
 	return nil
 }
 

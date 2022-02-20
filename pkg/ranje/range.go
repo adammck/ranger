@@ -20,8 +20,8 @@ type Range struct {
 	// Which node currently has the range, and which it is moving to.
 	// TODO: Each of these are probably only valid in some states. Doc that.
 	// TODO: Placement fucks with these directly. Don't do that.
-	CurrentPlacement *DurablePlacement
-	NextPlacement    *DurablePlacement
+	CurrentPlacement *Placement
+	NextPlacement    *Placement
 
 	// The number of times this range has failed to be placed since it was last
 	// Ready. Incremented by State.
@@ -71,7 +71,7 @@ func (r *Range) String() string {
 }
 
 // TODO: Use Placement instead of this!
-func (r *Range) MoveSrc() *DurablePlacement {
+func (r *Range) MoveSrc() *Placement {
 
 	// TODO: Only really need RLock here.
 	r.Lock()

@@ -54,7 +54,7 @@ func New(persister Persister) *Keyspace {
 		r.pers = persister
 
 		// Repair the placements
-		for _, p := range []*DurablePlacement{r.CurrentPlacement, r.NextPlacement} {
+		for _, p := range []*Placement{r.CurrentPlacement, r.NextPlacement} {
 			if p != nil {
 				p.rang = r
 			}
@@ -161,7 +161,7 @@ func (ks *Keyspace) RangesByState(s StateLocal) []*Range {
 
 type PBNID struct {
 	Range     *Range
-	Placement *DurablePlacement
+	Placement *Placement
 	Position  uint8
 }
 
@@ -181,7 +181,7 @@ func (ks *Keyspace) PlacementsByNodeID(nID string) []PBNID {
 
 	// TODO: Wow this is dumb! Keep an index of this somewhere.
 	for _, r := range ks.ranges {
-		for _, p := range [2]*DurablePlacement{r.CurrentPlacement, r.NextPlacement} {
+		for _, p := range [2]*Placement{r.CurrentPlacement, r.NextPlacement} {
 			if p != nil {
 				if p.NodeID == nID {
 					out = append(out, PBNID{r, p, 0})

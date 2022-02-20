@@ -37,7 +37,7 @@ func ToState(ks *ranje.Keyspace, rID ranje.Ident, state ranje.StateLocal) error 
 	return nil
 }
 
-func Give(ks *ranje.Keyspace, rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacement) error {
+func Give(ks *ranje.Keyspace, rost *roster.Roster, rang *ranje.Range, placement *ranje.Placement) error {
 	node := rost.NodeByIdent(placement.NodeID)
 	if node == nil {
 		return fmt.Errorf("no such node: %s", placement.NodeID)
@@ -158,7 +158,7 @@ func pbPlacement(rost *roster.Roster, r *ranje.Range) *pb.Placement {
 
 // TODO: Remove the Range parameter. Get the relevant stuff from Placement.
 // TODO: Plumb in a context from somewhere. Maybe the top controller context.
-func Take(rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacement) error {
+func Take(rost *roster.Roster, rang *ranje.Range, placement *ranje.Placement) error {
 
 	// TODO: Remove this? The node will enforce it anyway.
 	if placement.State != ranje.SpReady {
@@ -190,7 +190,7 @@ func Take(rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacem
 	return placement.ToState(ranje.SpTaken)
 }
 
-func Untake(rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacement) error {
+func Untake(rost *roster.Roster, rang *ranje.Range, placement *ranje.Placement) error {
 	// TODO: Move this into the callers; state is no business of Node.
 	if placement.State != ranje.SpTaken {
 		return fmt.Errorf("can't untake range %s from node %s when state is %s",
@@ -222,7 +222,7 @@ func Untake(rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlac
 }
 
 // TODO: Can we just take a range here and call+check Placement?
-func Drop(rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacement) error {
+func Drop(rost *roster.Roster, rang *ranje.Range, placement *ranje.Placement) error {
 	if placement == nil {
 		// This should probably be a panic; how could we possibly have gotten here with a nil placement
 		return fmt.Errorf("nil placement")
@@ -258,7 +258,7 @@ func Drop(rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacem
 }
 
 // TODO: Can we just take a range here and call+check Placement?
-func Serve(rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacement) error {
+func Serve(rost *roster.Roster, rang *ranje.Range, placement *ranje.Placement) error {
 	if placement == nil {
 		// This should probably be a panic
 		return fmt.Errorf("nil placement")

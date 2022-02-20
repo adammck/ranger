@@ -95,8 +95,6 @@ func (c *Controller) Run(ctx context.Context) error {
 		return err
 	}
 
-	// TODO: Read assignment history from database
-	// TODO: Connect to all nodes
 	// TODO: Fetch current assignment status from nodes
 	// TODO: Reconcile divergence etc
 
