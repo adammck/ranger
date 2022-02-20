@@ -26,21 +26,21 @@ func ToState(ks *ranje.Keyspace, rID ranje.Ident, state ranje.StateLocal) error 
 }
 
 func Give(rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacement) error {
-	node := rost.NodeByIdent(placement.NodeID())
+	node := rost.NodeByIdent(placement.NodeID)
 	if node == nil {
-		return fmt.Errorf("no such node: %s", placement.NodeID())
+		return fmt.Errorf("no such node: %s", placement.NodeID)
 	}
 
 	// Perform some last-minute sanity checks.
 	// TODO: Is this a good idea? (If so, add them to the other helpers.)
-	if p := rang.Placement(); p != nil {
-		if p.State() == ranje.SpPending && p == placement {
+	if p := rang.CurrentPlacement; p != nil {
+		if p.State == ranje.SpPending && p == placement {
 			panic("giving current placement??")
 		}
 
-		if p.State() != ranje.SpTaken {
+		if p.State != ranje.SpTaken {
 			return fmt.Errorf("can't give range %s when current placement on node %s is in state %s",
-				rang.String(), p.NodeID(), p.State())
+				rang.String(), p.NodeID, p.State)
 		}
 	}
 
@@ -89,9 +89,9 @@ func pbPlacement(rost *roster.Roster, r *ranje.Range) *pb.Placement {
 	//       sending them at all. Maybe add a controller feature flag?
 	//
 	node := ""
-	if p := r.Placement(); p != nil {
-		if p.State() == ranje.SpReady || p.State() == ranje.SpTaken {
-			n := rost.NodeByIdent(p.NodeID())
+	if p := r.CurrentPlacement; p != nil {
+		if p.State == ranje.SpReady || p.State == ranje.SpTaken {
+			n := rost.NodeByIdent(p.NodeID)
 			if n != nil {
 				node = n.Addr()
 			}
@@ -105,9 +105,9 @@ func pbPlacement(rost *roster.Roster, r *ranje.Range) *pb.Placement {
 }
 
 func Take(rost *roster.Roster, placement *ranje.DurablePlacement) error {
-	node := rost.NodeByIdent(placement.NodeID())
+	node := rost.NodeByIdent(placement.NodeID)
 	if node == nil {
-		return fmt.Errorf("no such node: %s", placement.NodeID())
+		return fmt.Errorf("no such node: %s", placement.NodeID)
 	}
 
 	err := node.Take(placement)
@@ -119,9 +119,9 @@ func Take(rost *roster.Roster, placement *ranje.DurablePlacement) error {
 }
 
 func Untake(rost *roster.Roster, placement *ranje.DurablePlacement) error {
-	node := rost.NodeByIdent(placement.NodeID())
+	node := rost.NodeByIdent(placement.NodeID)
 	if node == nil {
-		return fmt.Errorf("no such node: %s", placement.NodeID())
+		return fmt.Errorf("no such node: %s", placement.NodeID)
 	}
 
 	err := node.Untake(placement)
@@ -139,9 +139,9 @@ func Drop(rost *roster.Roster, placement *ranje.DurablePlacement) error {
 		return fmt.Errorf("nil placement")
 	}
 
-	node := rost.NodeByIdent(placement.NodeID())
+	node := rost.NodeByIdent(placement.NodeID)
 	if node == nil {
-		return fmt.Errorf("no such node: %s", placement.NodeID())
+		return fmt.Errorf("no such node: %s", placement.NodeID)
 	}
 
 	err := node.Drop(placement)
@@ -162,9 +162,9 @@ func Serve(rost *roster.Roster, placement *ranje.DurablePlacement) error {
 		return fmt.Errorf("nil placement")
 	}
 
-	node := rost.NodeByIdent(placement.NodeID())
+	node := rost.NodeByIdent(placement.NodeID)
 	if node == nil {
-		return fmt.Errorf("no such node: %s", placement.NodeID())
+		return fmt.Errorf("no such node: %s", placement.NodeID)
 	}
 
 	err := node.Serve(placement)

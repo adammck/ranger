@@ -99,9 +99,9 @@ func (n *Node) IsStale(now time.Time) bool {
 func (n *Node) Take(p *DurablePlacement) error {
 
 	// TODO: Move this into the callers; state is no business of Node.
-	if p.state != SpReady {
+	if p.State != SpReady {
 		return fmt.Errorf("can't take range %s from node %s when state is %s",
-			p.rang.String(), p.nodeID, p.state)
+			p.rang.String(), p.NodeID, p.State)
 	}
 
 	req := &pb.TakeRequest{
@@ -126,9 +126,9 @@ func (n *Node) Take(p *DurablePlacement) error {
 func (n *Node) Untake(p *DurablePlacement) error {
 
 	// TODO: Move this into the callers; state is no business of Node.
-	if p.state != SpTaken {
+	if p.State != SpTaken {
 		return fmt.Errorf("can't untake range %s from node %s when state is %s",
-			p.rang.String(), p.nodeID, p.state)
+			p.rang.String(), p.NodeID, p.State)
 	}
 
 	req := &pb.UntakeRequest{
@@ -151,9 +151,9 @@ func (n *Node) Untake(p *DurablePlacement) error {
 }
 
 func (n *Node) Drop(p *DurablePlacement) error {
-	if p.state != SpTaken {
+	if p.State != SpTaken {
 		return fmt.Errorf("can't drop range %s from node %s when state is %s",
-			p.rang.String(), p.nodeID, p.state)
+			p.rang.String(), p.NodeID, p.State)
 	}
 
 	req := &pb.DropRequest{
@@ -176,14 +176,14 @@ func (n *Node) Drop(p *DurablePlacement) error {
 }
 
 func (n *Node) Serve(p *DurablePlacement) error {
-	if p.nodeID != n.remote.Ident {
+	if p.NodeID != n.remote.Ident {
 		return fmt.Errorf("mismatched nodeID: %s != %s",
-			p.nodeID, n.remote.Ident)
+			p.NodeID, n.remote.Ident)
 	}
 
-	if p.state != SpFetched {
+	if p.State != SpFetched {
 		return fmt.Errorf("can't serve range %s from node %s when state is %s (wanted SpFetched)",
-			p.rang.String(), p.nodeID, p.state)
+			p.rang.String(), p.NodeID, p.State)
 	}
 
 	req := &pb.ServeRequest{
@@ -206,9 +206,9 @@ func (n *Node) Serve(p *DurablePlacement) error {
 }
 
 func (n *Node) Give(p *DurablePlacement, req *pb.GiveRequest) error {
-	if p.state != SpPending {
+	if p.State != SpPending {
 		return fmt.Errorf("can't give range %s to node %s when state is %s (wanted SpPending)",
-			p.rang.String(), p.nodeID, p.state)
+			p.rang.String(), p.NodeID, p.State)
 	}
 
 	// TODO: Move outside this func?
@@ -258,14 +258,14 @@ func updateLocalState(p *DurablePlacement, rns pb.RangeNodeState) {
 		p.ToState(SpFetching)
 
 	case StateFetched:
-		if p.state == SpPending {
+		if p.State == SpPending {
 			p.ToState(SpFetching)
 		}
 		p.ToState(SpFetched)
 
 	case StateFetchFailed:
 		// TODO: Can the client provide any info about why this failed?
-		if p.state == SpPending {
+		if p.State == SpPending {
 			p.ToState(SpFetching)
 		}
 		p.ToState(SpFetchFailed)

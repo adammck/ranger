@@ -20,20 +20,20 @@ type debugServer struct {
 func rangeResponse(r *ranje.Range) *pb.RangeResponse {
 	res := &pb.RangeResponse{
 		Meta:  r.Meta.ToProto(),
-		State: r.State().ToProto(),
+		State: r.State.ToProto(),
 	}
 
-	if p := r.Placement(); p != nil {
+	if p := r.CurrentPlacement; p != nil {
 		res.CurrentPlacement = &pb.PlacementTwo{
-			Node:  p.NodeID(),
-			State: p.State().ToProto(),
+			Node:  p.NodeID,
+			State: p.State.ToProto(),
 		}
 	}
 
-	if p := r.NextPlacement(); p != nil {
+	if p := r.NextPlacement; p != nil {
 		res.NextPlacement = &pb.PlacementTwo{
-			Node:  p.NodeID(),
-			State: p.State().ToProto(),
+			Node:  p.NodeID,
+			State: p.State.ToProto(),
 		}
 	}
 
@@ -108,7 +108,7 @@ func (srv *debugServer) Node(ctx context.Context, req *pb.NodeRequest) (*pb.Node
 
 		res.Ranges = append(res.Ranges, &pb.NodeRange{
 			Meta:     pl.Range.Meta.ToProto(),
-			State:    pl.Placement.State().ToProto(),
+			State:    pl.Placement.State.ToProto(),
 			Position: pos,
 		})
 	}

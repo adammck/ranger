@@ -144,9 +144,9 @@ func (op *JoinOp) take() (state, error) {
 				return fmt.Errorf("%s: %s", s, err.Error())
 			}
 
-			p := r.Placement()
+			p := r.CurrentPlacement
 			if p == nil {
-				return fmt.Errorf("%s: Placement returned nil", s)
+				return fmt.Errorf("%s: CurrentPlacement is nil", s)
 			}
 
 			err = utils.Take(op.Roster, p)
@@ -218,7 +218,7 @@ func (op *JoinOp) drop() (state, error) {
 				return fmt.Errorf("GetByIdent (%s): %s", s, err.Error())
 			}
 
-			err = utils.Drop(op.Roster, r.Placement())
+			err = utils.Drop(op.Roster, r.CurrentPlacement)
 			if err != nil {
 				return fmt.Errorf("drop (%s): %s", s, err.Error())
 			}
@@ -243,9 +243,9 @@ func (op *JoinOp) serve() (state, error) {
 		return Failed, fmt.Errorf("serve (GetByIdent) failed: %s", err)
 	}
 
-	p := r.NextPlacement()
+	p := r.NextPlacement
 	if p == nil {
-		return Failed, fmt.Errorf("serve: NextPlacement returned nil")
+		return Failed, fmt.Errorf("serve: NextPlacement is nil")
 	}
 
 	err = utils.Serve(op.Roster, p)
@@ -274,7 +274,7 @@ func (op *JoinOp) cleanup() (state, error) {
 				return fmt.Errorf("GetByIdent (%s): %s", s, err.Error())
 			}
 
-			p := r.Placement()
+			p := r.CurrentPlacement
 			if p == nil {
 				return fmt.Errorf("%s: NextPlacement returned nil", s)
 			}

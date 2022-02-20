@@ -18,7 +18,7 @@ func (ks *keyspaceDebug) NonObsoleteRanges() []*Range {
 	out := []*Range{}
 
 	for _, r := range ks.ranges {
-		if r.state == Obsolete {
+		if r.State == Obsolete {
 			continue
 		}
 

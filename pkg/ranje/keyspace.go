@@ -15,22 +15,69 @@ import (
 //
 // TODO: Move this out of 'ranje' package; it's stateful.
 type Keyspace struct {
-	pers      Persister
-	ranges    []*Range // TODO: don't be dumb, use an interval tree
-	mu        sync.RWMutex
-	nextIdent uint64
+	pers     Persister
+	ranges   []*Range // TODO: don't be dumb, use an interval tree
+	mu       sync.RWMutex
+	maxIdent uint64
 }
 
 func New(persister Persister) *Keyspace {
 	ks := &Keyspace{
-		pers:      persister,
-		nextIdent: 1,
+		pers: persister,
+	}
+
+	ranges, err := persister.GetRanges()
+	if err != nil {
+		panic(fmt.Sprintf("error from GetRanges: %v", err))
+	}
+
+	log.Printf("got %d ranges from store\n", len(ranges))
+
+	// Special case: There are no ranges in the store. We are bootstrapping the
+	// keyspace from scratch, so start with a singe range that covers all keys.
+	if len(ranges) == 0 {
+		r := ks.Range()
+		r.State = Pending
+		ks.ranges = []*Range{r}
+		ks.pers.Put(r)
+		return ks
+	}
+
+	ks.ranges = ranges
+	for _, r := range ks.ranges {
+
+		// Repair the range.
+		r.pers = persister
+
+		// Repair the placements
+		for _, p := range []*DurablePlacement{r.CurrentPlacement, r.NextPlacement} {
+			if p != nil {
+				p.rang = r
+			}
+		}
+
+		// Repair the maxIdent cache.
+		if r.Meta.Ident.Key > ks.maxIdent {
+			ks.maxIdent = r.Meta.Ident.Key
+		}
+	}
+
+	return ks
+}
+
+// TODO: Make this private. Tests should use an empty persister instead.
+func NewEmpty(persister Persister) *Keyspace {
+	ks := &Keyspace{
+		pers: persister,
 	}
 
 	// Start with one range that covers all keys.
 	r := ks.Range()
-	r.state = Pending
-	r.InitPersist()
+	r.State = Pending
+
+	if err := r.InitPersist(); err != nil {
+		panic(fmt.Sprintf("failed to persist range: %s", err))
+	}
 
 	ks.ranges = []*Range{r}
 	return ks
@@ -98,18 +145,18 @@ func (ks *Keyspace) LogRanges() {
 // way that a Range should be constructed. Callers must call Range.InitPersist
 // on the resulting range, maybe after mutating it once.
 func (ks *Keyspace) Range() *Range {
+	ks.maxIdent += 1
+
 	r := &Range{
 		pers:  ks.pers,
-		state: Pending,
+		State: Pending,
 		Meta: Meta{
 			Ident: Ident{
 				Scope: "", // ???
-				Key:   ks.nextIdent,
+				Key:   ks.maxIdent,
 			},
 		},
 	}
-
-	ks.nextIdent += 1
 
 	return r
 }
@@ -118,7 +165,7 @@ func (ks *Keyspace) RangesByState(s StateLocal) []*Range {
 	out := []*Range{}
 
 	for _, r := range ks.ranges {
-		if r.state == s {
+		if r.State == s {
 			out = append(out, r)
 		}
 	}
@@ -148,9 +195,9 @@ func (ks *Keyspace) PlacementsByNodeID(nID string) []PBNID {
 
 	// TODO: Wow this is dumb! Keep an index of this somewhere.
 	for _, r := range ks.ranges {
-		for _, p := range [2]*DurablePlacement{r.curr, r.next} {
+		for _, p := range [2]*DurablePlacement{r.CurrentPlacement, r.NextPlacement} {
 			if p != nil {
-				if p.nodeID == nID {
+				if p.NodeID == nID {
 					out = append(out, PBNID{r, p, 0})
 				}
 			}
@@ -211,7 +258,7 @@ func (ks *Keyspace) DoSplit(r *Range, k Key) error {
 		return fmt.Errorf("can't split on zero key")
 	}
 
-	if r.state != Ready {
+	if r.State != Ready {
 		return errors.New("can't split non-ready range")
 	}
 
@@ -267,7 +314,7 @@ func (ks *Keyspace) JoinTwo(one *Range, two *Range) (*Range, error) {
 	defer ks.mu.Unlock()
 
 	for _, r := range []*Range{one, two} {
-		if r.state != Ready {
+		if r.State != Ready {
 			return nil, errors.New("can't join non-ready ranges")
 		}
 
@@ -329,7 +376,7 @@ func (ks *Keyspace) Discard(r *Range) error {
 
 	log.Printf("discarding: %s", r.String())
 
-	if r.state != Obsolete {
+	if r.State != Obsolete {
 		return errors.New("can't discard non-obsolete range")
 	}
 

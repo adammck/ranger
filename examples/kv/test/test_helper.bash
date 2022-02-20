@@ -1,6 +1,5 @@
 # map of port -> pid
 declare -A cmds
-controller_ports=()
 
 # keys
 a=$(echo -n a | base64); export a
@@ -18,23 +17,17 @@ xxx=$(echo -n xxx | base64); export xxx
 www=$(echo -n www | base64); export www
 
 # Returns a command which can be `run` to access the ranger client aimed at a
-# controller which must have already been started.
+# controller on the given port.
 ranger_client() {
     #>&3 echo "# ranger_client $@"
+    local port=$1
+    shift
 
     if [[ -z "${RANGER_CLIENT}" ]]; then
         fail "RANGER_CLIENT must be set"
     fi
 
-    if test ${#controller_ports[@]} -eq 0; then
-        fail "no controller running"
-    fi
-
-    if test ${#controller_ports[@]} -gt 1; then
-        fail "more than one controller running"
-    fi
-
-    echo "$RANGER_CLIENT" -addr "127.0.0.1:${controller_ports[0]}"
+    echo "$RANGER_CLIENT" -addr "127.0.0.1:${port}"
 }
 
 # Fail if the given port number is currently in use. This is better than trying
@@ -60,7 +53,6 @@ start_controller() {
     #>&3 echo "# start_controller $@"
     local port=$1
     start_cmd "$port" ./kv -controller -addr "127.0.0.1:$port"
-    controller_ports+=("$port")
 }
 
 start_proxy() {
@@ -68,6 +60,17 @@ start_proxy() {
     local port=$1
     start_cmd "$port" ./kv -proxy -addr "127.0.0.1:$port" -log-reqs
 }
+
+start_consul() {
+    #>&3 echo "# start_consul $@"
+
+    # We don't actually set the ports here because I'm too lazy to pass them
+    # around. This means that only a single consul-using test can run at once.
+    # TODO: Fix this.
+
+    start_cmd 8500 consul agent -dev 1>/dev/null
+}
+
 
 # Run a command which is expected to listen on a port in the background. Block
 # until the port is open, even if that's forever. Store the PID of the command,
@@ -107,12 +110,12 @@ stop_cmd() {
 }
 
 # Sends SIGQUIT to the command serving the given port.
-crash() {
+crash_cmd() {
     #>&3 echo "# crash_cmd $@"
     local port=$1
     local pid=${cmds[$port]}
 
-    if test "$pid" -eq ""; then
+    if test "$pid" = ""; then
         fail "no command serving port $port"
     fi
 
@@ -126,6 +129,8 @@ crash() {
 
         sleep 0.1
     done
+
+    unset "cmds[$port]"
 }
 
 defer_stop_cmds() {

@@ -51,7 +51,10 @@ func New(addrLis, addrPub string, once bool) (*Controller, error) {
 
 	pers := consulpers.New(api)
 
+	log.Print("restoring keyspace from store...")
 	ks := ranje.New(pers)
+	log.Print("done")
+
 	rost := roster.New(disc)
 
 	return &Controller{

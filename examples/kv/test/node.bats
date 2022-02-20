@@ -7,6 +7,11 @@ setup() {
     load '/Users/adammck/code/src/github.com/bats-core/bats-support/load.bash'
     load '/Users/adammck/code/src/github.com/bats-core/bats-assert/load.bash'
     load test_helper
+
+    # TODO: This should not be necessary for a node to start. Service discovery
+    # should be best-effort and the nodes should start up anyway in case they
+    # have stale data to serve.
+    start_consul
 }
 
 teardown() {

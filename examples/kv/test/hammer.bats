@@ -7,6 +7,7 @@ setup() {
     load '/Users/adammck/code/src/github.com/bats-core/bats-support/load.bash'
     load '/Users/adammck/code/src/github.com/bats-core/bats-assert/load.bash'
     load test_helper
+    start_consul
 }
 
 teardown() {

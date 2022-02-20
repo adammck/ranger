@@ -12,10 +12,12 @@ import (
 // TODO: Rename this back to Placement once VolatilePlacement stuff has been extracted.
 type DurablePlacement struct {
 	rang   *Range // owned by Keyspace.
-	nodeID string
+	NodeID string
 
-	// Controller-side state machine.
-	state StatePlacement
+	// Controller-side State machine.
+	// Never modify this field directly! It's only public for deserialization
+	// from the store. Modify it via ToState.
+	State StatePlacement
 
 	// Guards everything.
 	// TODO: Change into an RWLock, check callers.
@@ -23,23 +25,11 @@ type DurablePlacement struct {
 	sync.Mutex
 }
 
-// TODO: Rename this to NodeID; that's what it is now.
-// TODO: Remove this; placements should not be connected to their node, only by ident.
-func (p *DurablePlacement) NodeID() string {
-
-	// This should definitely not ever happen
-	if p.nodeID == "" {
-		panic("nil node for placement")
-	}
-
-	return p.nodeID
-}
-
 func NewPlacement(r *Range, nodeID string) (*DurablePlacement, error) {
 	p := &DurablePlacement{
 		rang:   r,
-		nodeID: nodeID,
-		state:  SpPending,
+		NodeID: nodeID,
+		State:  SpPending,
 	}
 
 	r.Lock()
@@ -47,24 +37,20 @@ func NewPlacement(r *Range, nodeID string) (*DurablePlacement, error) {
 
 	// TODO: The placement should not care about this! Call this thing via
 	// ....  range.NewPlacement to check this.
-	if r.next != nil {
-		return nil, fmt.Errorf("range %s already has a next placement: %s", r.String(), r.next.NodeID())
+	if r.NextPlacement != nil {
+		return nil, fmt.Errorf("range %s already has a next placement: %s", r.String(), r.NextPlacement.NodeID)
 	}
 
-	r.next = p
+	r.NextPlacement = p
 	//r.PlacementStateChanged(p)
 
 	return p, nil
 }
 
-func (p *DurablePlacement) State() StatePlacement {
-	return p.state
-}
-
 func (p *DurablePlacement) ToState(new StatePlacement) error {
 	p.Lock()
 	defer p.Unlock()
-	old := p.state
+	old := p.State
 	ok := false
 
 	if new == SpUnknown {
@@ -115,7 +101,7 @@ func (p *DurablePlacement) ToState(new StatePlacement) error {
 			// Throw away the nodeID when entering Dropped. It's mostly useless,
 			// because the data has been dropped from the node, and confusing to
 			// see in the logs.
-			p.nodeID = ""
+			p.NodeID = ""
 
 			ok = true
 		}
@@ -129,7 +115,15 @@ func (p *DurablePlacement) ToState(new StatePlacement) error {
 		return fmt.Errorf("invalid placement state transition: %s -> %s", old.String(), new.String())
 	}
 
-	p.state = new
+	p.State = new
+
+	// Try to persist the new state, and rewind+abort if it fails.
+	err := p.rang.Put()
+	if err != nil {
+		p.State = old
+		return fmt.Errorf("while persisting placement: %s", err)
+	}
+
 	log.Printf("P %s -> %s", old, new)
 
 	// Notify range of state change, so it can change its own state.
@@ -146,7 +140,7 @@ func (p *DurablePlacement) ToState(new StatePlacement) error {
 func (p *DurablePlacement) FetchWait() error {
 	for {
 		p.Lock()
-		s := p.state
+		s := p.State
 		p.Unlock()
 
 		if s == SpFetched {

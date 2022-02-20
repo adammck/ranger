@@ -13,15 +13,15 @@ type Range struct {
 	pers Persister
 	Meta Meta
 
-	state    StateLocal
+	State    StateLocal
 	parents  []*Range // TODO: Just store the ident?
 	children []*Range
 
 	// Which node currently has the range, and which it is moving to.
 	// TODO: Each of these are probably only valid in some states. Doc that.
 	// TODO: Placement fucks with these directly. Don't do that.
-	curr *DurablePlacement
-	next *DurablePlacement
+	CurrentPlacement *DurablePlacement
+	NextPlacement    *DurablePlacement
 
 	// The number of times this range has failed to be placed since it was last
 	// Ready. Incremented by State.
@@ -29,6 +29,16 @@ type Range struct {
 
 	// Guards everything.
 	sync.Mutex
+}
+
+func (r *Range) Put() error {
+	err := r.pers.Put(r)
+	if err != nil {
+		panic(fmt.Sprintf("failed to put range %d: %s", r.Meta.Ident.Key, err))
+		//return err
+	}
+
+	return nil
 }
 
 func (r *Range) Child(index int) (*Range, error) {
@@ -45,8 +55,8 @@ func (r *Range) Child(index int) (*Range, error) {
 }
 
 func (r *Range) AssertState(s StateLocal) {
-	if r.state != s {
-		panic(fmt.Sprintf("range failed state assertion %s != %s %s", r.state.String(), s.String(), r))
+	if r.State != s {
+		panic(fmt.Sprintf("range failed state assertion %s != %s %s", r.State.String(), s.String(), r))
 	}
 }
 
@@ -57,28 +67,20 @@ func (r *Range) SameMeta(id Ident, start, end []byte) bool {
 
 func (r *Range) LogString() string {
 	c := "nil"
-	if r.curr != nil {
-		c = fmt.Sprintf("(%s:%s)", r.curr.NodeID(), r.curr.State())
+	if r.CurrentPlacement != nil {
+		c = fmt.Sprintf("(%s:%s)", r.CurrentPlacement.NodeID, r.CurrentPlacement.State)
 	}
 
 	n := "nil"
-	if r.next != nil {
-		n = fmt.Sprintf("(%s:%s)", r.next.NodeID(), r.next.State())
+	if r.NextPlacement != nil {
+		n = fmt.Sprintf("(%s:%s)", r.NextPlacement.NodeID, r.NextPlacement.State)
 	}
 
-	return fmt.Sprintf("{%s:%s c=%s n=%s}", r.Meta, r.state, c, n)
+	return fmt.Sprintf("{%s:%s c=%s n=%s}", r.Meta, r.State, c, n)
 }
 
 func (r *Range) String() string {
-	return fmt.Sprintf("R{%s %s}", r.Meta.String(), r.state)
-}
-
-func (r *Range) Placement() *DurablePlacement {
-	return r.curr
-}
-
-func (r *Range) NextPlacement() *DurablePlacement {
-	return r.next
+	return fmt.Sprintf("R{%s %s}", r.Meta.String(), r.State)
 }
 
 // TODO: Use Placement instead of this!
@@ -88,16 +90,16 @@ func (r *Range) MoveSrc() *DurablePlacement {
 	r.Lock()
 	defer r.Unlock()
 
-	if r.curr == nil {
+	if r.CurrentPlacement == nil {
 		return nil
 	}
 
 	// TODO: Is this necessary?
-	if r.curr.state != SpReady {
+	if r.CurrentPlacement.State != SpReady {
 		panic(fmt.Sprintf("movesrc called on range %s, where placement is not ready", r.String()))
 	}
 
-	return r.curr
+	return r.CurrentPlacement
 }
 
 // MustState attempts to change the state of the range to s, and panics if the
@@ -110,15 +112,11 @@ func (r *Range) MustState(s StateLocal) {
 	}
 }
 
-func (r *Range) State() StateLocal {
-	return r.state
-}
-
 // ToState change the state of the range to s or returns an error.
 func (r *Range) ToState(new StateLocal) error {
 	r.Lock()
 	defer r.Unlock()
-	old := r.state
+	old := r.State
 
 	if old == new {
 		log.Printf("R%v: %s -> %s (redundant)", r.Meta.Ident.Key, old, new)
@@ -211,14 +209,14 @@ func (r *Range) ToState(new StateLocal) error {
 		return fmt.Errorf("invalid range state transition: %s -> %s", old, new)
 	}
 
-	// Update durable storage first
-	err := r.pers.PutState(r, new)
-	if err != nil {
-		r.state = old
-		return fmt.Errorf("while persisting range state: %s", err)
-	}
+	r.State = new
 
-	r.state = new
+	// Try to persist the new state, and rewind+abort if it fails.
+	err := r.pers.Put(r)
+	if err != nil {
+		r.State = old
+		return fmt.Errorf("while persisting range: %s", err)
+	}
 
 	// Notify parent(s) of state change, so they can change their own state in
 	// response.
@@ -226,7 +224,7 @@ func (r *Range) ToState(new StateLocal) error {
 	for _, parent := range r.parents {
 		err := parent.ChildStateChanged()
 		if err != nil {
-			r.state = old
+			r.State = old
 			return err
 		}
 	}
@@ -240,11 +238,11 @@ func (r *Range) InitPersist() error {
 
 	// Calling this method any time other than immediately after instantiating
 	// is a bug. Every other transition should happen via ToState.
-	if r.state != Pending {
+	if r.State != Pending {
 		panic("InitPersist called on non-pending range")
 	}
 
-	return r.pers.Create(r)
+	return r.pers.Put(r)
 }
 
 func (r *Range) ParentIdents() []Ident {
@@ -262,7 +260,7 @@ func (r *Range) Parents() []*Range {
 func (r *Range) ChildStateChanged() error {
 
 	// Splitting and joining ranges become obsolete once their children become ready.
-	if r.state == Splitting || r.state == Joining {
+	if r.State == Splitting || r.State == Joining {
 		if r.childrenReady() {
 			return r.ToState(Obsolete)
 		}
@@ -277,20 +275,20 @@ func (r *Range) DropPlacement() {
 	r.Lock()
 	defer r.Unlock()
 
-	if r.State() != Obsolete {
+	if r.State != Obsolete {
 		panic("can't drop current placement until range is obsolete")
 	}
 
-	if r.curr == nil {
+	if r.CurrentPlacement == nil {
 		// This method should not even be called in this state!
 		panic("can't drop current placement when it is nil")
 	}
 
-	if r.curr.State() != SpDropped {
+	if r.CurrentPlacement.State != SpDropped {
 		panic("can't drop current placement until it's dropped")
 	}
 
-	r.curr = nil
+	r.CurrentPlacement = nil
 }
 
 // Clear the next placement. This should be called when an operation fails.
@@ -299,12 +297,12 @@ func (r *Range) ClearNextPlacement() {
 	r.Lock()
 	defer r.Unlock()
 
-	if r.next == nil {
+	if r.NextPlacement == nil {
 		// This method should not even be called in this state!
 		panic("can't complete move when next placement is nil")
 	}
 
-	r.next = nil
+	r.NextPlacement = nil
 }
 
 // CompleteNextPlacement moves the next placement to current. This should be
@@ -314,13 +312,13 @@ func (r *Range) CompleteNextPlacement() error {
 	r.Lock()
 	defer r.Unlock()
 
-	if r.next == nil {
+	if r.NextPlacement == nil {
 		// This method should not even be called in this state!
 		panic("can't complete move when next placement is nil")
 	}
 
-	r.curr = r.next
-	r.next = nil
+	r.CurrentPlacement = r.NextPlacement
+	r.NextPlacement = nil
 
 	return nil
 }
@@ -329,7 +327,7 @@ func (r *Range) CompleteNextPlacement() error {
 // care if the range has no children.)
 func (r *Range) childrenReady() bool {
 	for _, rr := range r.children {
-		if rr.state != Ready {
+		if rr.State != Ready {
 			return false
 		}
 	}

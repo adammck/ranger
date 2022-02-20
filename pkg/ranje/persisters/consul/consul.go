@@ -1,7 +1,12 @@
 package consul
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
+	"strconv"
+	"strings"
+	"sync"
 
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/hashicorp/consul/api"
@@ -9,90 +14,97 @@ import (
 
 type Persister struct {
 	kv *api.KV
+
+	// keep track of the last ModifyIndex for each range.
+	// Note that the key is a *pointer* which is weird.
+	modifyIndex map[*ranje.Range]uint64
+
+	// guards modifyIndex
+	sync.Mutex
 }
 
 func New(client *api.Client) *Persister {
 	return &Persister{
-		kv: client.KV(),
+		kv:          client.KV(),
+		modifyIndex: map[*ranje.Range]uint64{},
 	}
 }
 
-func (cp *Persister) Get(m ranje.Meta) (*ranje.Range, error) {
-	return nil, fmt.Errorf("not implemented")
+func (cp *Persister) GetRanges() ([]*ranje.Range, error) {
+	pairs, _, err := cp.kv.List("/ranges", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	out := []*ranje.Range{}
+
+	// TODO: Something less dumb than this.
+	cp.Lock()
+	defer cp.Unlock()
+
+	for _, kv := range pairs {
+		s := strings.SplitN(kv.Key, "/", 2)
+		if len(s) != 2 {
+			log.Printf("WARN: invalid Consul key: %s", kv.Key)
+			continue
+		}
+
+		key, err := strconv.ParseUint(s[1], 10, 64)
+		if err != nil {
+			log.Printf("WARN: invalid Consul key: %s", kv.Key)
+			continue
+		}
+
+		r := &ranje.Range{}
+		json.Unmarshal(kv.Value, r)
+
+		if key != r.Meta.Ident.Key {
+			log.Printf("mismatch between Consul KV key and encoded range: key=%v, r.meta.ident.key=%v", key, r.Meta.Ident.Key)
+			continue
+		}
+
+		// Update
+		cp.modifyIndex[r] = kv.ModifyIndex
+
+		out = append(out, r)
+	}
+
+	return out, nil
 }
 
-func (cp *Persister) PutState(r *ranje.Range, new ranje.StateLocal) error {
-
-	// TODO: Do something with the Scope here
-	k := fmt.Sprintf("ranges/%d/state", r.Meta.Ident.Key)
-
-	v, _, err := cp.kv.Get(k, nil)
+func (cp *Persister) Put(r *ranje.Range) error {
+	v, err := json.Marshal(r)
 	if err != nil {
 		return err
 	}
 
-	old := string(v.Value)
-	if r.State().String() != old {
-		return fmt.Errorf(
-			"expected range %d to be in state %v, got %v",
-			r.Meta.Ident.Key, r.State().String(), old)
+	// TODO: Lock each range rather than the whole map! The lock is held for the whole RPC.
+	cp.Lock()
+	defer cp.Unlock()
+
+	op := &api.KVTxnOp{
+		Verb:  api.KVCAS,
+		Key:   fmt.Sprintf("ranges/%d", r.Meta.Ident.Key),
+		Value: v,
 	}
 
-	// TODO: Use Acquire to lock the key between get/put
-
-	p := &api.KVPair{
-		Key:   k,
-		Value: []byte(new.String()),
+	if index, ok := cp.modifyIndex[r]; ok {
+		op.Index = index
 	}
 
-	_, err = cp.kv.Put(p, nil)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// TODO: Should maybe use check-and-set here rather than put, to avoid races.
-func (cp *Persister) Create(r *ranje.Range) error {
-
-	// TODO: Do something with the Scope here
-	pfx := fmt.Sprintf("ranges/%d", r.Meta.Ident.Key)
-
-	ops := api.KVTxnOps{
-		&api.KVTxnOp{
-			Verb:  api.KVSet,
-			Key:   fmt.Sprintf("%s/start", pfx),
-			Value: []byte(r.Meta.Start),
-		},
-		&api.KVTxnOp{
-			Verb:  api.KVSet,
-			Key:   fmt.Sprintf("%s/end", pfx),
-			Value: []byte(r.Meta.End),
-		},
-		&api.KVTxnOp{
-			Verb:  api.KVSet,
-			Key:   fmt.Sprintf("%s/state", pfx),
-			Value: []byte(r.State().String()),
-		},
-	}
-
-	for _, id := range r.ParentIdents() {
-		ops = append(ops, &api.KVTxnOp{
-			Verb:  api.KVSet,
-			Key:   fmt.Sprintf("%s/parents/%d", pfx, id.Key),
-			Value: nil,
-		})
-	}
-
-	ok, _, _, err := cp.kv.Txn(ops, nil)
+	ok, res, _, err := cp.kv.Txn(api.KVTxnOps{op}, nil)
 	if err != nil {
 		return err
 	}
 	if !ok {
-		// This should not happen
-		return fmt.Errorf("got no err but !ok from kv.Txn?")
+		// This should never happen
+		panic("got no err but !ok from Txn?")
 	}
+	if len(res.Results) != 1 {
+		panic(fmt.Sprintf("expected one result from Txn, got %d", len(res.Results)))
+	}
+
+	cp.modifyIndex[r] = res.Results[0].ModifyIndex
 
 	return nil
 }

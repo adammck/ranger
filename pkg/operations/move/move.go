@@ -51,7 +51,7 @@ func (op *MoveOp) Init() error {
 	// TODO: Now that we have MoveOpState, do we even need a special range state
 	// to indicates that it's moving? Perhaps we can unify the op states into a
 	// single 'some op is happening' state on the range.
-	if r.State() == ranje.Ready {
+	if r.State == ranje.Ready {
 
 		// TODO: Sanity check here that we're not trying to move the range to
 		// the node it's already on. The operation fails gracefully even if we
@@ -62,7 +62,7 @@ func (op *MoveOp) Init() error {
 		op.state = Take
 		return nil
 
-	} else if r.State() == ranje.Quarantined || r.State() == ranje.Pending {
+	} else if r.State == ranje.Quarantined || r.State == ranje.Pending {
 		// Not ready, but still eligible to be placed. (This isn't necessarily
 		// an error state. All ranges are pending when created.)
 		r.MustState(ranje.Placing)
@@ -71,7 +71,7 @@ func (op *MoveOp) Init() error {
 
 	}
 
-	return fmt.Errorf("can't initiate move of range in state %v", r.State())
+	return fmt.Errorf("can't initiate move of range in state %v", r.State)
 }
 
 func (op *MoveOp) Run() {
@@ -137,9 +137,9 @@ func (op *MoveOp) take() (state, error) {
 		return Failed, fmt.Errorf("take failed: %v", err)
 	}
 
-	p := r.Placement()
+	p := r.CurrentPlacement
 	if p == nil {
-		return Failed, fmt.Errorf("take failed: Placement returned nil")
+		return Failed, fmt.Errorf("take failed: CurrentPlacement is nil")
 	}
 
 	err = utils.Take(op.Roster, p)
@@ -169,7 +169,7 @@ func (op *MoveOp) give() (state, error) {
 		// Clean up p. No return value.
 		r.ClearNextPlacement()
 
-		switch r.State() {
+		switch r.State {
 		case ranje.Placing:
 			// During initial placement, we can just fail without cleanup. The
 			// range is still not assigned. The balancer should retry the
@@ -184,14 +184,14 @@ func (op *MoveOp) give() (state, error) {
 			return Untake, nil
 
 		default:
-			panic(fmt.Sprintf("impossible range state: %s", r.State()))
+			panic(fmt.Sprintf("impossible range state: %s", r.State))
 		}
 	}
 
 	// If the placement went straight to Ready, we're done. (This can happen
 	// when the range isn't being moved from anywhere, or if the transfer
 	// happens very quickly.)
-	if p.State() == ranje.SpReady {
+	if p.State == ranje.SpReady {
 		return complete(r)
 	}
 
@@ -204,9 +204,9 @@ func (op *MoveOp) untake() (state, error) {
 		return Failed, fmt.Errorf("untake failed: %v", err)
 	}
 
-	p := r.Placement()
+	p := r.CurrentPlacement
 	if p == nil {
-		return Failed, fmt.Errorf("untake failed: Placement returned nil")
+		return Failed, fmt.Errorf("untake failed: CurrentPlacement is nil")
 	}
 
 	err = utils.Untake(op.Roster, p)
@@ -231,7 +231,7 @@ func (op *MoveOp) fetchWait() (state, error) {
 		return Failed, fmt.Errorf("fetchWait failed: %v", err)
 	}
 
-	p := r.NextPlacement()
+	p := r.NextPlacement
 	if p == nil {
 		return Failed, fmt.Errorf("fetchWait failed: NextPlacement is nil")
 	}
@@ -250,7 +250,7 @@ func (op *MoveOp) serve() (state, error) {
 		return Failed, fmt.Errorf("serve failed: %v", err)
 	}
 
-	p := r.NextPlacement()
+	p := r.NextPlacement
 	if p == nil {
 		return Failed, fmt.Errorf("serve failed: NextPlacement is nil")
 	}
@@ -260,7 +260,7 @@ func (op *MoveOp) serve() (state, error) {
 		return Failed, fmt.Errorf("serve failed: %v", err)
 	}
 
-	switch r.State() {
+	switch r.State {
 	case ranje.Moving:
 		// This is a range move, so even though the next placement is ready to
 		// serve, we still have to clean up the current placement. We could mark
@@ -274,7 +274,7 @@ func (op *MoveOp) serve() (state, error) {
 		return complete(r)
 
 	default:
-		panic(fmt.Sprintf("impossible range state: %s", r.State()))
+		panic(fmt.Sprintf("impossible range state: %s", r.State))
 	}
 }
 
@@ -284,9 +284,9 @@ func (op *MoveOp) drop() (state, error) {
 		return Failed, fmt.Errorf("drop failed: %v", err)
 	}
 
-	p := r.Placement()
+	p := r.CurrentPlacement
 	if p == nil {
-		return Failed, fmt.Errorf("drop failed: Placement is nil")
+		return Failed, fmt.Errorf("drop failed: CurrentPlacement is nil")
 	}
 
 	err = utils.Drop(op.Roster, p)

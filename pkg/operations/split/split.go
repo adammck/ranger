@@ -141,7 +141,7 @@ func (op *SplitOp) take() (state, error) {
 		return Failed, fmt.Errorf("split (take) failed: %s", err)
 	}
 
-	err = utils.Take(op.Roster, r0.Placement())
+	err = utils.Take(op.Roster, r0.CurrentPlacement)
 	if err != nil {
 		return Failed, fmt.Errorf("split (take) failed: %s", err)
 	}
@@ -206,7 +206,7 @@ func (op *SplitOp) drop() (state, error) {
 		return Failed, fmt.Errorf("split (drop) failed: %s", err)
 	}
 
-	err = utils.Drop(op.Roster, r.Placement())
+	err = utils.Drop(op.Roster, r.CurrentPlacement)
 	if err != nil {
 		return Failed, fmt.Errorf("split (drop) failed: %s", err)
 	}
@@ -229,9 +229,9 @@ func (op *SplitOp) serve() (state, error) {
 				return fmt.Errorf("GetByIdent (%s): %s", sides[n], err)
 			}
 
-			p := r.NextPlacement()
+			p := r.NextPlacement
 			if p == nil {
-				return fmt.Errorf("NextPlacement (%s) returned nil", sides[n])
+				return fmt.Errorf("NextPlacement (%s) is nil", sides[n])
 			}
 
 			nod := op.Roster.NodeByIdent(nodeIDs[n])

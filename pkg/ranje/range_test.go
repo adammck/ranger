@@ -32,15 +32,15 @@ func TestState(t *testing.T) {
 }
 
 func TestSplitState(t *testing.T) {
-	r0 := Range{state: Splitting}
-	r1 := Range{state: Pending, parents: []*Range{&r0}}
-	r2 := Range{state: Pending, parents: []*Range{&r0}}
+	r0 := Range{State: Splitting}
+	r1 := Range{State: Pending, parents: []*Range{&r0}}
+	r2 := Range{State: Pending, parents: []*Range{&r0}}
 
 	r0.children = []*Range{&r1, &r2}
 
 	assert.NoError(t, r1.ToState(Ready))
-	assert.Equal(t, r0.state, Splitting)
+	assert.Equal(t, r0.State, Splitting)
 
 	assert.NoError(t, r2.ToState(Ready))
-	assert.Equal(t, r0.state, Obsolete)
+	assert.Equal(t, r0.State, Obsolete)
 }
