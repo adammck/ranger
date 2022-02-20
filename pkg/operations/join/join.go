@@ -149,7 +149,7 @@ func (op *JoinOp) take() (state, error) {
 				return fmt.Errorf("%s: CurrentPlacement is nil", s)
 			}
 
-			err = utils.Take(op.Roster, p)
+			err = utils.Take(op.Roster, r, p)
 			if err != nil {
 				return err
 			}
@@ -218,7 +218,7 @@ func (op *JoinOp) drop() (state, error) {
 				return fmt.Errorf("Get (%s): %s", s, err.Error())
 			}
 
-			err = utils.Drop(op.Roster, r.CurrentPlacement)
+			err = utils.Drop(op.Roster, r, r.CurrentPlacement)
 			if err != nil {
 				return fmt.Errorf("drop (%s): %s", s, err.Error())
 			}
@@ -248,7 +248,7 @@ func (op *JoinOp) serve() (state, error) {
 		return Failed, fmt.Errorf("serve: NextPlacement is nil")
 	}
 
-	err = utils.Serve(op.Roster, p)
+	err = utils.Serve(op.Roster, r, p)
 	if err != nil {
 		return Failed, fmt.Errorf("serve (utils.Serve) failed: %s", err)
 	}

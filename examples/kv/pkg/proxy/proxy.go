@@ -10,7 +10,7 @@ import (
 	pbkv "github.com/adammck/ranger/examples/kv/proto/gen"
 	"github.com/adammck/ranger/pkg/discovery"
 	consuldisc "github.com/adammck/ranger/pkg/discovery/consul"
-	"github.com/adammck/ranger/pkg/roster2"
+	"github.com/adammck/ranger/pkg/roster"
 	consulapi "github.com/hashicorp/consul/api"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -22,7 +22,7 @@ type Proxy struct {
 	addrPub string // do we actually need this? maybe only discovery does.
 	srv     *grpc.Server
 	disc    discovery.Discoverable
-	rost    *roster2.Roster2
+	rost    *roster.Roster
 
 	clients   map[string]pbkv.KVClient
 	clientsMu sync.RWMutex
@@ -55,7 +55,7 @@ func New(addrLis, addrPub string, logReqs bool) (*Proxy, error) {
 		logReqs: logReqs,
 	}
 
-	p.rost = roster2.New(disc, p.Add, p.Remove)
+	p.rost = roster.New(disc, p.Add, p.Remove)
 
 	ps := proxyServer{proxy: p}
 	pbkv.RegisterKVServer(srv, &ps)

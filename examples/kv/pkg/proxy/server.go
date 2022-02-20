@@ -18,14 +18,17 @@ type proxyServer struct {
 func (ps *proxyServer) getClient(k []byte) (pbkv.KVClient, error) {
 	nids := ps.proxy.rost.Locate(ranje.Key(k))
 
+	if len(nids) == 0 {
+		if ps.proxy.logReqs {
+			log.Printf("%s -> ?", k)
+		}
+		return nil, status.Error(codes.Unimplemented, "no nodes have key")
+	}
+
 	if ps.proxy.logReqs {
 		for _, nid := range nids {
 			log.Printf("%s -> %s", k, nid)
 		}
-	}
-
-	if len(nids) == 0 {
-		return nil, status.Error(codes.Unimplemented, "no nodes have key")
 	}
 
 	if len(nids) > 1 {

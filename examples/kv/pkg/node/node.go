@@ -22,6 +22,7 @@ import (
 	consuldisc "github.com/adammck/ranger/pkg/discovery/consul"
 	pbr "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
+	"github.com/adammck/ranger/pkg/roster"
 	consulapi "github.com/hashicorp/consul/api"
 )
 
@@ -140,7 +141,7 @@ type RangeData struct {
 	data map[string][]byte
 
 	// TODO: Move this to the rangemeta!!
-	state ranje.StateRemote // TODO: guard this
+	state roster.State // TODO: guard this
 }
 
 func (rd *RangeData) fetchMany(dest RangeMeta, parents []*pbr.Placement) {
@@ -152,7 +153,7 @@ func (rd *RangeData) fetchMany(dest RangeMeta, parents []*pbr.Placement) {
 		rm, err := parseRangeMeta(p.Range)
 		if err != nil {
 			log.Printf("FetchMany failed fast: %s", err)
-			rd.state = ranje.StateFetchFailed
+			rd.state = roster.StateFetchFailed
 			return
 		}
 		rms[i] = &rm
@@ -189,7 +190,7 @@ func (rd *RangeData) fetchMany(dest RangeMeta, parents []*pbr.Placement) {
 	}
 
 	if err := g.Wait(); err != nil {
-		rd.state = ranje.StateFetchFailed
+		rd.state = roster.StateFetchFailed
 		return
 	}
 
@@ -197,7 +198,7 @@ func (rd *RangeData) fetchMany(dest RangeMeta, parents []*pbr.Placement) {
 	// node(s) are still serving reads, and if we start writing, they'll be
 	// wrong. We can only serve reads until the assigner tells them to stop,
 	// which will redirect all reads to us. Then we can start writing.
-	rd.state = ranje.StateFetched
+	rd.state = roster.StateFetched
 }
 
 func (rd *RangeData) fetchOne(ctx context.Context, mu *sync.Mutex, dest RangeMeta, addr string, src *RangeMeta) error {
@@ -291,7 +292,7 @@ func (n *nodeServer) Give(ctx context.Context, req *pbr.GiveRequest) (*pbr.GiveR
 		// Special case: We already have this range, but gave up on fetching it.
 		// To keep things simple, delete it. it'll be added again (while still
 		// holding the lock) below.
-		if rd.state == ranje.StateFetchFailed {
+		if rd.state == roster.StateFetchFailed {
 			delete(n.node.data, rm.ident)
 			n.node.ranges.Remove(rm.ident)
 		} else {
@@ -301,17 +302,17 @@ func (n *nodeServer) Give(ctx context.Context, req *pbr.GiveRequest) (*pbr.GiveR
 
 	rd = &RangeData{
 		data:  make(map[string][]byte),
-		state: ranje.StateUnknown, // default
+		state: roster.StateUnknown, // default
 	}
 
 	if req.Parents != nil && len(req.Parents) > 0 {
-		rd.state = ranje.StateFetching
+		rd.state = roster.StateFetching
 		rd.fetchMany(rm, req.Parents)
 
 	} else {
 		// No current host nor parents. This is a brand new range. We're
 		// probably initializing a new empty scope.
-		rd.state = ranje.StateReady
+		rd.state = roster.StateReady
 	}
 
 	n.node.ranges.Add(rm)
@@ -333,11 +334,11 @@ func (s *nodeServer) Serve(ctx context.Context, req *pbr.ServeRequest) (*pbr.Ser
 		return nil, err
 	}
 
-	if rd.state != ranje.StateFetched && !req.Force {
+	if rd.state != roster.StateFetched && !req.Force {
 		return nil, status.Error(codes.Aborted, "won't serve ranges not in the FETCHED state without FORCE")
 	}
 
-	rd.state = ranje.StateReady
+	rd.state = roster.StateReady
 
 	log.Printf("Serving: %s", ident)
 	return &pbr.ServeResponse{}, nil
@@ -353,11 +354,11 @@ func (s *nodeServer) Take(ctx context.Context, req *pbr.TakeRequest) (*pbr.TakeR
 		return nil, err
 	}
 
-	if rd.state != ranje.StateReady {
+	if rd.state != roster.StateReady {
 		return nil, status.Error(codes.FailedPrecondition, "can only take ranges in the READY state")
 	}
 
-	rd.state = ranje.StateTaken
+	rd.state = roster.StateTaken
 
 	log.Printf("Taken: %s", ident)
 	return &pbr.TakeResponse{}, nil
@@ -373,11 +374,11 @@ func (s *nodeServer) Untake(ctx context.Context, req *pbr.UntakeRequest) (*pbr.U
 		return nil, err
 	}
 
-	if rd.state != ranje.StateTaken {
+	if rd.state != roster.StateTaken {
 		return nil, status.Error(codes.FailedPrecondition, "can only untake ranges in the TAKEN state")
 	}
 
-	rd.state = ranje.StateReady
+	rd.state = roster.StateReady
 
 	log.Printf("Untaken: %s", ident)
 	return &pbr.UntakeResponse{}, nil
@@ -394,11 +395,11 @@ func (s *nodeServer) Drop(ctx context.Context, req *pbr.DropRequest) (*pbr.DropR
 	}
 
 	// Skipping this for now; we'll need to cancel via a context in rd.
-	if rd.state == ranje.StateFetching {
+	if rd.state == roster.StateFetching {
 		return nil, status.Error(codes.Unimplemented, "dropping ranges in the FETCHING state is not supported yet")
 	}
 
-	if rd.state != ranje.StateTaken && !req.Force {
+	if rd.state != roster.StateTaken && !req.Force {
 		return nil, status.Error(codes.Aborted, "won't drop ranges not in the TAKEN state without FORCE")
 	}
 
@@ -520,7 +521,7 @@ func (s *kvServer) Dump(ctx context.Context, req *pbkv.DumpRequest) (*pbkv.DumpR
 		return nil, status.Error(codes.InvalidArgument, "range not found")
 	}
 
-	if rd.state != ranje.StateTaken {
+	if rd.state != roster.StateTaken {
 		return nil, status.Error(codes.FailedPrecondition, "can only dump ranges in the TAKEN state")
 	}
 
@@ -552,7 +553,7 @@ func (s *kvServer) Get(ctx context.Context, req *pbkv.GetRequest) (*pbkv.GetResp
 		panic("range found in map but no data?!")
 	}
 
-	if rd.state != ranje.StateReady && rd.state != ranje.StateFetched && rd.state != ranje.StateTaken {
+	if rd.state != roster.StateReady && rd.state != roster.StateFetched && rd.state != roster.StateTaken {
 		return nil, status.Error(codes.FailedPrecondition, "can only GET from ranges in the READY, FETCHED, and TAKEN states")
 	}
 
@@ -589,7 +590,7 @@ func (s *kvServer) Put(ctx context.Context, req *pbkv.PutRequest) (*pbkv.PutResp
 		panic("range found in map but no data?!")
 	}
 
-	if rd.state != ranje.StateReady {
+	if rd.state != roster.StateReady {
 		return nil, status.Error(codes.FailedPrecondition, "can only PUT to ranges in the READY state")
 	}
 

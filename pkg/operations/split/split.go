@@ -141,7 +141,7 @@ func (op *SplitOp) take() (state, error) {
 		return Failed, fmt.Errorf("split (take) failed: %s", err)
 	}
 
-	err = utils.Take(op.Roster, r0.CurrentPlacement)
+	err = utils.Take(op.Roster, r0, r0.CurrentPlacement)
 	if err != nil {
 		return Failed, fmt.Errorf("split (take) failed: %s", err)
 	}
@@ -167,7 +167,7 @@ func (op *SplitOp) give() (state, error) {
 		g.Go(func() error {
 			r, err := op.Keyspace.Get(ranges[n])
 			if err != nil {
-				return fmt.Errorf("Get (%s): %v", sides[n], err)
+				return fmt.Errorf("get (%s): %v", sides[n], err)
 			}
 
 			p, err := ranje.NewPlacement(r, nodeIDs[n])
@@ -206,7 +206,7 @@ func (op *SplitOp) drop() (state, error) {
 		return Failed, fmt.Errorf("split (drop) failed: %s", err)
 	}
 
-	err = utils.Drop(op.Roster, r.CurrentPlacement)
+	err = utils.Drop(op.Roster, r, r.CurrentPlacement)
 	if err != nil {
 		return Failed, fmt.Errorf("split (drop) failed: %s", err)
 	}
@@ -217,7 +217,6 @@ func (op *SplitOp) drop() (state, error) {
 func (op *SplitOp) serve() (state, error) {
 	sides := [2]string{"left", "right"}
 	ranges := []ranje.Ident{op.rL, op.rR}
-	nodeIDs := []string{op.NodeLeft, op.NodeRight}
 
 	g, _ := errgroup.WithContext(context.Background())
 	for n := range sides {
@@ -226,7 +225,7 @@ func (op *SplitOp) serve() (state, error) {
 		g.Go(func() error {
 			r, err := op.Keyspace.Get(ranges[n])
 			if err != nil {
-				return fmt.Errorf("Get (%s): %s", sides[n], err)
+				return fmt.Errorf("get (%s): %s", sides[n], err)
 			}
 
 			p := r.NextPlacement
@@ -234,12 +233,7 @@ func (op *SplitOp) serve() (state, error) {
 				return fmt.Errorf("NextPlacement (%s) is nil", sides[n])
 			}
 
-			nod := op.Roster.NodeByIdent(nodeIDs[n])
-			if nod == nil {
-				return fmt.Errorf("NodeByIdent (%s) returned no such node: %s", sides[n], nodeIDs[n])
-			}
-
-			err = nod.Serve(p)
+			err = utils.Serve(op.Roster, r, p)
 			if err != nil {
 				return fmt.Errorf("serve (%s): %s", sides[n], err)
 			}

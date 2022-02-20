@@ -142,7 +142,7 @@ func (op *MoveOp) take() (state, error) {
 		return Failed, fmt.Errorf("take failed: CurrentPlacement is nil")
 	}
 
-	err = utils.Take(op.Roster, p)
+	err = utils.Take(op.Roster, r, p)
 	if err != nil {
 		op.Keyspace.ToState(r, ranje.Ready) // ???
 		return Failed, fmt.Errorf("take failed: %v", err)
@@ -209,7 +209,7 @@ func (op *MoveOp) untake() (state, error) {
 		return Failed, fmt.Errorf("untake failed: CurrentPlacement is nil")
 	}
 
-	err = utils.Untake(op.Roster, p)
+	err = utils.Untake(op.Roster, r, p)
 	if err != nil {
 		// TODO: Try again?!
 		return Failed, fmt.Errorf("untake failed: %v", err)
@@ -255,7 +255,7 @@ func (op *MoveOp) serve() (state, error) {
 		return Failed, fmt.Errorf("serve failed: NextPlacement is nil")
 	}
 
-	err = utils.Serve(op.Roster, p)
+	err = utils.Serve(op.Roster, r, p)
 	if err != nil {
 		return Failed, fmt.Errorf("serve failed: %v", err)
 	}
@@ -289,7 +289,7 @@ func (op *MoveOp) drop() (state, error) {
 		return Failed, fmt.Errorf("drop failed: CurrentPlacement is nil")
 	}
 
-	err = utils.Drop(op.Roster, p)
+	err = utils.Drop(op.Roster, r, p)
 	if err != nil {
 		return Failed, fmt.Errorf("drop failed: %v", err)
 	}

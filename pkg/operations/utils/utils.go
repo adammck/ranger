@@ -1,11 +1,23 @@
 package utils
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
+)
+
+const (
+	s             = time.Second
+	staleTimer    = 10 * s
+	giveTimeout   = 3 * s
+	takeTimeout   = 3 * s
+	untakeTimeout = 3 * s
+	dropTimeout   = 3 * s
+	serveTimeout  = 3 * s
 )
 
 // Utility functions to stop repeating ourselves.
@@ -56,9 +68,43 @@ func Give(ks *ranje.Keyspace, rost *roster.Roster, rang *ranje.Range, placement 
 		req.Parents = append(req.Parents, p)
 	}
 
-	err := node.Give(placement, req)
+	if placement.State != ranje.SpPending {
+		return fmt.Errorf("can't give range %s to node %s when state is %s (wanted SpPending)",
+			rang.String(), placement.NodeID, placement.State)
+	}
+
+	// TODO: Move outside this func?
+	ctx, cancel := context.WithTimeout(context.Background(), giveTimeout)
+	defer cancel()
+
+	// TODO: Retry a few times before giving up.
+	res, err := node.Client.Give(ctx, req)
 	if err != nil {
 		return err
+	}
+
+	// TODO: Use updateLocalState here!
+	// TODO: Check the return values of state changes or use MustState!
+	rs := roster.RemoteStateFromProto(res.State)
+	if rs == roster.StateReady {
+		placement.ToState(ranje.SpReady)
+
+	} else if rs == roster.StateFetching {
+		placement.ToState(ranje.SpFetching)
+
+	} else if rs == roster.StateFetched {
+		// The fetch finished before the client returned.
+		placement.ToState(ranje.SpFetching)
+		placement.ToState(ranje.SpFetched)
+
+	} else if rs == roster.StateFetchFailed {
+		// The fetch failed before the client returned.
+		placement.ToState(ranje.SpFetching)
+		placement.ToState(ranje.SpFetchFailed)
+
+	} else {
+		// Got either Unknown or Taken
+		panic(fmt.Sprintf("unexpected remote state from Give: %s", rs.String()))
 	}
 
 	return nil
@@ -110,36 +156,73 @@ func pbPlacement(rost *roster.Roster, r *ranje.Range) *pb.Placement {
 	}
 }
 
-func Take(rost *roster.Roster, placement *ranje.DurablePlacement) error {
+// TODO: Remove the Range parameter. Get the relevant stuff from Placement.
+// TODO: Plumb in a context from somewhere. Maybe the top controller context.
+func Take(rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacement) error {
+
+	// TODO: Remove this? The node will enforce it anyway.
+	if placement.State != ranje.SpReady {
+		return fmt.Errorf("can't take range %s from node %s when state is %s",
+			rang.String(), placement.NodeID, placement.State)
+	}
+
 	node := rost.NodeByIdent(placement.NodeID)
 	if node == nil {
 		return fmt.Errorf("no such node: %s", placement.NodeID)
 	}
 
-	err := node.Take(placement)
+	req := &pb.TakeRequest{
+		// lol demeter who?
+		Range: rang.Meta.Ident.ToProto(),
+	}
+
+	// TODO: Move outside this func?
+	ctx, cancel := context.WithTimeout(context.Background(), takeTimeout)
+	defer cancel()
+
+	// TODO: Retry a few times before giving up.
+	_, err := node.Client.Take(ctx, req)
 	if err != nil {
+		// No state change. Placement is still SpReady.
 		return err
 	}
 
-	return nil
+	return placement.ToState(ranje.SpTaken)
 }
 
-func Untake(rost *roster.Roster, placement *ranje.DurablePlacement) error {
+func Untake(rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacement) error {
+	// TODO: Move this into the callers; state is no business of Node.
+	if placement.State != ranje.SpTaken {
+		return fmt.Errorf("can't untake range %s from node %s when state is %s",
+			rang.String(), placement.NodeID, placement.State)
+	}
+
 	node := rost.NodeByIdent(placement.NodeID)
 	if node == nil {
 		return fmt.Errorf("no such node: %s", placement.NodeID)
 	}
 
-	err := node.Untake(placement)
+	req := &pb.UntakeRequest{
+		Range: rang.Meta.Ident.ToProto(),
+	}
+
+	// TODO: Move outside this func?
+	ctx, cancel := context.WithTimeout(context.Background(), untakeTimeout)
+	defer cancel()
+
+	// TODO: Retry a few times before giving up.
+	_, err := node.Client.Untake(ctx, req)
 	if err != nil {
+		// No state change. Placement is still SpTaken.
 		return err
 	}
 
-	return nil
+	// TODO: Also move this into caller?
+	return placement.ToState(ranje.SpReady)
 }
 
 // TODO: Can we just take a range here and call+check Placement?
-func Drop(rost *roster.Roster, placement *ranje.DurablePlacement) error {
+func Drop(rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacement) error {
 	if placement == nil {
 		// This should probably be a panic; how could we possibly have gotten here with a nil placement
 		return fmt.Errorf("nil placement")
@@ -150,19 +233,32 @@ func Drop(rost *roster.Roster, placement *ranje.DurablePlacement) error {
 		return fmt.Errorf("no such node: %s", placement.NodeID)
 	}
 
-	err := node.Drop(placement)
+	if placement.State != ranje.SpTaken {
+		return fmt.Errorf("can't drop range %s from node %s when state is %s",
+			rang.String(), placement.NodeID, placement.State)
+	}
+
+	req := &pb.DropRequest{
+		Range: rang.Meta.Ident.ToProto(),
+		Force: false,
+	}
+
+	// TODO: Move outside this func?
+	ctx, cancel := context.WithTimeout(context.Background(), dropTimeout)
+	defer cancel()
+
+	// TODO: Retry a few times before giving up.
+	_, err := node.Client.Drop(ctx, req)
 	if err != nil {
+		// No state change. Placement is still SpTaken.
 		return err
 	}
 
-	// TODO: Move state changes out of Node, put them here.
-	//placement.ToState(ranje.SpDropped)
-
-	return nil
+	return placement.ToState(ranje.SpDropped)
 }
 
 // TODO: Can we just take a range here and call+check Placement?
-func Serve(rost *roster.Roster, placement *ranje.DurablePlacement) error {
+func Serve(rost *roster.Roster, rang *ranje.Range, placement *ranje.DurablePlacement) error {
 	if placement == nil {
 		// This should probably be a panic
 		return fmt.Errorf("nil placement")
@@ -173,10 +269,31 @@ func Serve(rost *roster.Roster, placement *ranje.DurablePlacement) error {
 		return fmt.Errorf("no such node: %s", placement.NodeID)
 	}
 
-	err := node.Serve(placement)
+	if placement.NodeID != node.Remote.Ident {
+		return fmt.Errorf("mismatched nodeID: %s != %s",
+			placement.NodeID, node.Remote.Ident)
+	}
+
+	if placement.State != ranje.SpFetched {
+		return fmt.Errorf("can't serve range %s from node %s when state is %s (wanted SpFetched)",
+			rang.String(), placement.NodeID, placement.State)
+	}
+
+	req := &pb.ServeRequest{
+		Range: rang.Meta.Ident.ToProto(),
+		Force: false,
+	}
+
+	// TODO: Move outside this func?
+	ctx, cancel := context.WithTimeout(context.Background(), serveTimeout)
+	defer cancel()
+
+	// TODO: Retry a few times before giving up.
+	_, err := node.Client.Serve(ctx, req)
 	if err != nil {
+		// No state change. Placement is still SpFetched.
 		return err
 	}
 
-	return nil
+	return placement.ToState(ranje.SpReady)
 }

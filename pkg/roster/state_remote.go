@@ -1,14 +1,14 @@
-package ranje
+package roster
 
 import (
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 )
 
 // See: ranger/pkg/proto/node.proto:RangeInfo.State
-type StateRemote uint8
+type State uint8
 
 const (
-	StateUnknown StateRemote = iota
+	StateUnknown State = iota
 	StateFetching
 	StateFetched
 	StateFetchFailed
@@ -16,9 +16,9 @@ const (
 	StateTaken
 )
 
-//go:generate stringer -type=StateRemote -output=zzz_state_remote_string.go
+//go:generate stringer -type=State -output=state_string.go
 
-func RemoteStateFromProto(s pb.RangeNodeState) StateRemote {
+func RemoteStateFromProto(s pb.RangeNodeState) State {
 	switch s {
 	case pb.RangeNodeState_FETCHING:
 		return StateFetching
@@ -35,7 +35,7 @@ func RemoteStateFromProto(s pb.RangeNodeState) StateRemote {
 	return StateUnknown
 }
 
-func (rs StateRemote) ToProto() pb.RangeNodeState {
+func (rs State) ToProto() pb.RangeNodeState {
 	switch rs {
 	case StateFetching:
 		return pb.RangeNodeState_FETCHING
