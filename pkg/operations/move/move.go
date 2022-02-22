@@ -58,14 +58,14 @@ func (op *MoveOp) Init() error {
 		// do try to do this, but involves a brief unavailability because it
 		// will Take, then try to Give (and fail), then Untake.
 
-		op.Keyspace.ToState(r, ranje.Moving)
+		op.Keyspace.RangeToState(r, ranje.Moving)
 		op.state = Take
 		return nil
 
 	} else if r.State == ranje.Quarantined || r.State == ranje.Pending {
 		// Not ready, but still eligible to be placed. (This isn't necessarily
 		// an error state. All ranges are pending when created.)
-		op.Keyspace.ToState(r, ranje.Placing)
+		op.Keyspace.RangeToState(r, ranje.Placing)
 		op.state = Give
 		return nil
 
@@ -142,9 +142,9 @@ func (op *MoveOp) take() (state, error) {
 		return Failed, fmt.Errorf("take failed: CurrentPlacement is nil")
 	}
 
-	err = utils.Take(op.Roster, r, p)
+	err = utils.Take(op.Keyspace, op.Roster, r, p)
 	if err != nil {
-		op.Keyspace.ToState(r, ranje.Ready) // ???
+		op.Keyspace.RangeToState(r, ranje.Ready) // ???
 		return Failed, fmt.Errorf("take failed: %v", err)
 	}
 
@@ -174,7 +174,7 @@ func (op *MoveOp) give() (state, error) {
 			// During initial placement, we can just fail without cleanup. The
 			// range is still not assigned. The balancer should retry the
 			// placement, perhaps on a different node.
-			op.Keyspace.ToState(r, ranje.PlaceError)
+			op.Keyspace.RangeToState(r, ranje.PlaceError)
 			return Failed, fmt.Errorf("give failed: %v", err)
 
 		case ranje.Moving:
@@ -209,7 +209,7 @@ func (op *MoveOp) untake() (state, error) {
 		return Failed, fmt.Errorf("untake failed: CurrentPlacement is nil")
 	}
 
-	err = utils.Untake(op.Roster, r, p)
+	err = utils.Untake(op.Keyspace, op.Roster, r, p)
 	if err != nil {
 		// TODO: Try again?!
 		return Failed, fmt.Errorf("untake failed: %v", err)
@@ -217,7 +217,7 @@ func (op *MoveOp) untake() (state, error) {
 
 	// The range is now ready again, because the current placement is ready.
 	// (and the next placement is gone.)
-	op.Keyspace.ToState(r, ranje.Ready)
+	op.Keyspace.RangeToState(r, ranje.Ready)
 
 	// Always transition into failed, because even though this step succeeded
 	// and service has been restored to src, the move was a failure.
@@ -255,7 +255,7 @@ func (op *MoveOp) serve() (state, error) {
 		return Failed, fmt.Errorf("serve failed: NextPlacement is nil")
 	}
 
-	err = utils.Serve(op.Roster, r, p)
+	err = utils.Serve(op.Keyspace, op.Roster, r, p)
 	if err != nil {
 		return Failed, fmt.Errorf("serve failed: %v", err)
 	}
@@ -289,7 +289,7 @@ func (op *MoveOp) drop() (state, error) {
 		return Failed, fmt.Errorf("drop failed: CurrentPlacement is nil")
 	}
 
-	err = utils.Drop(op.Roster, r, p)
+	err = utils.Drop(op.Keyspace, op.Roster, r, p)
 	if err != nil {
 		return Failed, fmt.Errorf("drop failed: %v", err)
 	}
@@ -299,6 +299,6 @@ func (op *MoveOp) drop() (state, error) {
 
 func complete(op *MoveOp, r *ranje.Range) (state, error) {
 	r.CompleteNextPlacement()
-	op.Keyspace.ToState(r, ranje.Ready)
+	op.Keyspace.RangeToState(r, ranje.Ready)
 	return Complete, nil
 }

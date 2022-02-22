@@ -19,7 +19,8 @@ type Range struct {
 
 	// Which node currently has the range, and which it is moving to.
 	// TODO: Each of these are probably only valid in some states. Doc that.
-	// TODO: Placement fucks with these directly. Don't do that.
+	// Invariant: These will always be on different Nodes, so callers can
+	// unambiguously look up a single placement for a given (Range, Node) pair.
 	CurrentPlacement *Placement
 	NextPlacement    *Placement
 
@@ -28,28 +29,13 @@ type Range struct {
 	placeErrorCount int
 
 	// Guards everything.
+	// TODO: Can we get rid of this and just use the keyspace lock?
 	sync.Mutex
-}
 
-func (r *Range) Put() error {
-	err := r.pers.PutRange(r)
-	if err != nil {
-		panic(fmt.Sprintf("failed to put range %d: %s", r.Meta.Ident.Key, err))
-		//return err
-	}
-
-	return nil
-}
-
-func (r *Range) AssertState(s StateLocal) {
-	if r.State != s {
-		panic(fmt.Sprintf("range failed state assertion %s != %s %s", r.State.String(), s.String(), r))
-	}
-}
-
-func (r *Range) SameMeta(id Ident, start, end []byte) bool {
-	// TODO: This method is batshit
-	return r.Meta.Ident.Key == id.Key && r.Meta.Start == Key(start) && r.Meta.End == Key(end)
+	// Indicates that this range needs persisting before the keyspace lock is
+	// released. We've made changes locally which will be lost if we crash.
+	// TODO: Also store the old state, so we can roll back instead of crash?
+	dirty bool
 }
 
 func (r *Range) LogString() string {
@@ -70,33 +56,23 @@ func (r *Range) String() string {
 	return fmt.Sprintf("R{%s %s}", r.Meta.String(), r.State)
 }
 
-// TODO: Use Placement instead of this!
-func (r *Range) MoveSrc() *Placement {
+func (r *Range) placementStateChanged(rg RangeGetter) {
 
-	// TODO: Only really need RLock here.
-	r.Lock()
-	defer r.Unlock()
+	// Is it even necessary to check the current state? Maybe it's always okay
+	// for ranges to revert back to pending when placements are Gone.
+	if r.State == Ready {
+		if c := r.CurrentPlacement; c != nil {
+			if c.State == SpGone {
+				err := r.toState(Pending, rg)
+				if err != nil {
+					log.Printf("error reverting range to Pending because of Gone placement: %v", err)
+				}
 
-	if r.CurrentPlacement == nil {
-		return nil
+				r.CurrentPlacement = nil
+			}
+		}
 	}
 
-	// TODO: Is this necessary?
-	if r.CurrentPlacement.State != SpReady {
-		panic(fmt.Sprintf("movesrc called on range %s, where placement is not ready", r.String()))
-	}
-
-	return r.CurrentPlacement
-}
-
-// MustState attempts to change the state of the range to s, and panics if the
-// transition is invalid. Callers should only ever attempt valid state changes
-// anyway, but...
-func (r *Range) MustState(s StateLocal, rg RangeGetter) {
-	err := r.toState(s, rg)
-	if err != nil {
-		panic(fmt.Sprintf("MustState: %s", err.Error()))
-	}
 }
 
 // ToState change the state of the range to s or returns an error.
@@ -183,6 +159,10 @@ func (r *Range) toState(new StateLocal, rg RangeGetter) error {
 		ok = true
 	}
 
+	if old == Ready && new == Pending { // NEEDS NUM
+		ok = true
+	}
+
 	if (old == Splitting || old == Joining) && new == Obsolete {
 		if !childrenReady(r, rg) {
 			return fmt.Errorf("invalid state transition: %s -> %s; children not ready", old, new)
@@ -196,34 +176,11 @@ func (r *Range) toState(new StateLocal, rg RangeGetter) error {
 	}
 
 	r.State = new
-
-	// Try to persist the new state, and rewind+abort if it fails.
-	err := r.pers.PutRange(r)
-	if err != nil {
-		r.State = old
-		return fmt.Errorf("while persisting range: %s", err)
-	}
+	r.dirty = true
 
 	log.Printf("R%v: %s -> %s", r.Meta.Ident.Key, old, new)
 
 	return nil
-}
-
-// TODO: Remove this. Callers can just call Put.
-func (r *Range) InitPersist() error {
-
-	// Calling this method any time other than immediately after instantiating
-	// is a bug. Every other transition should happen via ToState.
-	if r.State != Pending {
-		panic("InitPersist called on non-pending range")
-	}
-
-	return r.pers.PutRange(r)
-}
-
-// TODO: Remove this. It's pointless now.
-func (r *Range) ParentIdents() []Ident {
-	return r.Parents
 }
 
 // Clear the current placement. This should be called when a range is dropped

@@ -26,14 +26,16 @@ type Roster struct {
 	// Callbacks
 	add    func(rem *discovery.Remote)
 	remove func(rem *discovery.Remote)
+	info   chan NodeInfo
 }
 
-func New(disc discovery.Discoverable, add, remove func(rem *discovery.Remote)) *Roster {
+func New(disc discovery.Discoverable, add, remove func(rem *discovery.Remote), info chan NodeInfo) *Roster {
 	return &Roster{
 		Nodes:  make(map[string]*Node),
 		disc:   disc,
 		add:    add,
 		remove: remove,
+		info:   info, // currently never closed
 	}
 }
 
@@ -66,8 +68,8 @@ func (ros *Roster) Locate(k ranje.Key) []string {
 			n.muRanges.RLock()
 			defer n.muRanges.RUnlock()
 
-			for m := range n.ranges {
-				if m.Contains(k) {
+			for _, info := range n.ranges {
+				if info.Meta.Contains(k) {
 					nodes = append(nodes, nid)
 				}
 			}
@@ -135,7 +137,7 @@ func (ros *Roster) probe() {
 		// https://golang.org/doc/faq#closures_and_goroutines
 		go func(n *Node) {
 			defer wg.Done()
-			err := probeOne(ctx, n)
+			err := ros.probeOne(ctx, n)
 			if err != nil {
 				log.Printf("error probing %v: %v", n.Ident(), err)
 				return
@@ -148,10 +150,10 @@ func (ros *Roster) probe() {
 
 // probeOne sends an RPC to fetch the current ranges for one node.
 // Returns error if the RPC fails or if a probe is already in progess.
-func probeOne(ctx context.Context, n *Node) error {
+func (ros *Roster) probeOne(ctx context.Context, n *Node) error {
 	// TODO: Abort if probe in progress.
 
-	ranges := make(map[ranje.Meta]State)
+	ranges := make(map[ranje.Ident]RangeInfo)
 
 	// TODO: Merge Info and Ranges RPCs. Unclear which was wich.
 	// 	res, err := n.Client.Info(ctx, &pb.InfoRequest{})
@@ -160,6 +162,11 @@ func probeOne(ctx context.Context, n *Node) error {
 	if err != nil {
 		log.Printf("probe failed: %s", err)
 		return err
+	}
+
+	ni := NodeInfo{
+		Time:   time.Now(),
+		NodeID: n.Ident(),
 	}
 
 	for _, r := range res.Ranges {
@@ -174,8 +181,22 @@ func probeOne(ctx context.Context, n *Node) error {
 			continue
 		}
 
+		rID := m.Ident
+
 		// TODO: Update the map rather than overwriting it every time.
-		ranges[*m] = RemoteStateFromProto(r.State)
+		info := RangeInfo{
+			Meta:  *m,
+			State: RemoteStateFromProto(r.State),
+			// TODO: LoadInfo
+		}
+
+		ni.Ranges = append(ni.Ranges, info)
+		ranges[rID] = info
+	}
+
+	// TODO: Should this (nil info) even be allowed?
+	if ros.info != nil {
+		ros.info <- ni
 	}
 
 	// TODO: Do we need a range-changed callback?
@@ -186,44 +207,6 @@ func probeOne(ctx context.Context, n *Node) error {
 
 	return nil
 }
-
-// 	for _, r := range res.Ranges {
-// 		rr := r.Range
-// 		if rr == nil {
-// 			log.Printf("Malformed probe response from node %s: Range is nil", n.Remote.Ident)
-// 			continue
-// 		}
-
-// 		// id, err := IdentFromProto(rr.Ident)
-// 		// if err != nil {
-// 		// 	log.Printf("Got malformed ident from node %s: %s", n.addr(), err.Error())
-// 		// 	continue
-// 		// }
-
-// 		// TODO: Move all of this outwards to some node state coordinator
-
-// 		// p, ok := n.ranges[*id]
-
-// 		// if !ok {
-// 		// 	log.Printf("Got unexpected range from node %s: %s", n.addr(), id.String())
-// 		// 	n.unexpectedRanges[*id] = rr
-// 		// 	continue
-// 		// }
-
-// 		// updateLocalState(p, r.State)
-
-// 		// TODO: We compare the Ident here even though we just fetched the assignment by ID. Is that... why
-// 		// if !p.rang.SameMeta(*id, rr.Start, rr.End) {
-// 		// 	log.Printf("Remote range did not match local range with same ident: %s", id.String())
-// 		// 	continue
-// 		// }
-
-// 		// Finally update the remote info
-// 		//p.K = r.Keys
-
-// 		// TODO: Figure out wtf to do when remote state doesn't match local
-// 		//rrr.state = RemoteStateFromProto(r.State)
-// 	}
 
 func (r *Roster) Tick() {
 	// TODO: anything but this
@@ -239,6 +222,7 @@ func (r *Roster) Tick() {
 	r.probe()
 }
 
+// TODO: Need some way to gracefully stop! Have to close the info channel to stop the reconciler.
 func (r *Roster) Run(t *time.Ticker) {
 	for ; true; <-t.C {
 		r.Tick()

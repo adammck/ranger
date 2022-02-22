@@ -68,7 +68,7 @@ func (op *SplitOp) Init() error {
 		// Immediately move the new ranges into Placing, so the balancer loop
 		// doesn't try to place them in a separate op. (Feels kind of weird to
 		// be doing this explicitly while we do so much else implicitly?)
-		op.Keyspace.ToState(r, ranje.Placing)
+		op.Keyspace.RangeToState(r, ranje.Placing)
 
 		r12[n] = r.Meta.Ident
 	}
@@ -141,7 +141,7 @@ func (op *SplitOp) take() (state, error) {
 		return Failed, fmt.Errorf("split (take) failed: %s", err)
 	}
 
-	err = utils.Take(op.Roster, r0, r0.CurrentPlacement)
+	err = utils.Take(op.Keyspace, op.Roster, r0, r0.CurrentPlacement)
 	if err != nil {
 		return Failed, fmt.Errorf("split (take) failed: %s", err)
 	}
@@ -206,7 +206,7 @@ func (op *SplitOp) drop() (state, error) {
 		return Failed, fmt.Errorf("split (drop) failed: %s", err)
 	}
 
-	err = utils.Drop(op.Roster, r, r.CurrentPlacement)
+	err = utils.Drop(op.Keyspace, op.Roster, r, r.CurrentPlacement)
 	if err != nil {
 		return Failed, fmt.Errorf("split (drop) failed: %s", err)
 	}
@@ -233,7 +233,7 @@ func (op *SplitOp) serve() (state, error) {
 				return fmt.Errorf("NextPlacement (%s) is nil", sides[n])
 			}
 
-			err = utils.Serve(op.Roster, r, p)
+			err = utils.Serve(op.Keyspace, op.Roster, r, p)
 			if err != nil {
 				return fmt.Errorf("serve (%s): %s", sides[n], err)
 			}
@@ -243,7 +243,7 @@ func (op *SplitOp) serve() (state, error) {
 				return fmt.Errorf("CompleteNextPlacement (%s): %s", sides[n], err)
 			}
 
-			op.Keyspace.ToState(r, ranje.Ready)
+			op.Keyspace.RangeToState(r, ranje.Ready)
 
 			return nil
 		})
@@ -264,7 +264,7 @@ func (op *SplitOp) serve() (state, error) {
 
 	// This also happens in Range.ChildStateChanged once children are Ready.
 	// TODO: Is that a good idea? Here would be more explicit.
-	op.Keyspace.ToState(r0, ranje.Obsolete)
+	op.Keyspace.RangeToState(r0, ranje.Obsolete)
 	r0.DropPlacement()
 
 	// TODO: This part should probably be handled later by some kind of optional

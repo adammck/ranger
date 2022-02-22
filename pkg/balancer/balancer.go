@@ -73,7 +73,7 @@ func (b *Balancer) Tick() {
 		// No candidates? That's a problem
 		// TODO: Will result in quarantine? Might not be range's fault.
 		if nid == "" {
-			err := b.ks.ToState(r, ranje.PlaceError)
+			err := b.ks.RangeToState(r, ranje.PlaceError)
 			if err != nil {
 				panic(err)
 			}
@@ -97,13 +97,13 @@ func (b *Balancer) Tick() {
 	// Find any ranges in PlaceError and move them to Pending or Quarantine
 	for _, r := range b.ks.RangesByState(ranje.PlaceError) {
 		if r.NeedsQuarantine() {
-			if err := b.ks.ToState(r, ranje.Quarantined); err != nil {
+			if err := b.ks.RangeToState(r, ranje.Quarantined); err != nil {
 				panic(fmt.Sprintf("ToState: %s", err.Error()))
 			}
 			continue
 		}
 
-		if err := b.ks.ToState(r, ranje.Pending); err != nil {
+		if err := b.ks.RangeToState(r, ranje.Pending); err != nil {
 			panic(fmt.Sprintf("ToState: %s", err.Error()))
 		}
 	}

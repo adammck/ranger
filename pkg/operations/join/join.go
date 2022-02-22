@@ -149,7 +149,7 @@ func (op *JoinOp) take() (state, error) {
 				return fmt.Errorf("%s: CurrentPlacement is nil", s)
 			}
 
-			err = utils.Take(op.Roster, r, p)
+			err = utils.Take(op.Keyspace, op.Roster, r, p)
 			if err != nil {
 				return err
 			}
@@ -218,7 +218,7 @@ func (op *JoinOp) drop() (state, error) {
 				return fmt.Errorf("Get (%s): %s", s, err.Error())
 			}
 
-			err = utils.Drop(op.Roster, r, r.CurrentPlacement)
+			err = utils.Drop(op.Keyspace, op.Roster, r, r.CurrentPlacement)
 			if err != nil {
 				return fmt.Errorf("drop (%s): %s", s, err.Error())
 			}
@@ -248,13 +248,13 @@ func (op *JoinOp) serve() (state, error) {
 		return Failed, fmt.Errorf("serve: NextPlacement is nil")
 	}
 
-	err = utils.Serve(op.Roster, r, p)
+	err = utils.Serve(op.Keyspace, op.Roster, r, p)
 	if err != nil {
 		return Failed, fmt.Errorf("serve (utils.Serve) failed: %s", err)
 	}
 
 	r.CompleteNextPlacement()
-	op.Keyspace.ToState(r, ranje.Ready)
+	op.Keyspace.RangeToState(r, ranje.Ready)
 
 	return Cleanup, nil
 }
@@ -281,7 +281,7 @@ func (op *JoinOp) cleanup() (state, error) {
 
 			// This also happens implicitly in Range.ChildStateChanged.
 			// TODO: Is this a good idea? Here would be more explicit.
-			op.Keyspace.ToState(r, ranje.Obsolete)
+			op.Keyspace.RangeToState(r, ranje.Obsolete)
 			r.DropPlacement()
 
 			// TODO: This part should probably be handled later by some kind of

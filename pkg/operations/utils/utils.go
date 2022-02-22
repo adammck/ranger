@@ -29,7 +29,7 @@ func ToState(ks *ranje.Keyspace, rID ranje.Ident, state ranje.StateLocal) error 
 		return err
 	}
 
-	err = ks.ToState(r, state)
+	err = ks.RangeToState(r, state)
 	if err != nil {
 		return err
 	}
@@ -87,20 +87,20 @@ func Give(ks *ranje.Keyspace, rost *roster.Roster, rang *ranje.Range, placement 
 	// TODO: Check the return values of state changes or use MustState!
 	rs := roster.RemoteStateFromProto(res.State)
 	if rs == roster.StateReady {
-		placement.ToState(ranje.SpReady)
+		ks.PlacementToState(placement, ranje.SpReady)
 
 	} else if rs == roster.StateFetching {
-		placement.ToState(ranje.SpFetching)
+		ks.PlacementToState(placement, ranje.SpFetching)
 
 	} else if rs == roster.StateFetched {
 		// The fetch finished before the client returned.
-		placement.ToState(ranje.SpFetching)
-		placement.ToState(ranje.SpFetched)
+		ks.PlacementToState(placement, ranje.SpFetching)
+		ks.PlacementToState(placement, ranje.SpFetched)
 
 	} else if rs == roster.StateFetchFailed {
 		// The fetch failed before the client returned.
-		placement.ToState(ranje.SpFetching)
-		placement.ToState(ranje.SpFetchFailed)
+		ks.PlacementToState(placement, ranje.SpFetching)
+		ks.PlacementToState(placement, ranje.SpFetchFailed)
 
 	} else {
 		// Got either Unknown or Taken
@@ -158,7 +158,7 @@ func pbPlacement(rost *roster.Roster, r *ranje.Range) *pb.Placement {
 
 // TODO: Remove the Range parameter. Get the relevant stuff from Placement.
 // TODO: Plumb in a context from somewhere. Maybe the top controller context.
-func Take(rost *roster.Roster, rang *ranje.Range, placement *ranje.Placement) error {
+func Take(ks *ranje.Keyspace, rost *roster.Roster, rang *ranje.Range, placement *ranje.Placement) error {
 
 	// TODO: Remove this? The node will enforce it anyway.
 	if placement.State != ranje.SpReady {
@@ -187,10 +187,10 @@ func Take(rost *roster.Roster, rang *ranje.Range, placement *ranje.Placement) er
 		return err
 	}
 
-	return placement.ToState(ranje.SpTaken)
+	return ks.PlacementToState(placement, ranje.SpTaken)
 }
 
-func Untake(rost *roster.Roster, rang *ranje.Range, placement *ranje.Placement) error {
+func Untake(ks *ranje.Keyspace, rost *roster.Roster, rang *ranje.Range, placement *ranje.Placement) error {
 	// TODO: Move this into the callers; state is no business of Node.
 	if placement.State != ranje.SpTaken {
 		return fmt.Errorf("can't untake range %s from node %s when state is %s",
@@ -218,11 +218,11 @@ func Untake(rost *roster.Roster, rang *ranje.Range, placement *ranje.Placement) 
 	}
 
 	// TODO: Also move this into caller?
-	return placement.ToState(ranje.SpReady)
+	return ks.PlacementToState(placement, ranje.SpReady)
 }
 
 // TODO: Can we just take a range here and call+check Placement?
-func Drop(rost *roster.Roster, rang *ranje.Range, placement *ranje.Placement) error {
+func Drop(ks *ranje.Keyspace, rost *roster.Roster, rang *ranje.Range, placement *ranje.Placement) error {
 	if placement == nil {
 		// This should probably be a panic; how could we possibly have gotten here with a nil placement
 		return fmt.Errorf("nil placement")
@@ -254,11 +254,11 @@ func Drop(rost *roster.Roster, rang *ranje.Range, placement *ranje.Placement) er
 		return err
 	}
 
-	return placement.ToState(ranje.SpDropped)
+	return ks.PlacementToState(placement, ranje.SpDropped)
 }
 
 // TODO: Can we just take a range here and call+check Placement?
-func Serve(rost *roster.Roster, rang *ranje.Range, placement *ranje.Placement) error {
+func Serve(ks *ranje.Keyspace, rost *roster.Roster, rang *ranje.Range, placement *ranje.Placement) error {
 	if placement == nil {
 		// This should probably be a panic
 		return fmt.Errorf("nil placement")
@@ -295,5 +295,5 @@ func Serve(rost *roster.Roster, rang *ranje.Range, placement *ranje.Placement) e
 		return err
 	}
 
-	return placement.ToState(ranje.SpReady)
+	return ks.PlacementToState(placement, ranje.SpReady)
 }

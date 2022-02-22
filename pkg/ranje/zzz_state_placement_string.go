@@ -16,11 +16,12 @@ func _() {
 	_ = x[SpReady-5]
 	_ = x[SpTaken-6]
 	_ = x[SpDropped-7]
+	_ = x[SpGone-8]
 }
 
-const _StatePlacement_name = "SpUnknownSpPendingSpFetchingSpFetchedSpFetchFailedSpReadySpTakenSpDropped"
+const _StatePlacement_name = "SpUnknownSpPendingSpFetchingSpFetchedSpFetchFailedSpReadySpTakenSpDroppedSpGone"
 
-var _StatePlacement_index = [...]uint8{0, 9, 18, 28, 37, 50, 57, 64, 73}
+var _StatePlacement_index = [...]uint8{0, 9, 18, 28, 37, 50, 57, 64, 73, 79}
 
 func (i StatePlacement) String() string {
 	if i >= StatePlacement(len(_StatePlacement_index)-1) {

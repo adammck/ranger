@@ -46,7 +46,8 @@ func NewPlacement(r *Range, nodeID string) (*Placement, error) {
 	return p, nil
 }
 
-func (p *Placement) ToState(new StatePlacement) error {
+// TODO: Make private and move callers to new method (like ToState) in Keyspace.
+func (p *Placement) toState(new StatePlacement) error {
 	p.Lock()
 	defer p.Unlock()
 	old := p.State
@@ -61,7 +62,12 @@ func (p *Placement) ToState(new StatePlacement) error {
 		return errors.New("can't transition placement out of SpDropped")
 	}
 
-	if old == SpPending {
+	if new == SpGone {
+		// It's always okay to transition into Gone. Whatever state we think the
+		// placement should be in, the node doesn't know about it.
+		ok = true
+
+	} else if old == SpPending {
 		if new == SpFetching { // 1
 			ok = true
 
@@ -115,15 +121,9 @@ func (p *Placement) ToState(new StatePlacement) error {
 	}
 
 	p.State = new
+	p.rang.dirty = true
 
-	// Try to persist the new state, and rewind+abort if it fails.
-	err := p.rang.Put()
-	if err != nil {
-		p.State = old
-		return fmt.Errorf("while persisting placement: %s", err)
-	}
-
-	log.Printf("P %s -> %s", old, new)
+	log.Printf("R%d P %s -> %s", p.rang.Meta.Ident.Key, old, new)
 
 	// Notify range of state change, so it can change its own state.
 	//p.rang.PlacementStateChanged(p)

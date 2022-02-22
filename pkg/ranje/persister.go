@@ -6,5 +6,7 @@ type Persister interface {
 	// once, at controller startup.
 	GetRanges() ([]*Range, error)
 
-	PutRange(*Range) error
+	// PutRanges writes all of the given Ranges to the store. Implementations
+	// must be transactional, so either they all succeed or none do.
+	PutRanges([]*Range) error
 }

@@ -43,7 +43,7 @@ func New(persister Persister) *Keyspace {
 		r := ks.Range()
 		r.State = Pending
 		ks.ranges = []*Range{r}
-		ks.pers.PutRange(r)
+		ks.pers.PutRanges(ks.ranges)
 		return ks
 	}
 
@@ -142,6 +142,8 @@ func (ks *Keyspace) Range() *Range {
 				Key:   ks.maxIdent,
 			},
 		},
+		// Starts dirty, because it hasn't been persisted yet.
+		dirty: true,
 	}
 
 	return r
@@ -181,10 +183,10 @@ func (ks *Keyspace) PlacementsByNodeID(nID string) []PBNID {
 
 	// TODO: Wow this is dumb! Keep an index of this somewhere.
 	for _, r := range ks.ranges {
-		for _, p := range [2]*Placement{r.CurrentPlacement, r.NextPlacement} {
+		for i, p := range [2]*Placement{r.CurrentPlacement, r.NextPlacement} {
 			if p != nil {
 				if p.NodeID == nID {
-					out = append(out, PBNID{r, p, 0})
+					out = append(out, PBNID{r, p, uint8(i)})
 				}
 			}
 		}
@@ -222,10 +224,81 @@ func (ks *Keyspace) Len() int {
 	return len(ks.ranges)
 }
 
-func (ks *Keyspace) ToState(rang *Range, state StateLocal) error {
+// RangeToState tries to move the given range into the given state.
+// TODO: Can we drop this and let range state transitions happen via Placement?
+func (ks *Keyspace) RangeToState(rang *Range, state StateLocal) error {
+	ks.mu.Lock()
+	defer ks.mu.Unlock()
+
 	err := rang.toState(state, ks)
 	if err != nil {
 		return err
+	}
+
+	return ks.mustPersistDirtyRanges()
+}
+
+func (ks *Keyspace) PlacementToState(p *Placement, state StatePlacement) error {
+	ks.mu.Lock()
+	defer ks.mu.Unlock()
+
+	err := p.toState(state)
+	if err != nil {
+		return err
+	}
+
+	p.rang.placementStateChanged(ks)
+
+	return ks.mustPersistDirtyRanges()
+}
+
+func (ks *Keyspace) mustPersistDirtyRanges() error {
+	ranges := []*Range{}
+	for _, r := range ks.ranges {
+		if r.dirty {
+			ranges = append(ranges, r)
+		}
+	}
+
+	err := ks.pers.PutRanges(ranges)
+	if err != nil {
+		panic(fmt.Sprintf("failed to persist ranges: %v", err))
+		//return err
+	}
+
+	return nil
+}
+
+func (ks *Keyspace) RemoteState(rID Ident, nID string, s StatePlacement) error {
+	r, err := ks.Get(rID)
+	if err != nil {
+		return err
+	}
+
+	found := 0
+
+	// TODO: Probably move this loop into Range.
+	for _, p := range []*Placement{r.CurrentPlacement, r.NextPlacement} {
+		if p != nil {
+			if p.NodeID == nID {
+				err = ks.PlacementToState(p, s)
+				if err != nil {
+					return err
+				}
+
+				found += 1
+			}
+		}
+	}
+
+	// This is actually normal; don't return an error. Repair it instead.
+	if found == 0 {
+		return fmt.Errorf("couldn't find range %v on node %v", rID, nID)
+	}
+
+	if found > 1 {
+		// This indicates that something has become very screwed up.
+		return fmt.Errorf("found range %v on %d nodes (expected one)", rID, found)
 	}
 
 	return nil
@@ -257,29 +330,24 @@ func (ks *Keyspace) DoSplit(r *Range, k Key) error {
 		return fmt.Errorf("range %s starts with key: %s", r, k)
 	}
 
-	err := ks.ToState(r, Splitting)
+	// Change the state of the splitting range directly via Range.toState rather
+	// than Keyspace.ToState as (usually!) recommended, because we don't want
+	// to persist the change until the two new ranges have been created, below.
+	err := r.toState(Splitting, ks)
 	if err != nil {
 		// The error is clear enough, no need to wrap it.
 		return err
 	}
 
-	// TODO: Move this part into Range?
-
 	one := ks.Range()
 	one.Meta.Start = r.Meta.Start
 	one.Meta.End = k
 	one.Parents = []Ident{r.Meta.Ident}
-	if err := one.InitPersist(); err != nil {
-		panic(fmt.Sprintf("failed to persist range: %s", err))
-	}
 
 	two := ks.Range()
 	two.Meta.Start = k
 	two.Meta.End = r.Meta.End
 	two.Parents = []Ident{r.Meta.Ident}
-	if err := two.InitPersist(); err != nil {
-		panic(fmt.Sprintf("failed to persist range: %s", err))
-	}
 
 	// append to the end of the ranges
 	// TODO: Insert the children after the parent, not at the end!
@@ -290,6 +358,9 @@ func (ks *Keyspace) DoSplit(r *Range, k Key) error {
 		one.Meta.Ident,
 		two.Meta.Ident,
 	}
+
+	// Persist all three ranges.
+	ks.mustPersistDirtyRanges()
 
 	return nil
 }
@@ -313,15 +384,18 @@ func (ks *Keyspace) JoinTwo(one *Range, two *Range) (*Range, error) {
 		return nil, fmt.Errorf("not adjacent: %s, %s", one, two)
 	}
 
-	// TODO: Move this part into Range?
+	for _, r := range []*Range{one, two} {
+		err := r.toState(Joining, ks)
+		if err != nil {
+			// The error is clear enough, no need to wrap it.
+			return nil, err
+		}
+	}
 
 	three := ks.Range()
 	three.Meta.Start = one.Meta.Start
 	three.Meta.End = two.Meta.End
 	three.Parents = []Ident{one.Meta.Ident, two.Meta.Ident}
-	if err := three.InitPersist(); err != nil {
-		panic(fmt.Sprintf("failed to persist range: %s", err))
-	}
 
 	// Insert new range at the end.
 	ks.ranges = append(ks.ranges, three)
@@ -329,13 +403,8 @@ func (ks *Keyspace) JoinTwo(one *Range, two *Range) (*Range, error) {
 	one.Children = []Ident{three.Meta.Ident}
 	two.Children = []Ident{three.Meta.Ident}
 
-	for _, r := range []*Range{one, two} {
-		err := ks.ToState(r, Joining)
-		if err != nil {
-			// The error is clear enough, no need to wrap it.
-			return nil, err
-		}
-	}
+	// Persist all three ranges atomically.
+	ks.mustPersistDirtyRanges()
 
 	return three, nil
 }

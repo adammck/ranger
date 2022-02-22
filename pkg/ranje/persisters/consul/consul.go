@@ -72,27 +72,38 @@ func (cp *Persister) GetRanges() ([]*ranje.Range, error) {
 	return out, nil
 }
 
-func (cp *Persister) PutRange(r *ranje.Range) error {
-	v, err := json.Marshal(r)
-	if err != nil {
-		return err
-	}
-
-	// TODO: Lock each range rather than the whole map! The lock is held for the whole RPC.
+func (cp *Persister) PutRanges(ranges []*ranje.Range) error {
 	cp.Lock()
 	defer cp.Unlock()
 
-	op := &api.KVTxnOp{
-		Verb:  api.KVCAS,
-		Key:   fmt.Sprintf("ranges/%d", r.Meta.Ident.Key),
-		Value: v,
+	var ops api.KVTxnOps
+	keyToRange := map[string]*ranje.Range{}
+
+	for _, r := range ranges {
+		v, err := json.Marshal(r)
+		if err != nil {
+			return err
+		}
+
+		op := &api.KVTxnOp{
+			Verb:  api.KVCAS,
+			Key:   fmt.Sprintf("ranges/%d", r.Meta.Ident.Key),
+			Value: v,
+		}
+
+		// Keep track of which range each key came from, so we can update the
+		// modifyIndex cache when we receive the response.
+		// TODO: Maybe use the op.Key as the map key here instead?
+		keyToRange[op.Key] = r
+
+		if index, ok := cp.modifyIndex[r]; ok {
+			op.Index = index
+		}
+
+		ops = append(ops, op)
 	}
 
-	if index, ok := cp.modifyIndex[r]; ok {
-		op.Index = index
-	}
-
-	ok, res, _, err := cp.kv.Txn(api.KVTxnOps{op}, nil)
+	ok, res, _, err := cp.kv.Txn(ops, nil)
 	if err != nil {
 		return err
 	}
@@ -100,11 +111,14 @@ func (cp *Persister) PutRange(r *ranje.Range) error {
 		// This should never happen
 		panic("got no err but !ok from Txn?")
 	}
-	if len(res.Results) != 1 {
-		panic(fmt.Sprintf("expected one result from Txn, got %d", len(res.Results)))
+	if len(res.Results) != len(ops) {
+		panic(fmt.Sprintf("expected %d result from Txn, got %d", len(ops), len(res.Results)))
 	}
 
-	cp.modifyIndex[r] = res.Results[0].ModifyIndex
+	for _, res := range res.Results {
+		r := keyToRange[res.Key]
+		cp.modifyIndex[r] = res.ModifyIndex
+	}
 
 	return nil
 }

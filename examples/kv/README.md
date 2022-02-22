@@ -14,13 +14,11 @@ Homebrew Bundle complete! 2 Brewfile dependencies now installed.
 ## Usage
 
 ```console
-$ cd ~/code/src/github.com/adammck/ranger/examples/kv
-$ go build
-
 $ # Start consul in the background.
 $ brew services run consul
 
 # Run a simple cluster (see Procfile)
+$ cd ~/code/src/github.com/adammck/ranger/examples/kv
 $ bin/dev.sh
 ```
 

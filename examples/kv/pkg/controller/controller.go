@@ -11,6 +11,7 @@ import (
 	consuldisc "github.com/adammck/ranger/pkg/discovery/consul"
 	"github.com/adammck/ranger/pkg/ranje"
 	consulpers "github.com/adammck/ranger/pkg/ranje/persisters/consul"
+	"github.com/adammck/ranger/pkg/reconciler"
 	"github.com/adammck/ranger/pkg/roster"
 	consulapi "github.com/hashicorp/consul/api"
 	"google.golang.org/grpc"
@@ -28,6 +29,7 @@ type Controller struct {
 	ks   *ranje.Keyspace
 	rost *roster.Roster
 	bal  *balancer.Balancer
+	rec  *reconciler.Reconciler
 }
 
 func New(addrLis, addrPub string, once bool) (*Controller, error) {
@@ -49,11 +51,20 @@ func New(addrLis, addrPub string, once bool) (*Controller, error) {
 		return nil, err
 	}
 
+	// Roster -> Balancer
+	//rangeInfoChan := make(chan roster.RangeInfo)
+
 	pers := consulpers.New(api)
 	ks := ranje.New(pers)
 
+	// Receives updates about remote node state from the roster, and tells the
+	// keyspace about it.
+	rec := reconciler.New(ks)
+
 	// TODO: Hook up the callbacks (or replace with channels)
-	rost := roster.New(disc, nil, nil)
+	rost := roster.New(disc, nil, nil, rec.Chan())
+
+	bal := balancer.New(ks, rost, srv)
 
 	return &Controller{
 		name:    "controller",
@@ -64,7 +75,8 @@ func New(addrLis, addrPub string, once bool) (*Controller, error) {
 		disc:    disc,
 		ks:      ks,
 		rost:    rost,
-		bal:     balancer.New(ks, rost, srv),
+		bal:     bal,
+		rec:     rec,
 	}, nil
 }
 
@@ -95,8 +107,8 @@ func (c *Controller) Run(ctx context.Context) error {
 		return err
 	}
 
-	// TODO: Fetch current assignment status from nodes
-	// TODO: Reconcile divergence etc
+	// Start reconciler to route info from roster to keyspace.
+	go c.rec.Run()
 
 	// Perform a single blocking probe cycle, to ensure that the first rebalance
 	// happens after we have the current state of the nodes.

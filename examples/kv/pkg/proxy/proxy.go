@@ -55,7 +55,7 @@ func New(addrLis, addrPub string, logReqs bool) (*Proxy, error) {
 		logReqs: logReqs,
 	}
 
-	p.rost = roster.New(disc, p.Add, p.Remove)
+	p.rost = roster.New(disc, p.Add, p.Remove, nil)
 
 	ps := proxyServer{proxy: p}
 	pbkv.RegisterKVServer(srv, &ps)

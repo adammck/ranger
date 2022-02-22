@@ -18,6 +18,10 @@ const (
 	SpReady
 	SpTaken
 	SpDropped
+
+	// Bad state. The controller expected the placement to placed on a node and
+	// be in some other state, but the node doesn't know about the placement.
+	SpGone
 )
 
 //go:generate stringer -type=StatePlacement -output=zzz_state_placement_string.go
@@ -40,6 +44,8 @@ func (s StatePlacement) ToProto() pb.PlacementState {
 		return pb.PlacementState_PS_TAKEN
 	case SpDropped:
 		return pb.PlacementState_PS_DROPPED
+	case SpGone:
+		return pb.PlacementState_PS_GONE
 	}
 
 	// Probably a state was added but this method wasn't updated.

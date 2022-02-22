@@ -32,7 +32,7 @@ type Node struct {
 	muConn sync.RWMutex
 
 	// Populated by probeOne
-	ranges   map[ranje.Meta]State
+	ranges   map[ranje.Ident]RangeInfo
 	muRanges sync.RWMutex
 
 	// TODO: Figure out what to do with these. They shouldn't exist, and indicate a state bug. But ignoring them probably isn't right.
@@ -44,10 +44,8 @@ func NewNode(remote discovery.Remote) *Node {
 		Remote: remote,
 		init:   time.Now(),
 		seen:   time.Time{}, // never
-		ranges: make(map[ranje.Meta]State),
+		ranges: make(map[ranje.Ident]RangeInfo),
 	}
-
-	// TODO: This is repeated in ShortNode now. Probably keep all conn stuff in there?
 
 	// start dialling in background
 	// todo: inherit context to allow global cancellation
@@ -64,6 +62,17 @@ func NewNode(remote discovery.Remote) *Node {
 	return &n
 }
 
+func (n *Node) Get(rangeID ranje.Ident) State {
+	info, ok := n.ranges[rangeID]
+
+	if !ok {
+		// TODO: Add a new state to represent this.
+		return StateUnknown
+	}
+
+	return info.State
+}
+
 func (n *Node) Ident() string {
 	return n.Remote.Ident
 }
@@ -74,13 +83,6 @@ func (n *Node) Addr() string {
 
 func (n *Node) String() string {
 	return fmt.Sprintf("N{%s}", n.Remote.Ident)
-}
-
-// UnsafeForgetPlacement removes the given placement from the ranges map of this
-// node. Works by address, not value.
-// TODO: Remove this method. It's useless now that nodes don't know placements.
-func (n *Node) ForgetPlacement(p *ranje.Placement) error {
-	return nil
 }
 
 // Seen tells us that the node is still in service discovery.
@@ -100,10 +102,4 @@ func (n *Node) Conn() (grpc.ClientConnInterface, error) {
 		return nil, errors.New("tried to read nil connection")
 	}
 	return n.conn, nil
-}
-
-func (n *Node) Connected() bool {
-	n.muConn.RLock()
-	defer n.muConn.RUnlock()
-	return n.conn != nil
 }

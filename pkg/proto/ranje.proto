@@ -69,6 +69,7 @@ enum PlacementState {
   PS_READY = 5;
   PS_TAKEN = 6;
   PS_DROPPED = 7;
+  PS_GONE = 8;
 }
 
 enum PlacementPosition {
