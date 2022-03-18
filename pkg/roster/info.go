@@ -10,6 +10,10 @@ type NodeInfo struct {
 	Time   time.Time
 	NodeID string
 	Ranges []RangeInfo
+
+	// Expired is true when the node was automatically expired because we
+	// haven't been able to probe it in a while.
+	Expired bool
 }
 
 // RangeInfo represents something we know about a Range on a Node at a moment in

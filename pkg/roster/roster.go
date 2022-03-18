@@ -26,7 +26,10 @@ type Roster struct {
 	// Callbacks
 	add    func(rem *discovery.Remote)
 	remove func(rem *discovery.Remote)
-	info   chan NodeInfo
+
+	// info receives NodeInfo updated whenever we receive a probe response from
+	// a node, or when we expire a node.
+	info chan NodeInfo
 }
 
 func New(disc discovery.Discoverable, add, remove func(rem *discovery.Remote), info chan NodeInfo) *Roster {
@@ -95,6 +98,9 @@ func (ros *Roster) discover() {
 			ros.Nodes[r.Ident] = n
 			log.Printf("added node: %v", n.Ident())
 
+			// TODO: Should we also send a blank NodeInfo to introduce the node?
+			//       We haven't probed it yet, so don't know what's assigned.
+
 			// TODO: Do this outside of the lock!!
 			if ros.add != nil {
 				ros.add(&n.Remote)
@@ -114,6 +120,15 @@ func (ros *Roster) expire() {
 			// TODO: Don't do this! Mark it as expired instead. There might still be ranges placed on it which need cleaning up.
 			delete(ros.Nodes, nID)
 			log.Printf("expired node: %v", n.Ident())
+
+			// Send a special loadinfo to the reconciler, to tell it that we've lost the node.
+			if ros.info != nil {
+				ros.info <- NodeInfo{
+					Time:    time.Now(),
+					NodeID:  n.Ident(),
+					Expired: true,
+				}
+			}
 
 			// TODO: Do this outside of the lock!!
 			if ros.remove != nil {

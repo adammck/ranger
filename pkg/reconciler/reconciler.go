@@ -54,6 +54,10 @@ func (r *Reconciler) nodeInfo(nInfo roster.NodeInfo) error {
 		states[rID] = r
 	}
 
+	if nInfo.Expired && len(nInfo.Ranges) != 0 {
+		panic("expired node with non-zero ranges")
+	}
+
 	// Collect the placements that the node reports that it has.
 	for _, rInfo := range nInfo.Ranges {
 		rID := rInfo.Meta.Ident
