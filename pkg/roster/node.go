@@ -32,8 +32,9 @@ type Node struct {
 	muConn sync.RWMutex
 
 	// Populated by probeOne
-	ranges   map[ranje.Ident]RangeInfo
-	muRanges sync.RWMutex
+	wantDrain bool
+	ranges    map[ranje.Ident]RangeInfo
+	muRanges  sync.RWMutex
 
 	// TODO: Figure out what to do with these. They shouldn't exist, and indicate a state bug. But ignoring them probably isn't right.
 	//unexpectedRanges map[Ident]*pb.RangeMeta
@@ -93,6 +94,18 @@ func (n *Node) Seen(t time.Time) {
 
 func (n *Node) IsStale(now time.Time) bool {
 	return n.seen.Before(now.Add(-staleTimer))
+}
+
+// Utilization returns a uint in [0, 255], indicating how busy this node is.
+// Ranges should generally be placed on nodes with lower utilization.
+func (n *Node) Utilization() uint8 {
+	return 255 // lol
+}
+
+func (n *Node) WantDrain() bool {
+	n.muRanges.RLock()
+	defer n.muRanges.RUnlock()
+	return n.wantDrain
 }
 
 func (n *Node) Conn() (grpc.ClientConnInterface, error) {

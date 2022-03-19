@@ -55,6 +55,7 @@ func New(addrLis, addrPub string, logReqs bool) (*Proxy, error) {
 		logReqs: logReqs,
 	}
 
+	// TODO: Should use the NodeInfo channel here instead.
 	p.rost = roster.New(disc, p.Add, p.Remove, nil)
 
 	ps := proxyServer{proxy: p}

@@ -56,6 +56,25 @@ func (b *Balancer) Operation(req operations.Operation) {
 	b.ops = append(b.ops, req)
 }
 
+func (b *Balancer) RangesOnNodesWantingShutdown() []*ranje.Range {
+	out := []*ranje.Range{}
+
+	// TODO: Have the roster keep a list of nodes wanting shutdown rather than iterating.
+	for _, n := range b.rost.Nodes {
+		if n.WantDrain() {
+			for _, pbnid := range b.ks.PlacementsByNodeID(n.Ident()) {
+
+				// TODO: If the placement is next (i.e. currently moving onto this node), cancel the op.
+				if pbnid.Position == 0 {
+					out = append(out, pbnid.Range)
+				}
+			}
+		}
+	}
+
+	return out
+}
+
 func (b *Balancer) Tick() {
 	// Find any unknown and complain about them. There should be NONE of these
 	// in the keyspace; it indicates a state bug.
@@ -65,33 +84,7 @@ func (b *Balancer) Tick() {
 
 	// Find any pending ranges and find any node to assign them to.
 	for _, r := range b.ks.RangesByState(ranje.Pending) {
-		//r.MustState(ranje.Placing)
-
-		// Find a node to place this range on.
-		nid := b.Candidate(r)
-
-		// No candidates? That's a problem
-		// TODO: Will result in quarantine? Might not be range's fault.
-		if nid == "" {
-			err := b.ks.RangeToState(r, ranje.PlaceError)
-			if err != nil {
-				panic(err)
-			}
-			continue
-		}
-
-		// Perform the placement in a background goroutine. (It's just a special
-		// case of moving with no source.) When it terminates, the range will be
-		// in the Ready or PlaceError states.
-		err := operations.Run(&move.MoveOp{
-			Keyspace: b.ks,
-			Roster:   b.rost,
-			Range:    r.Meta.Ident,
-			Node:     nid,
-		}, &b.opsWG)
-		if err != nil {
-			log.Printf("Error placing pending range: %v", err)
-		}
+		b.PerformMove(r)
 	}
 
 	// Find any ranges in PlaceError and move them to Pending or Quarantine
@@ -106,6 +99,10 @@ func (b *Balancer) Tick() {
 		if err := b.ks.RangeToState(r, ranje.Pending); err != nil {
 			panic(fmt.Sprintf("ToState: %s", err.Error()))
 		}
+	}
+
+	for _, r := range b.RangesOnNodesWantingShutdown() {
+		b.PerformMove(r)
 	}
 
 	// Kick off any pending operator-initiated actions in goroutines.
@@ -128,35 +125,86 @@ func (b *Balancer) FinishOps() {
 	b.opsWG.Wait()
 }
 
+func (b *Balancer) PerformMove(r *ranje.Range) {
+
+	// Find a node to place this range on.
+	nid := b.Candidate(r)
+
+	// No candidates? That's a problem
+	// TODO: Will result in quarantine? Might not be range's fault.
+	if nid == "" {
+		err := b.ks.RangeToState(r, ranje.PlaceError)
+		if err != nil {
+			panic(err)
+		}
+		return
+	}
+
+	// Perform the placement in a background goroutine. (It's just a special
+	// case of moving with no source.) When it terminates, the range will be
+	// in the Ready or PlaceError states.
+	err := operations.Run(&move.MoveOp{
+		Keyspace: b.ks,
+		Roster:   b.rost,
+		Range:    r.Meta.Ident,
+		Node:     nid,
+	}, &b.opsWG)
+	if err != nil {
+		log.Printf("Error placing pending range: %v", err)
+	}
+}
+
 func (b *Balancer) Candidate(r *ranje.Range) string {
 	b.rost.RLock()
 	defer b.rost.RUnlock()
 
-	var best string
+	// Build a list of nodes.
+	// TODO: Just store them this way in roster.
 
-	nIDs := make([]string, len(b.rost.Nodes))
+	nodes := make([]*roster.Node, len(b.rost.Nodes))
 	i := 0
 
-	for nID := range b.rost.Nodes {
-		nIDs[i] = nID
+	for _, nod := range b.rost.Nodes {
+		nodes[i] = nod
 		i += 1
 	}
 
-	sort.Strings(nIDs)
+	// Filter nodes which are asking to be drained (probably shutting down).
 
-	// lol
-	for _, nID := range nIDs {
-		best = nID
-		break
+	for i := range nodes {
+		if nodes[i].WantDrain() {
+			nodes[i] = nil
+		}
 	}
 
-	// No suitable nodes?
-	if best == "" {
-		log.Printf("No candidates for range: %v", r)
+	// Remove excluded (i.e. nil) nodes
+
+	{
+		tmp := []*roster.Node{}
+
+		for i := range nodes {
+			if nodes[i] != nil {
+				tmp = append(tmp, nodes[i])
+			}
+		}
+
+		nodes = tmp
+	}
+
+	if len(nodes) == 0 {
+		log.Printf("No non-excluded nodes available for range: %v", r)
 		return ""
 	}
 
-	return best
+	// Pick the node with lowest utilization.
+	// TODO: This doesn't take into account ranges which are on the way to that
+	//       node, and is generally totally insufficient.
+
+	sort.Slice(nodes, func(i, j int) bool {
+		return nodes[i].Utilization() < nodes[j].Utilization()
+	})
+
+	return nodes[0].Ident()
 }
 
 func (b *Balancer) Run(t *time.Ticker) {

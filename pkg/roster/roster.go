@@ -148,7 +148,7 @@ func (ros *Roster) probe() {
 	for _, node := range ros.Nodes {
 		wg.Add(1)
 
-		// Copy node since it changes between iterations.
+		// Copy node pointer since it changes between iterations.
 		// https://golang.org/doc/faq#closures_and_goroutines
 		go func(n *Node) {
 			defer wg.Done()
@@ -170,10 +170,10 @@ func (ros *Roster) probeOne(ctx context.Context, n *Node) error {
 
 	ranges := make(map[ranje.Ident]RangeInfo)
 
-	// TODO: Merge Info and Ranges RPCs. Unclear which was wich.
-	// 	res, err := n.Client.Info(ctx, &pb.InfoRequest{})
+	// TODO: This is an InfoRequest now, but we also have RangesRequest which is
+	// sufficient for the proxy. Maybe make which one is sent configurable?
 
-	res, err := n.Client.Ranges(ctx, &pb.RangesRequest{})
+	res, err := n.Client.Info(ctx, &pb.InfoRequest{})
 	if err != nil {
 		log.Printf("probe failed: %s", err)
 		return err
@@ -217,6 +217,7 @@ func (ros *Roster) probeOne(ctx context.Context, n *Node) error {
 	// TODO: Do we need a range-changed callback?
 
 	n.muRanges.Lock()
+	n.wantDrain = res.WantDrain
 	n.ranges = ranges
 	n.muRanges.Unlock()
 

@@ -7,7 +7,7 @@ import "ranje.proto";
 package ranger;
 
 message RangeInfo {
-  RangeMeta range = 1;
+  RangeMeta meta = 1;
 
   // The state which the range is currently in, according to the node.
   RangeNodeState state = 2;
@@ -28,10 +28,12 @@ service Node {
   rpc Untake (UntakeRequest) returns (UntakeResponse) {}
   rpc Drop (DropRequest) returns (DropResponse) {}
 
-  // Controller wants to know the state of ranges
+  // Controller wants to know the state of the node, including its ranges.
+  // Proxy shouldn't call this; use Ranges instead.
   rpc Info (InfoRequest) returns (InfoResponse) {}
 
   // Proxy wants to know what it can forward to this node.
+  // Controller shouldn't call this; use Info instead.
   rpc Ranges (RangesRequest) returns (RangesResponse) {}
 }
 
@@ -86,6 +88,10 @@ message InfoRequest {
 
 message InfoResponse {
   repeated RangeInfo ranges = 1;
+
+  // The nod wants the controller to remove all ranges from it. Probably because
+  // it wants to shut down gracefully.
+  bool wantDrain = 2;
 }
 
 message RangesRequest {
@@ -95,6 +101,7 @@ message RangesRequest {
   repeated string symbols = 1;
 }
 
+// This is like a short version of RangeInfo.
 message RangeMetaState {
   RangeMeta meta = 1;
   RangeNodeState state = 2;

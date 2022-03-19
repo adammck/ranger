@@ -136,6 +136,11 @@ func (rs *Ranges) Find(k key) (rangeIdent, bool) {
 	return rangeIdent{}, false
 }
 
+// Len returns the number of ranges this node has, in any state.
+func (rs *Ranges) Len() int {
+	return len(rs.ranges)
+}
+
 // This is all specific to the kv example. Nothing generic in here.
 type RangeData struct {
 	data map[string][]byte
@@ -253,12 +258,15 @@ func (rd *RangeData) fetchOne(ctx context.Context, mu *sync.Mutex, dest RangeMet
 type Node struct {
 	data   map[rangeIdent]*RangeData
 	ranges Ranges
-	mu     sync.Mutex // guards data and ranges, todo: split into one for ranges, and one for each range in data
+	mu     sync.RWMutex // guards data and ranges, todo: split into one for ranges, and one for each range in data
 
 	addrLis string
 	addrPub string
 	srv     *grpc.Server
 	disc    discovery.Discoverable
+
+	// Set by Node.DrainRanges.
+	wantDrain bool
 
 	// Options
 	logReqs bool
@@ -411,7 +419,9 @@ func (s *nodeServer) Drop(ctx context.Context, req *pbr.DropRequest) (*pbr.DropR
 }
 
 func (n *nodeServer) Info(ctx context.Context, req *pbr.InfoRequest) (*pbr.InfoResponse, error) {
-	res := &pbr.InfoResponse{}
+	res := &pbr.InfoResponse{
+		WantDrain: n.node.wantDrain,
+	}
 
 	// lol
 	n.node.mu.Lock()
@@ -423,7 +433,7 @@ func (n *nodeServer) Info(ctx context.Context, req *pbr.InfoRequest) (*pbr.InfoR
 		d := n.node.data[r.ident]
 
 		res.Ranges = append(res.Ranges, &pbr.RangeInfo{
-			Range: &pbr.RangeMeta{
+			Meta: &pbr.RangeMeta{
 				Ident: &pbr.Ident{
 					Scope: scope,
 					Key:   key,
@@ -681,6 +691,10 @@ func (n *Node) Run(ctx context.Context) error {
 	// Block until context is cancelled, indicating that caller wants shutdown.
 	<-ctx.Done()
 
+	// We're shutting down. First drain all of the ranges off this node (which
+	// may take a while and involve a bunch of RPCs.)
+	n.DrainRanges()
+
 	// Let in-flight RPCs finish and then stop. errChan will contain the error
 	// returned by srv.Serve (above) or be closed with no error.
 	n.srv.GracefulStop()
@@ -698,4 +712,54 @@ func (n *Node) Run(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (n *Node) DrainRanges() {
+	log.Printf("shutting down...\n")
+
+	// This is included in probe responses. The next time the controller probes
+	// this node, it will notice that the node wants to drain (probably because
+	// it's shutting down), and start removing ranges.
+	n.wantDrain = true
+
+	// Log the number of ranges remaining every five seconds while waiting.
+
+	tick := time.NewTicker(5 * time.Second)
+	done := make(chan bool)
+
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			case <-tick.C:
+				n.mu.RLock()
+				c := n.ranges.Len()
+				n.mu.RUnlock()
+
+				log.Printf("ranges remaining: %d\n", c)
+			}
+		}
+	}()
+
+	// Block until the number of ranges hits zero.
+
+	for {
+		n.mu.RLock()
+		c := n.ranges.Len()
+		n.mu.RUnlock()
+
+		if c == 0 {
+			break
+		}
+
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Stop the logger.
+
+	tick.Stop()
+	done <- true
+
+	log.Printf("shutdown complete.\n")
 }
