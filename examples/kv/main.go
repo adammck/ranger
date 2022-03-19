@@ -8,10 +8,12 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/adammck/ranger/examples/kv/pkg/controller"
 	"github.com/adammck/ranger/examples/kv/pkg/node"
 	"github.com/adammck/ranger/examples/kv/pkg/proxy"
+	"github.com/adammck/ranger/pkg/config"
 )
 
 type Runner interface {
@@ -19,6 +21,11 @@ type Runner interface {
 }
 
 func main() {
+	cfg := config.Config{
+		DrainNodesBeforeShutdown: true,
+		NodeExpireDuration:       5 * time.Second,
+	}
+
 	fnod := flag.Bool("node", false, "start a node")
 	fprx := flag.Bool("proxy", false, "start a proxy")
 	fctl := flag.Bool("controller", false, "start a controller")
@@ -51,13 +58,13 @@ func main() {
 	var err error
 
 	if *fnod && !*fprx && !*fctl {
-		cmd, err = node.New(*addrLis, *addrPub, *LogReqs)
+		cmd, err = node.New(cfg, *addrLis, *addrPub, *LogReqs)
 
 	} else if !*fnod && *fprx && !*fctl {
-		cmd, err = proxy.New(*addrLis, *addrPub, *LogReqs)
+		cmd, err = proxy.New(cfg, *addrLis, *addrPub, *LogReqs)
 
 	} else if !*fnod && !*fprx && *fctl {
-		cmd, err = controller.New(*addrLis, *addrPub, *fonce)
+		cmd, err = controller.New(cfg, *addrLis, *addrPub, *fonce)
 
 	} else {
 		err = errors.New("must provide one of -controller, -node, -proxy")

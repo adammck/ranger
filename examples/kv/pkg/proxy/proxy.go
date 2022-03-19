@@ -8,6 +8,7 @@ import (
 	"time"
 
 	pbkv "github.com/adammck/ranger/examples/kv/proto/gen"
+	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
 	consuldisc "github.com/adammck/ranger/pkg/discovery/consul"
 	"github.com/adammck/ranger/pkg/roster"
@@ -17,6 +18,8 @@ import (
 )
 
 type Proxy struct {
+	cfg config.Config
+
 	name    string
 	addrLis string
 	addrPub string // do we actually need this? maybe only discovery does.
@@ -31,7 +34,7 @@ type Proxy struct {
 	logReqs bool
 }
 
-func New(addrLis, addrPub string, logReqs bool) (*Proxy, error) {
+func New(cfg config.Config, addrLis, addrPub string, logReqs bool) (*Proxy, error) {
 	var opts []grpc.ServerOption
 	srv := grpc.NewServer(opts...)
 
@@ -56,7 +59,7 @@ func New(addrLis, addrPub string, logReqs bool) (*Proxy, error) {
 	}
 
 	// TODO: Should use the NodeInfo channel here instead.
-	p.rost = roster.New(disc, p.Add, p.Remove, nil)
+	p.rost = roster.New(cfg, disc, p.Add, p.Remove, nil)
 
 	ps := proxyServer{proxy: p}
 	pbkv.RegisterKVServer(srv, &ps)

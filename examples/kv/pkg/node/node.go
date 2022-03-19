@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	pbkv "github.com/adammck/ranger/examples/kv/proto/gen"
+	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
 	consuldisc "github.com/adammck/ranger/pkg/discovery/consul"
 	pbr "github.com/adammck/ranger/pkg/proto/gen"
@@ -256,6 +257,8 @@ func (rd *RangeData) fetchOne(ctx context.Context, mu *sync.Mutex, dest RangeMet
 }
 
 type Node struct {
+	cfg config.Config
+
 	data   map[rangeIdent]*RangeData
 	ranges Ranges
 	mu     sync.RWMutex // guards data and ranges, todo: split into one for ranges, and one for each range in data
@@ -628,7 +631,7 @@ func init() {
 
 }
 
-func New(addrLis, addrPub string, logReqs bool) (*Node, error) {
+func New(cfg config.Config, addrLis, addrPub string, logReqs bool) (*Node, error) {
 	var opts []grpc.ServerOption
 	srv := grpc.NewServer(opts...)
 
@@ -642,6 +645,7 @@ func New(addrLis, addrPub string, logReqs bool) (*Node, error) {
 	}
 
 	n := &Node{
+		cfg:    cfg,
 		data:   make(map[rangeIdent]*RangeData),
 		ranges: NewRanges(),
 
@@ -692,8 +696,14 @@ func (n *Node) Run(ctx context.Context) error {
 	<-ctx.Done()
 
 	// We're shutting down. First drain all of the ranges off this node (which
-	// may take a while and involve a bunch of RPCs.)
-	n.DrainRanges()
+	// may take a while and involve a bunch of RPCs.) If this is disabled, the
+	// node will just disappear, and the controller will wait until it expires
+	// before assigning the range to other nodes.
+	if n.cfg.DrainNodesBeforeShutdown {
+		n.DrainRanges()
+	} else {
+		log.Printf("not draining ranges")
+	}
 
 	// Let in-flight RPCs finish and then stop. errChan will contain the error
 	// returned by srv.Serve (above) or be closed with no error.
@@ -715,7 +725,7 @@ func (n *Node) Run(ctx context.Context) error {
 }
 
 func (n *Node) DrainRanges() {
-	log.Printf("shutting down...\n")
+	log.Printf("draining ranges...")
 
 	// This is included in probe responses. The next time the controller probes
 	// this node, it will notice that the node wants to drain (probably because
@@ -737,7 +747,7 @@ func (n *Node) DrainRanges() {
 				c := n.ranges.Len()
 				n.mu.RUnlock()
 
-				log.Printf("ranges remaining: %d\n", c)
+				log.Printf("ranges remaining: %d", c)
 			}
 		}
 	}()
@@ -761,5 +771,5 @@ func (n *Node) DrainRanges() {
 	tick.Stop()
 	done <- true
 
-	log.Printf("shutdown complete.\n")
+	log.Printf("finished draining ranges.")
 }

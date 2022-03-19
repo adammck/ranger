@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/adammck/ranger/pkg/balancer"
+	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
 	consuldisc "github.com/adammck/ranger/pkg/discovery/consul"
 	"github.com/adammck/ranger/pkg/ranje"
@@ -19,6 +20,8 @@ import (
 )
 
 type Controller struct {
+	cfg config.Config
+
 	name    string
 	addrLis string
 	addrPub string // do we actually need this? maybe only discovery does.
@@ -32,7 +35,7 @@ type Controller struct {
 	rec  *reconciler.Reconciler
 }
 
-func New(addrLis, addrPub string, once bool) (*Controller, error) {
+func New(cfg config.Config, addrLis, addrPub string, once bool) (*Controller, error) {
 	var opts []grpc.ServerOption
 	srv := grpc.NewServer(opts...)
 
@@ -62,7 +65,7 @@ func New(addrLis, addrPub string, once bool) (*Controller, error) {
 	rec := reconciler.New(ks)
 
 	// TODO: Hook up the callbacks (or replace with channels)
-	rost := roster.New(disc, nil, nil, rec.Chan())
+	rost := roster.New(cfg, disc, nil, nil, rec.Chan())
 
 	bal := balancer.New(ks, rost, srv)
 

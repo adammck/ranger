@@ -8,14 +8,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"google.golang.org/grpc"
-)
-
-const (
-	staleTimer = 10 * time.Second
 )
 
 type Node struct {
@@ -86,14 +83,16 @@ func (n *Node) String() string {
 	return fmt.Sprintf("N{%s}", n.Remote.Ident)
 }
 
-// Seen tells us that the node is still in service discovery.
+// WasSeen tells us that the node is still in service discovery.
 // TODO: Combine this with the ShortNode somehow? Maybe it's fine.
-func (n *Node) Seen(t time.Time) {
+func (n *Node) WasSeen(t time.Time) {
 	n.seen = t
 }
 
-func (n *Node) IsStale(now time.Time) bool {
-	return n.seen.Before(now.Add(-staleTimer))
+// IsExpired returns true if this node hasn't been seen in long enough that we
+// expect that it will never come back.
+func (n *Node) IsExpired(cfg config.Config, now time.Time) bool {
+	return n.seen.Before(now.Add(-cfg.NodeExpireDuration))
 }
 
 // Utilization returns a uint in [0, 255], indicating how busy this node is.

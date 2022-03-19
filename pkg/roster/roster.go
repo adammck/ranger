@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
@@ -16,6 +17,8 @@ const (
 )
 
 type Roster struct {
+	cfg config.Config
+
 	// Public so Balancer can read the Nodes
 	// node ident (not ranje.Ident!!) -> Node
 	Nodes map[string]*Node
@@ -32,8 +35,9 @@ type Roster struct {
 	info chan NodeInfo
 }
 
-func New(disc discovery.Discoverable, add, remove func(rem *discovery.Remote), info chan NodeInfo) *Roster {
+func New(cfg config.Config, disc discovery.Discoverable, add, remove func(rem *discovery.Remote), info chan NodeInfo) *Roster {
 	return &Roster{
+		cfg:    cfg,
 		Nodes:  make(map[string]*Node),
 		disc:   disc,
 		add:    add,
@@ -107,7 +111,7 @@ func (ros *Roster) discover() {
 			}
 		}
 
-		n.Seen(time.Now())
+		n.WasSeen(time.Now())
 	}
 }
 
@@ -116,7 +120,7 @@ func (ros *Roster) expire() {
 	now := time.Now()
 
 	for nID, n := range ros.Nodes {
-		if n.IsStale(now) {
+		if n.IsExpired(ros.cfg, now) {
 			// TODO: Don't do this! Mark it as expired instead. There might still be ranges placed on it which need cleaning up.
 			delete(ros.Nodes, nID)
 			log.Printf("expired node: %v", n.Ident())

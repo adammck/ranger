@@ -132,6 +132,7 @@ func (b *Balancer) PerformMove(r *ranje.Range) {
 
 	// No candidates? That's a problem
 	// TODO: Will result in quarantine? Might not be range's fault.
+	// TODO: Should this maybe go back to Pending instead?
 	if nid == "" {
 		err := b.ks.RangeToState(r, ranje.PlaceError)
 		if err != nil {

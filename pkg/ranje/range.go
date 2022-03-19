@@ -159,6 +159,11 @@ func (r *Range) toState(new StateLocal, rg RangeGetter) error {
 		ok = true
 	}
 
+	// The range is ready, and wants to move, but can't.
+	if old == Ready && new == PlaceError { // NEEDS NUM
+		ok = true
+	}
+
 	if old == Ready && new == Pending { // NEEDS NUM
 		ok = true
 	}
