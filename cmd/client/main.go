@@ -25,6 +25,7 @@ func main() {
 		fmt.Fprintf(w, "Action and args must be one of:\n")
 		fmt.Fprintf(w, "  - ranges\n")
 		fmt.Fprintf(w, "  - range <rangeID>\n")
+		fmt.Fprintf(w, "  - nodes\n")
 		fmt.Fprintf(w, "  - node <nodeID>\n")
 		fmt.Fprintf(w, "  - move <rangeID> <nodeID>\n")
 		fmt.Fprintf(w, "  - split <rangeID> <boundary> <nodeID> <nodeID>\n")
@@ -80,6 +81,15 @@ func main() {
 
 		client := pb.NewDebugClient(conn)
 		cmdRange(*printReq, client, ctx, rID)
+
+	case "nodes":
+		if flag.NArg() != 1 {
+			fmt.Fprintf(w, "Usage: %s nodes\n", os.Args[0])
+			os.Exit(1)
+		}
+
+		client := pb.NewDebugClient(conn)
+		cmdNodes(*printReq, client, ctx)
 
 	case "node", "n":
 		if flag.NArg() != 2 {
@@ -202,6 +212,29 @@ func cmdRange(printReq bool, client pb.DebugClient, ctx context.Context, rID uin
 
 	if err != nil {
 		fmt.Fprintf(w, "Debug.Range returned: %v\n", err)
+		os.Exit(1)
+	}
+
+	output(res)
+}
+
+func cmdNodes(printReq bool, client pb.DebugClient, ctx context.Context) {
+	w := flag.CommandLine.Output()
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	req := &pb.NodesListRequest{}
+
+	if printReq {
+		output(req)
+		return
+	}
+
+	res, err := client.NodesList(ctx, req)
+
+	if err != nil {
+		fmt.Fprintf(w, "Debug.NodesList returned: %v\n", err)
 		os.Exit(1)
 	}
 

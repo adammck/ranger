@@ -24,6 +24,13 @@ message RangeResponse {
     PlacementTwo next_placement = 4;
 }
 
+message NodesListRequest {
+}
+
+message NodesListResponse {
+    repeated NodeResponse nodes = 1;
+}
+
 message NodeRequest {
     string node = 1;
 }
@@ -47,5 +54,6 @@ message NodeResponse {
 service Debug {
     rpc RangesList (RangesListRequest) returns (RangesListResponse) {}
     rpc Range (RangeRequest) returns (RangeResponse) {}
+    rpc NodesList (NodesListRequest) returns (NodesListResponse) {}
     rpc Node (NodeRequest) returns (NodeResponse) {}
 }

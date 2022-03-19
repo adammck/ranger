@@ -8,6 +8,7 @@ import (
 
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
+	"github.com/adammck/ranger/pkg/roster"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -35,6 +36,37 @@ func rangeResponse(r *ranje.Range) *pb.RangeResponse {
 			Node:  p.NodeID,
 			State: p.State.ToProto(),
 		}
+	}
+
+	return res
+}
+
+func nodeResponse(ks *ranje.Keyspace, n *roster.Node) *pb.NodeResponse {
+	res := &pb.NodeResponse{
+		Node: &pb.NodeMeta{
+			Ident:   n.Ident(),
+			Address: n.Addr(),
+		},
+	}
+
+	for _, pl := range ks.PlacementsByNodeID(n.Ident()) {
+
+		// TODO: Move this somewhere.
+		var pos pb.PlacementPosition
+		switch pl.Position {
+		case 0:
+			pos = pb.PlacementPosition_PP_CURRENT
+		case 1:
+			pos = pb.PlacementPosition_PP_CURRENT
+		default:
+			pos = pb.PlacementPosition_PP_UNKNOWN
+		}
+
+		res.Ranges = append(res.Ranges, &pb.NodeRange{
+			Meta:     pl.Range.Meta.ToProto(),
+			State:    pl.Placement.State.ToProto(),
+			Position: pos,
+		})
 	}
 
 	return res
@@ -86,31 +118,20 @@ func (srv *debugServer) Node(ctx context.Context, req *pb.NodeRequest) (*pb.Node
 		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("No such node: %s", nID))
 	}
 
-	res := &pb.NodeResponse{
-		Node: &pb.NodeMeta{
-			Ident:   node.Ident(),
-			Address: node.Addr(),
-		},
-	}
+	res := nodeResponse(srv.bal.ks, node)
 
-	for _, pl := range srv.bal.ks.PlacementsByNodeID(node.Ident()) {
+	return res, nil
+}
 
-		// TODO: Move this somewhere.
-		var pos pb.PlacementPosition
-		switch pl.Position {
-		case 0:
-			pos = pb.PlacementPosition_PP_CURRENT
-		case 1:
-			pos = pb.PlacementPosition_PP_CURRENT
-		default:
-			pos = pb.PlacementPosition_PP_UNKNOWN
-		}
+func (srv *debugServer) NodesList(ctx context.Context, req *pb.NodesListRequest) (*pb.NodesListResponse, error) {
+	rost := srv.bal.rost
+	rost.RLock()
+	defer rost.RUnlock()
 
-		res.Ranges = append(res.Ranges, &pb.NodeRange{
-			Meta:     pl.Range.Meta.ToProto(),
-			State:    pl.Placement.State.ToProto(),
-			Position: pos,
-		})
+	res := &pb.NodesListResponse{}
+
+	for _, n := range rost.Nodes {
+		res.Nodes = append(res.Nodes, nodeResponse(srv.bal.ks, n))
 	}
 
 	return res, nil
