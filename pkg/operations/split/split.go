@@ -238,12 +238,10 @@ func (op *SplitOp) serve() (state, error) {
 				return fmt.Errorf("serve (%s): %s", sides[n], err)
 			}
 
-			err = r.CompleteNextPlacement()
-			if err != nil {
-				return fmt.Errorf("CompleteNextPlacement (%s): %s", sides[n], err)
+			err = op.Keyspace.CompleteNextPlacement(r)
+			if p == nil {
+				return fmt.Errorf("serve: CompleteNextPlacement(%s) failed: %v", sides[n], err)
 			}
-
-			op.Keyspace.RangeToState(r, ranje.Ready)
 
 			return nil
 		})

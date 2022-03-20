@@ -183,24 +183,6 @@ func (r *Range) ClearNextPlacement() {
 	r.NextPlacement = nil
 }
 
-// CompleteNextPlacement moves the next placement to current. This should be
-// called when an operation succeeds.
-// Caller must NOT hold the range lock.
-func (r *Range) CompleteNextPlacement() error {
-	r.Lock()
-	defer r.Unlock()
-
-	if r.NextPlacement == nil {
-		// This method should not even be called in this state!
-		panic("can't complete move when next placement is nil")
-	}
-
-	r.CurrentPlacement = r.NextPlacement
-	r.NextPlacement = nil
-
-	return nil
-}
-
 // childrenReady returns true if all of the ranges children are ready. (Doesn't
 // care if the range has no children.)
 func childrenReady(r *Range, rg RangeGetter) bool {

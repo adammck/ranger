@@ -215,7 +215,7 @@ func (op *JoinOp) drop() (state, error) {
 		g.Go(func() error {
 			r, err := op.Keyspace.Get(rID)
 			if err != nil {
-				return fmt.Errorf("Get (%s): %s", s, err.Error())
+				return fmt.Errorf("Get(%s): %s", s, err.Error())
 			}
 
 			err = utils.Drop(op.Keyspace, op.Roster, r, r.CurrentPlacement)
@@ -253,8 +253,10 @@ func (op *JoinOp) serve() (state, error) {
 		return Failed, fmt.Errorf("serve (utils.Serve) failed: %s", err)
 	}
 
-	r.CompleteNextPlacement()
-	op.Keyspace.RangeToState(r, ranje.Ready)
+	err = op.Keyspace.CompleteNextPlacement(r)
+	if p == nil {
+		return Failed, fmt.Errorf("serve: CompleteNextPlacement failed: %v", err)
+	}
 
 	return Cleanup, nil
 }
@@ -271,7 +273,7 @@ func (op *JoinOp) cleanup() (state, error) {
 		g.Go(func() error {
 			r, err := op.Keyspace.Get(rID)
 			if err != nil {
-				return fmt.Errorf("Get (%s): %s", s, err.Error())
+				return fmt.Errorf("Get(%s): %s", s, err.Error())
 			}
 
 			p := r.CurrentPlacement

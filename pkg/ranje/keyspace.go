@@ -246,11 +246,34 @@ func (ks *Keyspace) Len() int {
 
 // RangeToState tries to move the given range into the given state.
 // TODO: Can we drop this and let range state transitions happen via Placement?
-func (ks *Keyspace) RangeToState(rang *Range, state StateLocal) error {
+func (ks *Keyspace) RangeToState(rng *Range, state StateLocal) error {
 	ks.mu.Lock()
 	defer ks.mu.Unlock()
 
-	err := rang.toState(state, ks)
+	err := rng.toState(state, ks)
+	if err != nil {
+		return err
+	}
+
+	return ks.mustPersistDirtyRanges()
+}
+
+// CompleteNextPlacement moves the next placement to current. This should be
+// called when an operation succeeds.
+// Caller must NOT hold the range lock.
+func (ks *Keyspace) CompleteNextPlacement(r *Range) error {
+	ks.mu.Lock()
+	defer ks.mu.Unlock()
+
+	if r.NextPlacement == nil {
+		// This method should not even be called in this state!
+		panic("can't complete move when next placement is nil")
+	}
+
+	r.CurrentPlacement = r.NextPlacement
+	r.NextPlacement = nil
+
+	err := r.toState(Ready, ks)
 	if err != nil {
 		return err
 	}

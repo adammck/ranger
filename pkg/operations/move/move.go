@@ -298,14 +298,9 @@ func (op *MoveOp) drop() (state, error) {
 }
 
 func complete(op *MoveOp, r *ranje.Range) (state, error) {
-	err := r.CompleteNextPlacement()
+	err := op.Keyspace.CompleteNextPlacement(r)
 	if err != nil {
 		return Failed, fmt.Errorf("complete failed: CompleteNextPlacement: %v", err)
-	}
-
-	err = op.Keyspace.RangeToState(r, ranje.Ready)
-	if err != nil {
-		return Failed, fmt.Errorf("complete failed: RangeToState: %v", err)
 	}
 
 	return Complete, nil
