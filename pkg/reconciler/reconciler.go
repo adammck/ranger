@@ -70,8 +70,18 @@ func (r *Reconciler) nodeInfo(nInfo roster.NodeInfo) error {
 
 		if pair.hasExpected() {
 			if pair.hasActual() {
-				if pair.expected.Placement.State != pair.actual.State.ToStatePlacement() {
-					err := r.ks.RemoteState(rID, nInfo.NodeID, pair.actual.State.ToStatePlacement())
+
+				// Check that remote stat matches local.
+				exp := pair.expected.Placement.State
+				act := pair.actual.State.ToStatePlacement()
+				if exp != act {
+
+					log.Printf(
+						"expected range %v on node %v (pos=%d), to be in state %v, but it was in state %v",
+						rID, nInfo.NodeID, pair.expected.Position, exp, act)
+
+					// Update local state to match remote.
+					err := r.ks.PlacementToState(pair.expected.Placement, act)
 					if err != nil {
 						log.Printf("error updating state: %v\n", err)
 					}

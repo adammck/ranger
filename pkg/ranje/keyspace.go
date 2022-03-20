@@ -288,42 +288,6 @@ func (ks *Keyspace) mustPersistDirtyRanges() error {
 	return nil
 }
 
-// TODO: Why does this exist? Use PlacementToState
-func (ks *Keyspace) RemoteState(rID Ident, nID string, s StatePlacement) error {
-	r, err := ks.Get(rID)
-	if err != nil {
-		return err
-	}
-
-	found := 0
-
-	// TODO: Probably move this loop into Range.
-	for _, p := range []*Placement{r.CurrentPlacement, r.NextPlacement} {
-		if p != nil {
-			if p.NodeID == nID {
-				err = ks.PlacementToState(p, s)
-				if err != nil {
-					return err
-				}
-
-				found += 1
-			}
-		}
-	}
-
-	// This is actually normal; don't return an error. Repair it instead.
-	if found == 0 {
-		return fmt.Errorf("couldn't find range %v on node %v", rID, nID)
-	}
-
-	if found > 1 {
-		// This indicates that something has become very screwed up.
-		return fmt.Errorf("found range %v on %d nodes (expected one)", rID, found)
-	}
-
-	return nil
-}
-
 // TODO: Rename to Split once the old one is gone
 func (ks *Keyspace) DoSplit(r *Range, k Key) error {
 	ks.mu.Lock()
