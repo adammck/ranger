@@ -84,25 +84,15 @@ func (r *Reconciler) nodeInfo(nInfo roster.NodeInfo) error {
 				// probably asked after it was created here, but hasn't been
 				// conveyed to the node yet.
 				if pair.expected.Position == 0 {
-					s := pair.expected.Placement.State
 
-					if s == ranje.SpGone {
-						// The range is already in Gone, so we've already been
-						// through this loop at least once. That isn't great.
-						log.Printf("range %v on node %v still SpGone\n", rID, nInfo.NodeID)
-						r.ks.Range().ForgetPlacement(pair.expected.Placement)
-
-					} else if s != ranje.SpPending {
-
-						// Do nothing if the placement is Pending state. We've
-						// probably created it controller-side but haven't told
-						// the node about it yet.
-						err := r.ks.RemoteState(rID, nInfo.NodeID, ranje.SpGone)
+					// Also don't worry if the placement is SpPending. We've
+					// probably just created it controller-side and not told the
+					// node about it yet.
+					if pair.expected.Placement.State != ranje.SpPending {
+						err := r.ks.PlacementToState(pair.expected.Placement, ranje.SpGone)
 						if err != nil {
-							log.Printf("error updating state: %v", err)
+							log.Printf("error updating state: %v\n", err)
 						}
-
-						r.ks.Range().ForgetPlacement(pair.expected.Placement)
 					}
 				}
 			}

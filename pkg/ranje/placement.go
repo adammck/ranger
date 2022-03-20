@@ -69,9 +69,6 @@ func (p *Placement) toState(new StatePlacement) error {
 		// placement should be in, the node doesn't know about it.
 		ok = true
 
-		// As with Dropped, remove the NodeID.
-		p.NodeID = ""
-
 	} else if old == SpPending {
 		if new == SpFetching { // 1
 			ok = true
@@ -129,11 +126,6 @@ func (p *Placement) toState(new StatePlacement) error {
 	p.rang.dirty = true
 
 	log.Printf("R%d P %s -> %s", p.rang.Meta.Ident.Key, old, new)
-
-	// Notify range of state change, so it can change its own state.
-	//p.rang.PlacementStateChanged(p)
-
-	// TODO: Should we notify the node, too?
 
 	return nil
 }

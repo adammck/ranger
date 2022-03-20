@@ -167,6 +167,26 @@ type PBNID struct {
 	Position  uint8
 }
 
+// NodeChecker only exists to pass a Roster to RangesOnNonExistentNodes without
+// importing the whole thing.
+type NodeChecker interface {
+	NodeExists(nodeIdent string) bool
+}
+
+func (ks *Keyspace) RangesOnNonExistentNodes(nc NodeChecker) []PBNID {
+	out := []PBNID{}
+
+	for _, r := range ks.ranges {
+		for i, p := range [2]*Placement{r.CurrentPlacement, r.NextPlacement} {
+			if p != nil && !nc.NodeExists(p.NodeID) {
+				out = append(out, PBNID{r, p, uint8(i)})
+			}
+		}
+	}
+
+	return out
+}
+
 // PlacementsByNodeID returns a list of (range, placement, position) tuples for
 // the given nodeID.
 //
@@ -248,7 +268,6 @@ func (ks *Keyspace) PlacementToState(p *Placement, state StatePlacement) error {
 	}
 
 	p.rang.placementStateChanged(ks)
-
 	return ks.mustPersistDirtyRanges()
 }
 

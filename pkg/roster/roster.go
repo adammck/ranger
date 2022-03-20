@@ -61,6 +61,12 @@ func (ros *Roster) NodeByIdent(nodeIdent string) *Node {
 	return nil
 }
 
+// NodeExists returns true if a node with the given ident exists. This is just
+// to satisfy the NodeChecker interface.
+func (ros *Roster) NodeExists(nodeIdent string) bool {
+	return ros.NodeByIdent(nodeIdent) != nil
+}
+
 // Locate returns the list of node IDs that the given key can be found on, in any state.
 // TODO: Allow the Map to be filtered by state.
 func (ros *Roster) Locate(k ranje.Key) []string {

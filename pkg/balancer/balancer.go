@@ -82,6 +82,13 @@ func (b *Balancer) Tick() {
 		log.Fatalf("range in unknown state: %v", r)
 	}
 
+	// Find any placements on nodes which are unknown to the roster. This can
+	// happen if a node goes away while the controller is down, and probably
+	// other state snafus.
+	for _, pbnid := range b.ks.RangesOnNonExistentNodes(b.rost) {
+		b.ks.PlacementToState(pbnid.Placement, ranje.SpGone)
+	}
+
 	// Find any pending ranges and find any node to assign them to.
 	for _, r := range b.ks.RangesByState(ranje.Pending) {
 		b.PerformMove(r)

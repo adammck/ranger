@@ -50,7 +50,7 @@ func Give(ks *ranje.Keyspace, rost *roster.Roster, rang *ranje.Range, placement 
 			panic("giving current placement??")
 		}
 
-		if p.State != ranje.SpTaken && p.State != ranje.SpGone {
+		if p.State != ranje.SpTaken {
 			return fmt.Errorf("can't give range %s when current placement on node %s is in state %s",
 				rang.String(), p.NodeID, p.State)
 		}

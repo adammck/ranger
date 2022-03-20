@@ -19,8 +19,10 @@ const (
 	SpTaken
 	SpDropped
 
-	// Bad state. The controller expected the placement to placed on a node and
-	// be in some other state, but the node doesn't know about the placement.
+	// The controller expected the placement to be on some node in some other
+	// state, but when probed, the node didn't know about it. That's bad news!
+	// Placements entering this state are immediately discarded, so we should
+	// never see this state in durable storage.
 	SpGone
 )
 
@@ -45,6 +47,7 @@ func (s StatePlacement) ToProto() pb.PlacementState {
 	case SpDropped:
 		return pb.PlacementState_PS_DROPPED
 	case SpGone:
+		// Should never actually appear in proto.
 		return pb.PlacementState_PS_GONE
 	}
 
