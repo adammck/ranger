@@ -24,10 +24,6 @@ type Range struct {
 	CurrentPlacement *Placement
 	NextPlacement    *Placement
 
-	// The number of times this range has failed to be placed since it was last
-	// Ready. Incremented by State.
-	placeErrorCount int
-
 	// Guards everything.
 	// TODO: Can we get rid of this and just use the keyspace lock?
 	sync.Mutex
@@ -101,40 +97,8 @@ func (r *Range) toState(new StateLocal, rg RangeGetter) error {
 		ok = true
 	}
 
-	// Straight from Pending to PlaceError means that we can't even attempt a
-	// placement. Probably no candidate nodes available. Currently increments
-	// error count anyway, which might result in range quarantine!
-	if old == Pending && new == PlaceError { // NEEDS NUM
-		r.placeErrorCount += 1
-		ok = true
-	}
-
 	// TODO: THIS IS ONLY INITIAL PLACEMENT
 	if old == Placing && new == Ready { // 2
-		r.placeErrorCount = 0
-		ok = true
-	}
-
-	// Started placing the range, but it failed. Maybe that's because the range
-	// is toxic. Or maybe just unlucky timing and the destination ndoe died.
-	if old == Placing && new == PlaceError { // 3
-		r.placeErrorCount += 1
-		ok = true
-	}
-
-	// WRONG
-	// NOT (4)
-	// THIS SHOULD GO BACK TO PLACING
-	if old == PlaceError && new == Pending {
-		ok = true
-	}
-
-	if old == PlaceError && new == Quarantined { // 5
-		ok = true
-	}
-
-	// Doesn't happen automatically. Only when forced by an operator.
-	if old == Quarantined && new == Placing { // 6
 		ok = true
 	}
 
@@ -156,11 +120,6 @@ func (r *Range) toState(new StateLocal, rg RangeGetter) error {
 	}
 
 	if old == Ready && new == Joining { // 10
-		ok = true
-	}
-
-	// The range is ready, and wants to move, but can't.
-	if old == Ready && new == PlaceError { // NEEDS NUM
 		ok = true
 	}
 
@@ -257,8 +216,4 @@ func childrenReady(r *Range, rg RangeGetter) bool {
 	}
 
 	return true
-}
-
-func (r *Range) NeedsQuarantine() bool {
-	return r.placeErrorCount >= 3
 }

@@ -1,7 +1,6 @@
 package balancer
 
 import (
-	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -93,20 +92,7 @@ func (b *Balancer) Tick() {
 		b.PerformMove(r)
 	}
 
-	// Find any ranges in PlaceError and move them to Pending or Quarantine
-	for _, r := range b.ks.RangesByState(ranje.PlaceError) {
-		if r.NeedsQuarantine() {
-			if err := b.ks.RangeToState(r, ranje.Quarantined); err != nil {
-				panic(fmt.Sprintf("ToState: %s", err.Error()))
-			}
-			continue
-		}
-
-		if err := b.ks.RangeToState(r, ranje.Pending); err != nil {
-			panic(fmt.Sprintf("ToState: %s", err.Error()))
-		}
-	}
-
+	// Find any ranges on nodes wanting drain, and move them.
 	for _, r := range b.RangesOnNodesWantingDrain() {
 		b.PerformMove(r)
 	}

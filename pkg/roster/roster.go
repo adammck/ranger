@@ -306,7 +306,7 @@ func (r *Roster) Candidate(rng *ranje.Range) (string, error) {
 	}
 
 	if len(candidates) == 0 {
-		return "", fmt.Errorf("no non-excluded nodes available for range: %v", r)
+		return "", fmt.Errorf("no non-excluded nodes available for range: %v", rng)
 	}
 
 	// Pick the node with lowest utilization.

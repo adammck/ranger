@@ -49,13 +49,11 @@ enum RangeState {
   RS_UNKNOWN = 0;
   RS_PENDING = 1;
   RS_PLACING = 2;
-  RS_PLACEERROR = 3;
-  RS_QUARANTINED = 4;
-  RS_READY = 5;
-  RS_MOVING = 6;
-  RS_SPLITTING = 7;
-  RS_JOINING = 8;
-  RS_OBSOLETE = 9;
+  RS_READY = 3;
+  RS_MOVING = 4;
+  RS_SPLITTING = 5;
+  RS_JOINING = 6;
+  RS_OBSOLETE = 7;
 }
 
 // This is only for debugging purposes, for now.

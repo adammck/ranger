@@ -62,7 +62,7 @@ func (op *MoveOp) Init() error {
 		op.state = Take
 		return nil
 
-	} else if r.State == ranje.Quarantined || r.State == ranje.Pending {
+	} else if r.State == ranje.Pending {
 		// Not ready, but still eligible to be placed. (This isn't necessarily
 		// an error state. All ranges are pending when created.)
 		op.Keyspace.RangeToState(r, ranje.Placing)
@@ -174,7 +174,7 @@ func (op *MoveOp) give() (state, error) {
 			// During initial placement, we can just fail without cleanup. The
 			// range is still not assigned. The balancer should retry the
 			// placement, perhaps on a different node.
-			op.Keyspace.RangeToState(r, ranje.PlaceError)
+			op.Keyspace.RangeToState(r, ranje.Pending)
 			return Failed, fmt.Errorf("give failed: %v", err)
 
 		case ranje.Moving:
@@ -298,7 +298,15 @@ func (op *MoveOp) drop() (state, error) {
 }
 
 func complete(op *MoveOp, r *ranje.Range) (state, error) {
-	r.CompleteNextPlacement()
-	op.Keyspace.RangeToState(r, ranje.Ready)
+	err := r.CompleteNextPlacement()
+	if err != nil {
+		return Failed, fmt.Errorf("complete failed: CompleteNextPlacement: %v", err)
+	}
+
+	err = op.Keyspace.RangeToState(r, ranje.Ready)
+	if err != nil {
+		return Failed, fmt.Errorf("complete failed: RangeToState: %v", err)
+	}
+
 	return Complete, nil
 }

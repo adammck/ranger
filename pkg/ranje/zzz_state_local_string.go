@@ -11,18 +11,16 @@ func _() {
 	_ = x[Unknown-0]
 	_ = x[Pending-1]
 	_ = x[Placing-2]
-	_ = x[PlaceError-3]
-	_ = x[Quarantined-4]
-	_ = x[Ready-5]
-	_ = x[Moving-6]
-	_ = x[Splitting-7]
-	_ = x[Joining-8]
-	_ = x[Obsolete-9]
+	_ = x[Ready-3]
+	_ = x[Moving-4]
+	_ = x[Splitting-5]
+	_ = x[Joining-6]
+	_ = x[Obsolete-7]
 }
 
-const _StateLocal_name = "UnknownPendingPlacingPlaceErrorQuarantinedReadyMovingSplittingJoiningObsolete"
+const _StateLocal_name = "UnknownPendingPlacingReadyMovingSplittingJoiningObsolete"
 
-var _StateLocal_index = [...]uint8{0, 7, 14, 21, 31, 42, 47, 53, 62, 69, 77}
+var _StateLocal_index = [...]uint8{0, 7, 14, 21, 26, 32, 41, 48, 56}
 
 func (i StateLocal) String() string {
 	if i >= StateLocal(len(_StateLocal_index)-1) {

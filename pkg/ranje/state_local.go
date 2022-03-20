@@ -23,15 +23,6 @@ const (
 	//          range, and exchanging RPCs.
 	Placing
 
-	// PlaceError: We tried to place the range on a node, but it failed. It may
-	//             proceed back to Pending, to be placed, or Quarantined, to
-	//             wait for operator intervention.
-	PlaceError
-
-	// Quarantined: The range is not placed on any nodes, and should remain so
-	//              until an operator intervenes. This indicates that the range
-	Quarantined
-
 	// Ready: The range is owned by a node, and is in the steady state.
 	Ready
 
@@ -81,10 +72,6 @@ func (s StateLocal) ToProto() pb.RangeState {
 		return pb.RangeState_RS_PENDING
 	case Placing:
 		return pb.RangeState_RS_PLACING
-	case PlaceError:
-		return pb.RangeState_RS_PLACEERROR
-	case Quarantined:
-		return pb.RangeState_RS_QUARANTINED
 	case Ready:
 		return pb.RangeState_RS_READY
 	case Moving:
