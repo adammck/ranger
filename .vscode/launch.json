@@ -6,7 +6,7 @@
             "name": "Launch Controller",
             "request": "launch",
             "program": "${workspaceFolder}/examples/kv/main.go",
-            "args": ["-controller", "-addr", ":9000"],
+            "args": ["-controller", "-addr", ":5200"],
         }
     ]
 }
