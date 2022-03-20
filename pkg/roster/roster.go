@@ -111,7 +111,7 @@ func (ros *Roster) discover() {
 			}
 		}
 
-		n.WasSeen(time.Now())
+		n.whenLastSeen = time.Now()
 	}
 }
 
@@ -120,12 +120,12 @@ func (ros *Roster) expire() {
 	now := time.Now()
 
 	for nID, n := range ros.Nodes {
-		if n.IsExpired(ros.cfg, now) {
-			// TODO: Don't do this! Mark it as expired instead. There might still be ranges placed on it which need cleaning up.
-			delete(ros.Nodes, nID)
+		if n.IsMissing(ros.cfg, now) {
+			// The node hasn't responded to probes in a while.
 			log.Printf("expired node: %v", n.Ident())
 
-			// Send a special loadinfo to the reconciler, to tell it that we've lost the node.
+			// Send a special loadinfo to the reconciler, to tell it that we've
+			// lost the node.
 			if ros.info != nil {
 				ros.info <- NodeInfo{
 					Time:    time.Now(),
@@ -134,9 +134,17 @@ func (ros *Roster) expire() {
 				}
 			}
 
-			// TODO: Do this outside of the lock!!
+			// TODO: Get rid of these callbacks. Just use the channel.
 			if ros.remove != nil {
 				ros.remove(&n.Remote)
+			}
+
+			if n.IsGoneFromServiceDiscovery(ros.cfg, now) {
+				// The node has also been missing from service discovery for a
+				// while, so we can forget about it and stop probing.
+				log.Printf("removing node: %v", n.Ident())
+				delete(ros.Nodes, nID)
+				continue
 			}
 		}
 	}
@@ -179,7 +187,6 @@ func (ros *Roster) probeOne(ctx context.Context, n *Node) error {
 
 	res, err := n.Client.Info(ctx, &pb.InfoRequest{})
 	if err != nil {
-		log.Printf("probe failed: %s", err)
 		return err
 	}
 
@@ -225,6 +232,8 @@ func (ros *Roster) probeOne(ctx context.Context, n *Node) error {
 	n.ranges = ranges
 	n.muRanges.Unlock()
 
+	n.whenLastProbed = time.Now()
+
 	return nil
 }
 
@@ -236,10 +245,10 @@ func (r *Roster) Tick() {
 	// Grab any new nodes from service discovery.
 	r.discover()
 
-	// Expire any nodes that have gone missing service discovery.
-	r.expire()
-
 	r.probe()
+
+	// Expire any nodes that we haven't been able to probe in a while.
+	r.expire()
 }
 
 // TODO: Need some way to gracefully stop! Have to close the info channel to stop the reconciler.
