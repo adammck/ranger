@@ -3,7 +3,6 @@ package balancer
 import (
 	"fmt"
 	"log"
-	"sort"
 	"sync"
 	"time"
 
@@ -135,7 +134,7 @@ func (b *Balancer) FinishOps() {
 func (b *Balancer) PerformMove(r *ranje.Range) {
 
 	// Find a node to place this range on.
-	nid, err := b.Candidate(r)
+	nid, err := b.rost.Candidate(r)
 
 	// No candidates? That's a problem
 	// TODO: Will result in quarantine? Might not be range's fault.
@@ -161,58 +160,6 @@ func (b *Balancer) PerformMove(r *ranje.Range) {
 	if err != nil {
 		log.Printf("error scheduling MoveOp: %v", err)
 	}
-}
-
-func (b *Balancer) Candidate(r *ranje.Range) (string, error) {
-	b.rost.RLock()
-	defer b.rost.RUnlock()
-
-	// Build a list of nodes.
-	// TODO: Just store them this way in roster.
-
-	nodes := make([]*roster.Node, len(b.rost.Nodes))
-	i := 0
-
-	for _, nod := range b.rost.Nodes {
-		nodes[i] = nod
-		i += 1
-	}
-
-	// Filter nodes which are asking to be drained (probably shutting down).
-
-	for i := range nodes {
-		if nodes[i].WantDrain() {
-			nodes[i] = nil
-		}
-	}
-
-	// Remove excluded (i.e. nil) nodes
-
-	{
-		tmp := []*roster.Node{}
-
-		for i := range nodes {
-			if nodes[i] != nil {
-				tmp = append(tmp, nodes[i])
-			}
-		}
-
-		nodes = tmp
-	}
-
-	if len(nodes) == 0 {
-		return "", fmt.Errorf("no non-excluded nodes available for range: %v", r)
-	}
-
-	// Pick the node with lowest utilization.
-	// TODO: This doesn't take into account ranges which are on the way to that
-	//       node, and is generally totally insufficient.
-
-	sort.Slice(nodes, func(i, j int) bool {
-		return nodes[i].Utilization() < nodes[j].Utilization()
-	})
-
-	return nodes[0].Ident(), nil
 }
 
 func (b *Balancer) Run(t *time.Ticker) {

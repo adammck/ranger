@@ -95,7 +95,7 @@ func (n *Node) IsGoneFromServiceDiscovery(cfg config.Config, now time.Time) bool
 // IsMissing returns true if this node hasn't responded to a probe in long
 // enough that we think it's dead, and should move its ranges elsewhere.
 func (n *Node) IsMissing(cfg config.Config, now time.Time) bool {
-	return n.whenLastProbed.Before(now.Add(-cfg.NodeExpireDuration))
+	return (!n.whenLastProbed.IsZero()) && n.whenLastProbed.Before(now.Add(-cfg.NodeExpireDuration))
 }
 
 // Utilization returns a uint in [0, 255], indicating how busy this node is.

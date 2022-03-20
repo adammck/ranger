@@ -2,7 +2,9 @@ package roster
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"sort"
 	"sync"
 	"time"
 
@@ -171,6 +173,10 @@ func (ros *Roster) probe() {
 		go func(n *Node) {
 			defer wg.Done()
 			err := ros.probeOne(ctx, n)
+
+			// TODO: Special case? Nodes finished draining can probably just go
+			//       away right away rather than logging errors like this.
+
 			if err != nil {
 				log.Printf("error probing %v: %v", n.Ident(), err)
 				return
@@ -262,4 +268,54 @@ func (r *Roster) Run(t *time.Ticker) {
 	for ; true; <-t.C {
 		r.Tick()
 	}
+}
+
+// Candidate returns the NodeIdent of a node which could accept the given range.
+func (r *Roster) Candidate(rng *ranje.Range) (string, error) {
+	r.RLock()
+	defer r.RUnlock()
+
+	// Build a list of nodes.
+	// TODO: Just store them this way!
+
+	nodes := make([]*Node, len(r.Nodes))
+	i := 0
+
+	for _, nod := range r.Nodes {
+		nodes[i] = nod
+		i += 1
+	}
+
+	// Build a list of indices of candidate nodes.
+	candidates := []int{}
+
+	// Exclude a node if:
+	//
+	// 1. It's drained, i.e. it doesn't want any more ranges. It's probably
+	//    shutting down.
+	//
+	// 2. It's missing, i.e. hasn't responded to our probes in a while. It might
+	//    still come back, but let's avoid it anyway.
+	//
+	for i := range nodes {
+		if nodes[i].WantDrain() || nodes[i].IsMissing(r.cfg, time.Now()) {
+			continue
+		}
+
+		candidates = append(candidates, i)
+	}
+
+	if len(candidates) == 0 {
+		return "", fmt.Errorf("no non-excluded nodes available for range: %v", r)
+	}
+
+	// Pick the node with lowest utilization.
+	// TODO: This doesn't take into account ranges which are on the way to that
+	//       node, and is generally totally insufficient.
+
+	sort.Slice(candidates, func(i, j int) bool {
+		return nodes[i].Utilization() < nodes[j].Utilization()
+	})
+
+	return nodes[candidates[0]].Ident(), nil
 }
