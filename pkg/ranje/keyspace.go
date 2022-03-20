@@ -272,6 +272,7 @@ func (ks *Keyspace) CompleteNextPlacement(r *Range) error {
 
 	r.CurrentPlacement = r.NextPlacement
 	r.NextPlacement = nil
+	r.dirty = true
 
 	err := r.toState(Ready, ks)
 	if err != nil {
@@ -301,11 +302,28 @@ func (ks *Keyspace) DropPlacement(r *Range) error {
 	}
 
 	r.CurrentPlacement = nil
+	r.dirty = true
 
 	err := r.toState(Obsolete, ks)
 	if err != nil {
 		return err
 	}
+
+	return ks.mustPersistDirtyRanges()
+}
+
+// Clear the next placement. This should be called when an operation fails.
+func (ks *Keyspace) ClearNextPlacement(r *Range) error {
+	ks.mu.Lock()
+	defer ks.mu.Unlock()
+
+	if r.NextPlacement == nil {
+		// This method should not even be called in this state!
+		panic("can't complete move when next placement is nil")
+	}
+
+	r.NextPlacement = nil
+	r.dirty = true
 
 	return ks.mustPersistDirtyRanges()
 }

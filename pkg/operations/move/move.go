@@ -166,8 +166,12 @@ func (op *MoveOp) give() (state, error) {
 	if err != nil {
 		log.Printf("give failed: %v", err)
 
-		// Clean up p. No return value.
-		r.ClearNextPlacement()
+		// Clean up p.
+		err2 := op.Keyspace.ClearNextPlacement(r)
+		if err2 != nil {
+			// Log and continue, to restore service.
+			log.Printf("error while clearing next placement: %v", err2)
+		}
 
 		switch r.State {
 		case ranje.Placing:
