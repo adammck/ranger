@@ -57,22 +57,16 @@ func (r *Range) String() string {
 }
 
 func (r *Range) placementStateChanged(rg RangeGetter) {
-
-	// Is it even necessary to check the current state? Maybe it's always okay
-	// for ranges to revert back to pending when placements are Gone.
-	if r.State == Ready {
-		if c := r.CurrentPlacement; c != nil {
-			if c.State == SpGone {
-				err := r.toState(Pending, rg)
-				if err != nil {
-					log.Printf("error reverting range to Pending because of Gone placement: %v", err)
-				}
-
-				r.CurrentPlacement = nil
+	if c := r.CurrentPlacement; c != nil {
+		if c.State == SpGone {
+			err := r.toState(Pending, rg)
+			if err != nil {
+				log.Printf("error reverting range to Pending because of Gone placement: %v", err)
 			}
+
+			r.CurrentPlacement = nil
 		}
 	}
-
 }
 
 // ToState change the state of the range to s or returns an error.
@@ -186,6 +180,25 @@ func (r *Range) toState(new StateLocal, rg RangeGetter) error {
 	log.Printf("R%v: %s -> %s", r.Meta.Ident.Key, old, new)
 
 	return nil
+}
+
+func (r *Range) ForgetPlacement(p *Placement) {
+	r.Lock()
+	defer r.Unlock()
+
+	if p.State != SpGone {
+		panic("can't forget placement unless it's SpGone")
+	}
+
+	if r.CurrentPlacement == p {
+		log.Printf("forgetting current placement")
+		r.CurrentPlacement = nil
+	}
+
+	if r.NextPlacement == p {
+		log.Printf("forgetting next placement")
+		r.NextPlacement = nil
+	}
 }
 
 // Clear the current placement. This should be called when a range is dropped

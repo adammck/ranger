@@ -269,6 +269,7 @@ func (ks *Keyspace) mustPersistDirtyRanges() error {
 	return nil
 }
 
+// TODO: Why does this exist? Use PlacementToState
 func (ks *Keyspace) RemoteState(rID Ident, nID string, s StatePlacement) error {
 	r, err := ks.Get(rID)
 	if err != nil {

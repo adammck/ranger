@@ -57,15 +57,20 @@ func (p *Placement) toState(new StatePlacement) error {
 		return errors.New("can't transition placement into SpUnknown")
 	}
 
-	// Dropped is terminal. The placement should be destroyed.
-	if old == SpDropped {
-		return errors.New("can't transition placement out of SpDropped")
+	// Dropped and Gone are terminal. The placement should be destroyed.
+	for _, s := range []StatePlacement{SpDropped, SpGone} {
+		if old == s {
+			return fmt.Errorf("can't transition placement out of %v", s)
+		}
 	}
 
 	if new == SpGone {
 		// It's always okay to transition into Gone. Whatever state we think the
 		// placement should be in, the node doesn't know about it.
 		ok = true
+
+		// As with Dropped, remove the NodeID.
+		p.NodeID = ""
 
 	} else if old == SpPending {
 		if new == SpFetching { // 1

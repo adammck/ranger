@@ -56,10 +56,10 @@ func (b *Balancer) Operation(req operations.Operation) {
 	b.ops = append(b.ops, req)
 }
 
-func (b *Balancer) RangesOnNodesWantingShutdown() []*ranje.Range {
+func (b *Balancer) RangesOnNodesWantingDrain() []*ranje.Range {
 	out := []*ranje.Range{}
 
-	// TODO: Have the roster keep a list of nodes wanting shutdown rather than iterating.
+	// TODO: Have the roster keep a list of nodes wanting drain rather than iterating.
 	for _, n := range b.rost.Nodes {
 		if n.WantDrain() {
 			for _, pbnid := range b.ks.PlacementsByNodeID(n.Ident()) {
@@ -101,7 +101,7 @@ func (b *Balancer) Tick() {
 		}
 	}
 
-	for _, r := range b.RangesOnNodesWantingShutdown() {
+	for _, r := range b.RangesOnNodesWantingDrain() {
 		b.PerformMove(r)
 	}
 
@@ -128,34 +128,35 @@ func (b *Balancer) FinishOps() {
 func (b *Balancer) PerformMove(r *ranje.Range) {
 
 	// Find a node to place this range on.
-	nid := b.Candidate(r)
+	nid, err := b.Candidate(r)
 
 	// No candidates? That's a problem
 	// TODO: Will result in quarantine? Might not be range's fault.
 	// TODO: Should this maybe go back to Pending instead?
-	if nid == "" {
-		err := b.ks.RangeToState(r, ranje.PlaceError)
-		if err != nil {
-			panic(err)
-		}
+	if err != nil {
+		log.Printf("error finding candidate: %v", err)
+		// err := b.ks.RangeToState(r, ranje.PlaceError)
+		// if err != nil {
+		// 	panic(err)
+		// }
 		return
 	}
 
 	// Perform the placement in a background goroutine. (It's just a special
 	// case of moving with no source.) When it terminates, the range will be
 	// in the Ready or PlaceError states.
-	err := operations.Run(&move.MoveOp{
+	err = operations.Run(&move.MoveOp{
 		Keyspace: b.ks,
 		Roster:   b.rost,
 		Range:    r.Meta.Ident,
 		Node:     nid,
 	}, &b.opsWG)
 	if err != nil {
-		log.Printf("Error placing pending range: %v", err)
+		log.Printf("error scheduling MoveOp: %v", err)
 	}
 }
 
-func (b *Balancer) Candidate(r *ranje.Range) string {
+func (b *Balancer) Candidate(r *ranje.Range) (string, error) {
 	b.rost.RLock()
 	defer b.rost.RUnlock()
 
@@ -193,8 +194,7 @@ func (b *Balancer) Candidate(r *ranje.Range) string {
 	}
 
 	if len(nodes) == 0 {
-		log.Printf("No non-excluded nodes available for range: %v", r)
-		return ""
+		return "", fmt.Errorf("no non-excluded nodes available for range: %v", r)
 	}
 
 	// Pick the node with lowest utilization.
@@ -205,7 +205,7 @@ func (b *Balancer) Candidate(r *ranje.Range) string {
 		return nodes[i].Utilization() < nodes[j].Utilization()
 	})
 
-	return nodes[0].Ident()
+	return nodes[0].Ident(), nil
 }
 
 func (b *Balancer) Run(t *time.Ticker) {
