@@ -260,10 +260,12 @@ func (op *SplitOp) serve() (state, error) {
 		return Failed, fmt.Errorf("split (Serve) failed: %s", err)
 	}
 
-	// This also happens in Range.ChildStateChanged once children are Ready.
-	// TODO: Is that a good idea? Here would be more explicit.
-	op.Keyspace.RangeToState(r0, ranje.Obsolete)
-	r0.DropPlacement()
+	// Discard the placement from the old range.
+	// This also marks the old range as Obsolete.
+	err = op.Keyspace.DropPlacement(r0)
+	if err != nil {
+		return Failed, fmt.Errorf("split (Serve) failed: DropPlacement: %s", err)
+	}
 
 	// TODO: This part should probably be handled later by some kind of optional
 	//       GC. We won't want to discard the old ranges for systems which need

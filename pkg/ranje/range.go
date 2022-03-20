@@ -147,28 +147,6 @@ func (r *Range) toState(new StateLocal, rg RangeGetter) error {
 	return nil
 }
 
-// Clear the current placement. This should be called when a range is dropped
-// from a node.
-func (r *Range) DropPlacement() {
-	r.Lock()
-	defer r.Unlock()
-
-	if r.State != Obsolete {
-		panic("can't drop current placement until range is obsolete")
-	}
-
-	if r.CurrentPlacement == nil {
-		// This method should not even be called in this state!
-		panic("can't drop current placement when it is nil")
-	}
-
-	if r.CurrentPlacement.State != SpDropped {
-		panic("can't drop current placement until it's dropped")
-	}
-
-	r.CurrentPlacement = nil
-}
-
 // Clear the next placement. This should be called when an operation fails.
 // Caller must NOT hold the range lock.
 func (r *Range) ClearNextPlacement() {

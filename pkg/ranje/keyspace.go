@@ -281,6 +281,35 @@ func (ks *Keyspace) CompleteNextPlacement(r *Range) error {
 	return ks.mustPersistDirtyRanges()
 }
 
+// Clear the current placement and mark the range as Obsolete. This should be
+// called when a range is dropped after a split or join.
+func (ks *Keyspace) DropPlacement(r *Range) error {
+	ks.mu.Lock()
+	defer ks.mu.Unlock()
+
+	if r.State != Obsolete {
+		panic("can't drop current placement until range is obsolete")
+	}
+
+	if r.CurrentPlacement == nil {
+		// This method should not even be called in this state!
+		panic("can't drop current placement when it is nil")
+	}
+
+	if r.CurrentPlacement.State != SpDropped {
+		panic("can't drop current placement until it's dropped")
+	}
+
+	r.CurrentPlacement = nil
+
+	err := r.toState(Obsolete, ks)
+	if err != nil {
+		return err
+	}
+
+	return ks.mustPersistDirtyRanges()
+}
+
 func (ks *Keyspace) PlacementToState(p *Placement, state StatePlacement) error {
 	ks.mu.Lock()
 	defer ks.mu.Unlock()

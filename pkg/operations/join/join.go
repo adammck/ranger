@@ -281,10 +281,12 @@ func (op *JoinOp) cleanup() (state, error) {
 				return fmt.Errorf("%s: NextPlacement returned nil", s)
 			}
 
-			// This also happens implicitly in Range.ChildStateChanged.
-			// TODO: Is this a good idea? Here would be more explicit.
-			op.Keyspace.RangeToState(r, ranje.Obsolete)
-			r.DropPlacement()
+			// Discard the placement from the old range.
+			// This also marks the old range as Obsolete.
+			err = op.Keyspace.DropPlacement(r)
+			if err != nil {
+				return fmt.Errorf("%s: DropPlacement: %s", s, err)
+			}
 
 			// TODO: This part should probably be handled later by some kind of
 			//       optional GC. We won't want to discard the old ranges for
