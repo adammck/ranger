@@ -11,7 +11,7 @@ type Range struct {
 	pers Persister
 	Meta Meta
 
-	State    StateLocal
+	State    RangeState
 	Parents  []Ident
 	Children []Ident
 
@@ -46,6 +46,6 @@ func (r *Range) placementStateChanged(rg RangeGetter) {
 	panic("not implemented; see 839595a")
 }
 
-func (r *Range) toState(new StateLocal, rg RangeGetter) error {
+func (r *Range) toState(new RangeState, rg RangeGetter) error {
 	panic("not implemented; see 839595a")
 }

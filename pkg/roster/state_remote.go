@@ -5,7 +5,7 @@ import (
 )
 
 // See: ranger/pkg/proto/node.proto:RangeInfo.State
-// TODO: Remove this and replace callers with ranje.StatePlacement. This is a subset!
+// TODO: Remove this and replace callers with ranje.PlacementState. This is a subset!
 type State uint8
 
 const (

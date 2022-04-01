@@ -143,7 +143,7 @@ func (ks *Keyspace) Range() *Range {
 	return r
 }
 
-func (ks *Keyspace) RangesByState(s StateLocal) []*Range {
+func (ks *Keyspace) RangesByState(s RangeState) []*Range {
 	out := []*Range{}
 
 	for _, r := range ks.ranges {
@@ -240,7 +240,7 @@ func (ks *Keyspace) Len() int {
 
 // RangeToState tries to move the given range into the given state.
 // TODO: Can we drop this and let range state transitions happen via Placement?
-func (ks *Keyspace) RangeToState(rng *Range, state StateLocal) error {
+func (ks *Keyspace) RangeToState(rng *Range, state RangeState) error {
 	ks.mu.Lock()
 	defer ks.mu.Unlock()
 
@@ -258,7 +258,7 @@ func (ks *Keyspace) DropPlacement(r *Range) error {
 	panic("not implemented; see 839595a")
 }
 
-func (ks *Keyspace) PlacementToState(p *Placement, state StatePlacement) error {
+func (ks *Keyspace) PlacementToState(p *Placement, state PlacementState) error {
 	ks.mu.Lock()
 	defer ks.mu.Unlock()
 

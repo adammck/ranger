@@ -12,7 +12,7 @@ type Placement struct {
 	// Controller-side State machine.
 	// Never modify this field directly! It's only public for deserialization
 	// from the store. Modify it via ToState.
-	State StatePlacement
+	State PlacementState
 
 	// Guards everything.
 	// TODO: Change into an RWLock, check callers.
@@ -27,6 +27,6 @@ func NewPlacement(r *Range, nodeID string) (*Placement, error) {
 	}, nil
 }
 
-func (p *Placement) toState(new StatePlacement) error {
+func (p *Placement) toState(new PlacementState) error {
 	panic("not implemented; see 839595a")
 }

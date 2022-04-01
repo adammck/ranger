@@ -6,18 +6,15 @@ import (
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 )
 
-type StateLocal uint8
-
-// TODO: Is joining and splitting the same state?
+type RangeState uint8
 
 const (
-	// ???
-	Unknown StateLocal = iota
+	Unknown RangeState = iota
 )
 
-//go:generate stringer -type=StateLocal -output=zzz_state_local_string.go
+//go:generate stringer -type=RangeState -output=zzz_state_range_string.go
 
-func FromProto(s *pb.RangeState) StateLocal {
+func FromProto(s *pb.RangeState) RangeState {
 	switch *s {
 	case pb.RangeState_RS_UNKNOWN:
 		return Unknown
@@ -27,12 +24,12 @@ func FromProto(s *pb.RangeState) StateLocal {
 	return Unknown
 }
 
-func (s StateLocal) ToProto() pb.RangeState {
+func (s RangeState) ToProto() pb.RangeState {
 	switch s {
 	case Unknown:
 		return pb.RangeState_RS_UNKNOWN
 	}
 
 	// Probably a state was added but this method wasn't updated.
-	panic("unknown StateLocal value!")
+	panic("unknown RangeState value!")
 }
