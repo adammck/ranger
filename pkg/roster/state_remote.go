@@ -2,7 +2,6 @@ package roster
 
 import (
 	pb "github.com/adammck/ranger/pkg/proto/gen"
-	"github.com/adammck/ranger/pkg/ranje"
 )
 
 // See: ranger/pkg/proto/node.proto:RangeInfo.State
@@ -52,22 +51,4 @@ func (rs State) ToProto() pb.RangeNodeState {
 	}
 
 	return pb.RangeNodeState_UNKNOWN
-}
-
-// TODO: Remove this whole type! Just use StatePlacement.
-func (rs State) ToStatePlacement() ranje.StatePlacement {
-	switch rs {
-	case StateFetching:
-		return ranje.SpFetching
-	case StateFetched:
-		return ranje.SpFetched
-	case StateFetchFailed:
-		return ranje.SpFetchFailed
-	case StateReady:
-		return ranje.SpReady
-	case StateTaken:
-		return ranje.SpTaken
-	}
-
-	return ranje.SpUnknown
 }

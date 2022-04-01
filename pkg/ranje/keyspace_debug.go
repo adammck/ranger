@@ -11,19 +11,8 @@ type keyspaceDebug struct {
 
 // Ranges returns all of the ranges which aren't Obsolete in no particular
 // order.
-func (ks *keyspaceDebug) NonObsoleteRanges() []*Range {
+func (ks *keyspaceDebug) Ranges() []*Range {
 	ks.mu.Lock()
 	defer ks.mu.Unlock()
-
-	out := []*Range{}
-
-	for _, r := range ks.ranges {
-		if r.State == Obsolete {
-			continue
-		}
-
-		out = append(out, r)
-	}
-
-	return out
+	return ks.ranges
 }

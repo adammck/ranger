@@ -1,9 +1,7 @@
 package ranje
 
 import (
-	"errors"
 	"fmt"
-	"log"
 	"sync"
 )
 
@@ -53,113 +51,9 @@ func (r *Range) String() string {
 }
 
 func (r *Range) placementStateChanged(rg RangeGetter) {
-	if r.CurrentPlacement != nil {
-		if r.CurrentPlacement.State == SpGone {
-			log.Printf("forgetting CurrentPlacement")
-			r.CurrentPlacement = nil
-		}
-	}
-	if r.NextPlacement != nil {
-		if r.NextPlacement.State == SpGone {
-			log.Printf("forgetting NextPlacement")
-			r.NextPlacement = nil
-		}
-	}
-
-	if r.CurrentPlacement == nil && r.NextPlacement == nil {
-		r.toState(Pending, rg)
-	}
+	panic("not implemented; see 839595a")
 }
 
-// ToState change the state of the range to s or returns an error.
 func (r *Range) toState(new StateLocal, rg RangeGetter) error {
-	r.Lock()
-	defer r.Unlock()
-	old := r.State
-
-	if old == new {
-		log.Printf("R%v: %s -> %s (redundant)", r.Meta.Ident, old, new)
-		return nil
-	}
-
-	if new == Unknown {
-		return errors.New("can't transition range into Unknown")
-	}
-
-	// Obsolete is terminal. The range should be destroyed.
-	if old == Obsolete {
-		return errors.New("can't transition range out of SpDropped")
-	}
-
-	ok := false
-
-	if old == Pending && new == Placing { // 1
-		ok = true
-	}
-
-	// TODO: THIS IS ONLY INITIAL PLACEMENT
-	if old == Placing && new == Ready { // 2
-		ok = true
-	}
-
-	// SHOULD THIS GO BACK TO PENDING?
-	if old == Ready && new == Placing {
-		ok = true
-	}
-
-	if old == Ready && new == Moving { // 7
-		ok = true
-	}
-
-	if old == Moving && new == Ready { // 8
-		ok = true
-	}
-
-	if old == Ready && new == Splitting { // 9
-		ok = true
-	}
-
-	if old == Ready && new == Joining { // 10
-		ok = true
-	}
-
-	if old == Ready && new == Pending { // NEEDS NUM
-		ok = true
-	}
-
-	if (old == Splitting || old == Joining) && new == Obsolete {
-		if !childrenReady(r, rg) {
-			return fmt.Errorf("invalid state transition: %s -> %s; children not ready", old, new)
-		}
-
-		ok = true
-	}
-
-	if !ok {
-		return fmt.Errorf("invalid range state transition: %s -> %s", old, new)
-	}
-
-	r.State = new
-	r.dirty = true
-
-	log.Printf("R%v: %s -> %s", r.Meta.Ident, old, new)
-
-	return nil
-}
-
-// childrenReady returns true if all of the ranges children are ready. (Doesn't
-// care if the range has no children.)
-func childrenReady(r *Range, rg RangeGetter) bool {
-	for _, rID := range r.Children {
-		rr, err := rg.Get(rID)
-		if err != nil {
-			panic(err)
-		}
-
-		if rr.State != Ready {
-			return false
-		}
-	}
-
-	return true
+	panic("not implemented; see 839595a")
 }

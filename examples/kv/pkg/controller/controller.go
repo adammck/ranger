@@ -64,6 +64,7 @@ func New(cfg config.Config, addrLis, addrPub string, once bool) (*Controller, er
 	bal := balancer.New(ks, rost, srv)
 
 	return &Controller{
+		cfg:     cfg,
 		name:    "controller",
 		addrLis: addrLis,
 		addrPub: addrPub,

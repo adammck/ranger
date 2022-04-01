@@ -9,19 +9,11 @@ func _() {
 	// Re-run the stringer command to generate them again.
 	var x [1]struct{}
 	_ = x[SpUnknown-0]
-	_ = x[SpPending-1]
-	_ = x[SpFetching-2]
-	_ = x[SpFetched-3]
-	_ = x[SpFetchFailed-4]
-	_ = x[SpReady-5]
-	_ = x[SpTaken-6]
-	_ = x[SpDropped-7]
-	_ = x[SpGone-8]
 }
 
-const _StatePlacement_name = "SpUnknownSpPendingSpFetchingSpFetchedSpFetchFailedSpReadySpTakenSpDroppedSpGone"
+const _StatePlacement_name = "SpUnknown"
 
-var _StatePlacement_index = [...]uint8{0, 9, 18, 28, 37, 50, 57, 64, 73, 79}
+var _StatePlacement_index = [...]uint8{0, 9}
 
 func (i StatePlacement) String() string {
 	if i >= StatePlacement(len(_StatePlacement_index)-1) {

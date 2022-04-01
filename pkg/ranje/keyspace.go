@@ -1,7 +1,6 @@
 package ranje
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -41,7 +40,6 @@ func New(persister Persister) *Keyspace {
 	// keyspace from scratch, so start with a singe range that covers all keys.
 	if len(ranges) == 0 {
 		r := ks.Range()
-		r.State = Pending
 		ks.ranges = []*Range{r}
 		ks.pers.PutRanges(ks.ranges)
 		return ks
@@ -134,8 +132,7 @@ func (ks *Keyspace) Range() *Range {
 	ks.maxIdent += 1
 
 	r := &Range{
-		pers:  ks.pers,
-		State: Pending,
+		pers: ks.pers,
 		Meta: Meta{
 			Ident: ks.maxIdent,
 		},
@@ -271,10 +268,10 @@ func (ks *Keyspace) CompleteNextPlacement(r *Range) error {
 	r.NextPlacement = nil
 	r.dirty = true
 
-	err := r.toState(Ready, ks)
-	if err != nil {
-		return err
-	}
+	// err := r.toState(Ready, ks)
+	// if err != nil {
+	// 	return err
+	// }
 
 	return ks.mustPersistDirtyRanges()
 }
@@ -282,31 +279,7 @@ func (ks *Keyspace) CompleteNextPlacement(r *Range) error {
 // Clear the current placement and mark the range as Obsolete. This should be
 // called when a range is dropped after a split or join.
 func (ks *Keyspace) DropPlacement(r *Range) error {
-	ks.mu.Lock()
-	defer ks.mu.Unlock()
-
-	if r.State != Obsolete {
-		panic("can't drop current placement until range is obsolete")
-	}
-
-	if r.CurrentPlacement == nil {
-		// This method should not even be called in this state!
-		panic("can't drop current placement when it is nil")
-	}
-
-	if r.CurrentPlacement.State != SpDropped {
-		panic("can't drop current placement until it's dropped")
-	}
-
-	r.CurrentPlacement = nil
-	r.dirty = true
-
-	err := r.toState(Obsolete, ks)
-	if err != nil {
-		return err
-	}
-
-	return ks.mustPersistDirtyRanges()
+	panic("not implemented; see 839595a")
 }
 
 // Clear the next placement. This should be called when an operation fails.
@@ -357,107 +330,11 @@ func (ks *Keyspace) mustPersistDirtyRanges() error {
 
 // TODO: Rename to Split once the old one is gone
 func (ks *Keyspace) DoSplit(r *Range, k Key) error {
-	ks.mu.Lock()
-	defer ks.mu.Unlock()
-
-	if k == ZeroKey {
-		return fmt.Errorf("can't split on zero key")
-	}
-
-	if r.State != Ready {
-		return errors.New("can't split non-ready range")
-	}
-
-	// This should not be possible. Panic?
-	if len(r.Children) > 0 {
-		return fmt.Errorf("range %s already has %d children", r, len(r.Children))
-	}
-
-	if !r.Meta.Contains(k) {
-		return fmt.Errorf("range %s does not contain key: %s", r, k)
-	}
-
-	if k == r.Meta.Start {
-		return fmt.Errorf("range %s starts with key: %s", r, k)
-	}
-
-	// Change the state of the splitting range directly via Range.toState rather
-	// than Keyspace.ToState as (usually!) recommended, because we don't want
-	// to persist the change until the two new ranges have been created, below.
-	err := r.toState(Splitting, ks)
-	if err != nil {
-		// The error is clear enough, no need to wrap it.
-		return err
-	}
-
-	one := ks.Range()
-	one.Meta.Start = r.Meta.Start
-	one.Meta.End = k
-	one.Parents = []Ident{r.Meta.Ident}
-
-	two := ks.Range()
-	two.Meta.Start = k
-	two.Meta.End = r.Meta.End
-	two.Parents = []Ident{r.Meta.Ident}
-
-	// append to the end of the ranges
-	// TODO: Insert the children after the parent, not at the end!
-	ks.ranges = append(ks.ranges, one)
-	ks.ranges = append(ks.ranges, two)
-
-	r.Children = []Ident{
-		one.Meta.Ident,
-		two.Meta.Ident,
-	}
-
-	// Persist all three ranges.
-	ks.mustPersistDirtyRanges()
-
-	return nil
+	panic("not implemented; see 839595a")
 }
 
 func (ks *Keyspace) JoinTwo(one *Range, two *Range) (*Range, error) {
-	ks.mu.Lock()
-	defer ks.mu.Unlock()
-
-	for _, r := range []*Range{one, two} {
-		if r.State != Ready {
-			return nil, errors.New("can't join non-ready ranges")
-		}
-
-		// This should not be possible. Panic?
-		if len(r.Children) > 0 {
-			return nil, fmt.Errorf("range %s already has %d children", r, len(r.Children))
-		}
-	}
-
-	if one.Meta.End != two.Meta.Start {
-		return nil, fmt.Errorf("not adjacent: %s, %s", one, two)
-	}
-
-	for _, r := range []*Range{one, two} {
-		err := r.toState(Joining, ks)
-		if err != nil {
-			// The error is clear enough, no need to wrap it.
-			return nil, err
-		}
-	}
-
-	three := ks.Range()
-	three.Meta.Start = one.Meta.Start
-	three.Meta.End = two.Meta.End
-	three.Parents = []Ident{one.Meta.Ident, two.Meta.Ident}
-
-	// Insert new range at the end.
-	ks.ranges = append(ks.ranges, three)
-
-	one.Children = []Ident{three.Meta.Ident}
-	two.Children = []Ident{three.Meta.Ident}
-
-	// Persist all three ranges atomically.
-	ks.mustPersistDirtyRanges()
-
-	return three, nil
+	panic("not implemented; see 839595a")
 }
 
 // index returns the index (in ks.ranges) of the given range.
@@ -481,9 +358,9 @@ func (ks *Keyspace) Discard(r *Range) error {
 
 	log.Printf("discarding: %s", r.String())
 
-	if r.State != Obsolete {
-		return errors.New("can't discard non-obsolete range")
-	}
+	// if r.State != Obsolete {
+	// 	return errors.New("can't discard non-obsolete range")
+	// }
 
 	// TODO: Is this necessary? Ranges are generally discarded after split/join, but so what?
 	if len(r.Children) == 0 {

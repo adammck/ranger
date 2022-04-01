@@ -76,7 +76,7 @@ func (srv *debugServer) RangesList(ctx context.Context, req *pb.RangesListReques
 	ks := srv.bal.ks.DangerousDebuggingMethods()
 	res := &pb.RangesListResponse{}
 
-	for _, r := range ks.NonObsoleteRanges() {
+	for _, r := range ks.Ranges() {
 		r.Mutex.Lock()
 		defer r.Mutex.Unlock()
 		res.Ranges = append(res.Ranges, rangeResponse(r))

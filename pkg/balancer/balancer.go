@@ -68,14 +68,10 @@ func (b *Balancer) Tick() {
 	// Find any placements on nodes which are unknown to the roster. This can
 	// happen if a node goes away while the controller is down, and probably
 	// other state snafus.
-	for _, pbnid := range b.ks.RangesOnNonExistentNodes(b.rost) {
-		b.ks.PlacementToState(pbnid.Placement, ranje.SpGone)
-	}
+	// TODO
 
 	// Find any pending ranges and find any node to assign them to.
-	for _, r := range b.ks.RangesByState(ranje.Pending) {
-		b.PerformMove(r)
-	}
+	// TODO
 
 	// Find any ranges on nodes wanting drain, and move them.
 	for _, r := range b.RangesOnNodesWantingDrain() {

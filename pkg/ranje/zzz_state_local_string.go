@@ -9,18 +9,11 @@ func _() {
 	// Re-run the stringer command to generate them again.
 	var x [1]struct{}
 	_ = x[Unknown-0]
-	_ = x[Pending-1]
-	_ = x[Placing-2]
-	_ = x[Ready-3]
-	_ = x[Moving-4]
-	_ = x[Splitting-5]
-	_ = x[Joining-6]
-	_ = x[Obsolete-7]
 }
 
-const _StateLocal_name = "UnknownPendingPlacingReadyMovingSplittingJoiningObsolete"
+const _StateLocal_name = "Unknown"
 
-var _StateLocal_index = [...]uint8{0, 7, 14, 21, 26, 32, 41, 48, 56}
+var _StateLocal_index = [...]uint8{0, 7}
 
 func (i StateLocal) String() string {
 	if i >= StateLocal(len(_StateLocal_index)-1) {
