@@ -63,9 +63,3 @@ enum PlacementState {
   PS_DROPPED = 7;
   PS_GONE = 8;
 }
-
-enum PlacementPosition {
-  PP_UNKNOWN = 0;
-  PP_CURRENT = 1;
-  PP_NEXT = 2;
-}

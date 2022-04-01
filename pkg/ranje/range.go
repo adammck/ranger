@@ -15,12 +15,8 @@ type Range struct {
 	Parents  []Ident
 	Children []Ident
 
-	// Which node currently has the range, and which it is moving to.
-	// TODO: Each of these are probably only valid in some states. Doc that.
-	// Invariant: These will always be on different Nodes, so callers can
-	// unambiguously look up a single placement for a given (Range, Node) pair.
-	CurrentPlacement *Placement
-	NextPlacement    *Placement
+	// TODO: Docs
+	Placements []*Placement
 
 	// Guards everything.
 	// TODO: Can we get rid of this and just use the keyspace lock?
@@ -33,17 +29,13 @@ type Range struct {
 }
 
 func (r *Range) LogString() string {
-	c := ""
-	if r.CurrentPlacement != nil {
-		c = fmt.Sprintf(" c=(%s:%s)", r.CurrentPlacement.NodeID, r.CurrentPlacement.State)
+	ps := ""
+
+	for i, p := range r.Placements {
+		ps = fmt.Sprintf(" p%d=(%s:%s)", i, p.NodeID, p.State)
 	}
 
-	n := ""
-	if r.NextPlacement != nil {
-		n = fmt.Sprintf(" n=(%s:%s)", r.NextPlacement.NodeID, r.NextPlacement.State)
-	}
-
-	return fmt.Sprintf("{%s %s%s%s}", r.Meta, r.State, c, n)
+	return fmt.Sprintf("{%s %s%s}", r.Meta, r.State, ps)
 }
 
 func (r *Range) String() string {

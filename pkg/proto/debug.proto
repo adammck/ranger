@@ -19,9 +19,8 @@ message RangeRequest {
 
 message RangeResponse {
     RangeMeta meta = 1;
-    RangeState state = 2; 
-    PlacementTwo current_placement = 3;
-    PlacementTwo next_placement = 4;
+    RangeState state = 2;
+    repeated PlacementTwo placements = 3;
 }
 
 message NodesListRequest {
@@ -42,7 +41,6 @@ message NodeMeta {
 
 message NodeRange {
     RangeMeta meta = 1;
-    PlacementPosition position = 2;
     PlacementState state = 3;
 }
 

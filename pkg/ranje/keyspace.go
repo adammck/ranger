@@ -52,7 +52,7 @@ func New(persister Persister) *Keyspace {
 		r.pers = persister
 
 		// Repair the placements
-		for _, p := range []*Placement{r.CurrentPlacement, r.NextPlacement} {
+		for _, p := range r.Placements {
 			if p != nil {
 				p.rang = r
 			}
@@ -171,7 +171,7 @@ func (ks *Keyspace) RangesOnNonExistentNodes(nc NodeChecker) []PBNID {
 	out := []PBNID{}
 
 	for _, r := range ks.ranges {
-		for i, p := range [2]*Placement{r.CurrentPlacement, r.NextPlacement} {
+		for i, p := range r.Placements {
 			if p != nil && !nc.NodeExists(p.NodeID) {
 				out = append(out, PBNID{r, p, uint8(i)})
 			}
@@ -197,7 +197,7 @@ func (ks *Keyspace) PlacementsByNodeID(nID string) []PBNID {
 
 	// TODO: Wow this is dumb! Keep an index of this somewhere.
 	for _, r := range ks.ranges {
-		for i, p := range [2]*Placement{r.CurrentPlacement, r.NextPlacement} {
+		for i, p := range r.Placements {
 			if p != nil {
 				if p.NodeID == nID {
 					out = append(out, PBNID{r, p, uint8(i)})
@@ -252,50 +252,10 @@ func (ks *Keyspace) RangeToState(rng *Range, state StateLocal) error {
 	return ks.mustPersistDirtyRanges()
 }
 
-// CompleteNextPlacement moves the next placement to current. This should be
-// called when an operation succeeds.
-// Caller must NOT hold the range lock.
-func (ks *Keyspace) CompleteNextPlacement(r *Range) error {
-	ks.mu.Lock()
-	defer ks.mu.Unlock()
-
-	if r.NextPlacement == nil {
-		// This method should not even be called in this state!
-		panic("can't complete move when next placement is nil")
-	}
-
-	r.CurrentPlacement = r.NextPlacement
-	r.NextPlacement = nil
-	r.dirty = true
-
-	// err := r.toState(Ready, ks)
-	// if err != nil {
-	// 	return err
-	// }
-
-	return ks.mustPersistDirtyRanges()
-}
-
 // Clear the current placement and mark the range as Obsolete. This should be
 // called when a range is dropped after a split or join.
 func (ks *Keyspace) DropPlacement(r *Range) error {
 	panic("not implemented; see 839595a")
-}
-
-// Clear the next placement. This should be called when an operation fails.
-func (ks *Keyspace) ClearNextPlacement(r *Range) error {
-	ks.mu.Lock()
-	defer ks.mu.Unlock()
-
-	if r.NextPlacement == nil {
-		// This method should not even be called in this state!
-		panic("can't complete move when next placement is nil")
-	}
-
-	r.NextPlacement = nil
-	r.dirty = true
-
-	return ks.mustPersistDirtyRanges()
 }
 
 func (ks *Keyspace) PlacementToState(p *Placement, state StatePlacement) error {

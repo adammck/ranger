@@ -24,18 +24,11 @@ func rangeResponse(r *ranje.Range) *pb.RangeResponse {
 		State: r.State.ToProto(),
 	}
 
-	if p := r.CurrentPlacement; p != nil {
-		res.CurrentPlacement = &pb.PlacementTwo{
+	for _, p := range r.Placements {
+		res.Placements = append(res.Placements, &pb.PlacementTwo{
 			Node:  p.NodeID,
 			State: p.State.ToProto(),
-		}
-	}
-
-	if p := r.NextPlacement; p != nil {
-		res.NextPlacement = &pb.PlacementTwo{
-			Node:  p.NodeID,
-			State: p.State.ToProto(),
-		}
+		})
 	}
 
 	return res
@@ -50,22 +43,9 @@ func nodeResponse(ks *ranje.Keyspace, n *roster.Node) *pb.NodeResponse {
 	}
 
 	for _, pl := range ks.PlacementsByNodeID(n.Ident()) {
-
-		// TODO: Move this somewhere.
-		var pos pb.PlacementPosition
-		switch pl.Position {
-		case 0:
-			pos = pb.PlacementPosition_PP_CURRENT
-		case 1:
-			pos = pb.PlacementPosition_PP_CURRENT
-		default:
-			pos = pb.PlacementPosition_PP_UNKNOWN
-		}
-
 		res.Ranges = append(res.Ranges, &pb.NodeRange{
-			Meta:     pl.Range.Meta.ToProto(),
-			State:    pl.Placement.State.ToProto(),
-			Position: pos,
+			Meta:  pl.Range.Meta.ToProto(),
+			State: pl.Placement.State.ToProto(),
 		})
 	}
 
