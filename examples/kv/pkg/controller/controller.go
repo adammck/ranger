@@ -125,7 +125,6 @@ func (c *Controller) Run(ctx context.Context) error {
 
 	if c.once {
 		c.bal.Tick()
-		c.bal.FinishOps()
 
 	} else {
 

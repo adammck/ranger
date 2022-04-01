@@ -103,13 +103,6 @@ keyspace
     - id
     - node_id # <- where it is _expected_ to be
     - state # needed? can maybe be inferred
-  - operations # only one in progress a time!
-    - move
-      - state
-      - src_node_id
-      - dest_node_id
-    - join
-    - split    
 ```
 
 ### volatile

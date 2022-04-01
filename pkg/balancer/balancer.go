@@ -2,11 +2,8 @@ package balancer
 
 import (
 	"log"
-	"sync"
 	"time"
 
-	"github.com/adammck/ranger/pkg/operations"
-	"github.com/adammck/ranger/pkg/operations/move"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
@@ -19,10 +16,6 @@ type Balancer struct {
 	srv  *grpc.Server
 	bs   *balancerServer
 	dbg  *debugServer
-
-	ops   []operations.Operation
-	opsMu sync.RWMutex
-	opsWG sync.WaitGroup
 }
 
 func New(ks *ranje.Keyspace, rost *roster.Roster, srv *grpc.Server) *Balancer {
@@ -44,14 +37,6 @@ func New(ks *ranje.Keyspace, rost *roster.Roster, srv *grpc.Server) *Balancer {
 	pb.RegisterDebugServer(srv, b.dbg)
 
 	return b
-}
-
-// Operations must be scheduled via this method, rather than invoked directly,
-// to avoid races. Only the rebalance loop actually runs them.
-func (b *Balancer) Operation(req operations.Operation) {
-	b.opsMu.Lock()
-	defer b.opsMu.Unlock()
-	b.ops = append(b.ops, req)
 }
 
 func (b *Balancer) RangesOnNodesWantingDrain() []*ranje.Range {
@@ -96,56 +81,10 @@ func (b *Balancer) Tick() {
 	for _, r := range b.RangesOnNodesWantingDrain() {
 		b.PerformMove(r)
 	}
-
-	// Kick off any pending operator-initiated actions in goroutines.
-
-	b.opsMu.RLock()
-	ops := b.ops
-	b.ops = nil
-	for _, req := range ops {
-		err := operations.Run(req, &b.opsWG)
-		if err != nil {
-			log.Printf("Error initiating operation: %v", err)
-		}
-	}
-	b.opsMu.RUnlock()
-}
-
-// FinishOps blocks until all operations have finished. It does nothing to
-// prevent new operations being scheduled while it's waiting.
-func (b *Balancer) FinishOps() {
-	b.opsWG.Wait()
 }
 
 func (b *Balancer) PerformMove(r *ranje.Range) {
-
-	// Find a node to place this range on.
-	nid, err := b.rost.Candidate(r)
-
-	// No candidates? That's a problem
-	// TODO: Will result in quarantine? Might not be range's fault.
-	// TODO: Should this maybe go back to Pending instead?
-	if err != nil {
-		log.Printf("error finding candidate: %v", err)
-		// err := b.ks.RangeToState(r, ranje.PlaceError)
-		// if err != nil {
-		// 	panic(err)
-		// }
-		return
-	}
-
-	// Perform the placement in a background goroutine. (It's just a special
-	// case of moving with no source.) When it terminates, the range will be
-	// in the Ready or PlaceError states.
-	err = operations.Run(&move.MoveOp{
-		Keyspace: b.ks,
-		Roster:   b.rost,
-		Range:    r.Meta.Ident,
-		Node:     nid,
-	}, &b.opsWG)
-	if err != nil {
-		log.Printf("error scheduling MoveOp: %v", err)
-	}
+	panic("not implemented; see bbad4b6")
 }
 
 func (b *Balancer) Run(t *time.Ticker) {
