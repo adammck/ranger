@@ -3,8 +3,6 @@ package node
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
-	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -29,41 +27,11 @@ import (
 
 type key []byte
 
-// wraps ranger/pkg/proto/gen/Ident
-// TODO: move this to the lib
-type rangeIdent [40]byte
+// TODO: Move this to the lib and import it
+type rangeIdent uint64
 
-// TODO: move this to the lib
-func parseIdent(pbid *pbr.Ident) (rangeIdent, error) {
-	ident := [40]byte{}
-
-	s := []byte(pbid.GetScope())
-	if len(s) > 32 {
-		return ident, errors.New("invalid range ident: scope too long")
-	}
-
-	copy(ident[:], s)
-	binary.LittleEndian.PutUint64(ident[32:], pbid.GetKey())
-
-	return rangeIdent(ident), nil
-}
-
-// TODO: move this to the lib
 func (i rangeIdent) String() string {
-	scope, key := i.Decode()
-
-	if scope == "" {
-		return fmt.Sprintf("%d", key)
-	}
-
-	return fmt.Sprintf("%s/%d", scope, key)
-}
-
-// this is only necessary because I made the Dump interface friendly. it would probably be simpler to accept an encoded range ident, or maybe do a better job of hiding the [40]byte
-func (i rangeIdent) Decode() (string, uint64) {
-	scope := string(bytes.TrimRight(i[:32], "\x00"))
-	key := binary.LittleEndian.Uint64(i[32:])
-	return scope, key
+	return fmt.Sprintf("rID{%d}", i)
 }
 
 // See also pb.RangeMeta.
@@ -74,13 +42,8 @@ type RangeMeta struct {
 }
 
 func parseRangeMeta(r *pbr.RangeMeta) (RangeMeta, error) {
-	ident, err := parseIdent(r.Ident)
-	if err != nil {
-		return RangeMeta{}, err
-	}
-
 	return RangeMeta{
-		ident: ident,
+		ident: rangeIdent(r.Ident.Key),
 		start: r.Start,
 		end:   r.End,
 	}, nil
@@ -134,7 +97,7 @@ func (rs *Ranges) Find(k key) (rangeIdent, bool) {
 		}
 	}
 
-	return rangeIdent{}, false
+	return rangeIdent(0), false
 }
 
 // Len returns the number of ranges this node has, in any state.
@@ -227,8 +190,7 @@ func (rd *RangeData) fetchOne(ctx context.Context, mu *sync.Mutex, dest RangeMet
 
 	client := pbkv.NewKVClient(conn)
 
-	scope, key := src.ident.Decode()
-	res, err := client.Dump(ctx, &pbkv.DumpRequest{Range: &pbkv.Ident{Scope: scope, Key: key}})
+	res, err := client.Dump(ctx, &pbkv.DumpRequest{RangeIdent: uint64(src.ident)})
 	if err != nil {
 		log.Printf("FetchOne failed: %s from: %s: %s", src.ident, addr, err)
 
@@ -432,14 +394,12 @@ func (n *nodeServer) Info(ctx context.Context, req *pbr.InfoRequest) (*pbr.InfoR
 
 	// iterate range metadata
 	for _, r := range n.node.ranges.ranges {
-		scope, key := r.ident.Decode()
 		d := n.node.data[r.ident]
 
 		res.Ranges = append(res.Ranges, &pbr.RangeInfo{
 			Meta: &pbr.RangeMeta{
 				Ident: &pbr.Ident{
-					Scope: scope,
-					Key:   key,
+					Key: uint64(r.ident),
 				},
 				Start: r.start,
 				End:   r.end,
@@ -462,14 +422,12 @@ func (n *nodeServer) Ranges(ctx context.Context, req *pbr.RangesRequest) (*pbr.R
 	// TODO: Filter out ranges based on req.Symbols (e.g. KV.Get)
 
 	for _, r := range n.node.ranges.ranges {
-		scope, key := r.ident.Decode()
 		d := n.node.data[r.ident]
 
 		res.Ranges = append(res.Ranges, &pbr.RangeMetaState{
 			Meta: &pbr.RangeMeta{
 				Ident: &pbr.Ident{
-					Scope: scope,
-					Key:   key,
+					Key: uint64(r.ident),
 				},
 				// Empty when infinity
 				Start: r.start,
@@ -487,12 +445,12 @@ func (n *nodeServer) Ranges(ctx context.Context, req *pbr.RangesRequest) (*pbr.R
 // Does not lock range map! You have do to that!
 func (s *nodeServer) getRangeData(pbi *pbr.Ident) (rangeIdent, *RangeData, error) {
 	if pbi == nil {
-		return rangeIdent{}, nil, status.Error(codes.InvalidArgument, "missing: range")
+		return rangeIdent(0), nil, status.Error(codes.InvalidArgument, "missing: range")
 	}
 
-	ident, err := parseIdent(pbi)
-	if err != nil {
-		return ident, nil, status.Errorf(codes.InvalidArgument, "error parsing range ident: %v", err)
+	ident := rangeIdent(pbi.Key)
+	if ident == 0 {
+		return ident, nil, status.Errorf(codes.InvalidArgument, "invalid: range.key")
 	}
 
 	rd, ok := s.node.data[ident]
@@ -511,18 +469,9 @@ type kvServer struct {
 }
 
 func (s *kvServer) Dump(ctx context.Context, req *pbkv.DumpRequest) (*pbkv.DumpResponse, error) {
-	r := req.Range
-	if r == nil {
-		return nil, status.Error(codes.InvalidArgument, "missing: range")
-	}
-
-	// TODO: Import the proto properly instead of casting like this!
-	ident, err := parseIdent(&pbr.Ident{
-		Scope: req.Range.Scope,
-		Key:   req.Range.Key,
-	})
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "error parsing range ident: %v", err)
+	ident := rangeIdent(req.RangeIdent)
+	if ident == 0 {
+		return nil, status.Error(codes.InvalidArgument, "missing: range_ident")
 	}
 
 	// lol

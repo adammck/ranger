@@ -3,13 +3,6 @@ option go_package = "github.com/adammck/ranger/examples/kv/proto";
 
 package kv;
 
-// TODO: Import this!
-// pasted from pkg/proto/node.proto until i can figure out how the hell to import it across modules.
-message Ident {
-  string scope = 1;
-  uint64 key = 2;
-}
-
 message GetRequest {
   bytes key = 1;
 }
@@ -27,7 +20,7 @@ message PutResponse {
 }
 
 message DumpRequest {
-  Ident range = 1;
+  uint64 range_ident = 1;
 }
 
 message Pair {
