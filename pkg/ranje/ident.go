@@ -3,44 +3,29 @@ package ranje
 import (
 	"errors"
 	"fmt"
-
-	pb "github.com/adammck/ranger/pkg/proto/gen"
 )
 
-// Ident is the unique identity of a range.
+// Ident is the unique identity of a range. It's just a uint64.
 
 // See: ranger/pkg/proto/models.Ident
-type Ident struct {
-	Scope string
-	Key   uint64
-}
+type Ident uint64
+
+var ZeroRange Ident
 
 func (id Ident) String() string {
-	if id.Scope == "" {
-		return fmt.Sprintf("%d", id.Key)
-	}
-
-	return fmt.Sprintf("%s:%d", id.Scope, id.Key)
+	return fmt.Sprintf("%d", id)
 }
 
-func IdentFromProto(p *pb.Ident) (*Ident, error) {
-	id := &Ident{
-		Scope: p.Scope,
-		Key:   p.Key,
-	}
+func IdentFromProto(p uint64) (Ident, error) {
+	id := Ident(p)
 
-	// Empty scope is fine.
-
-	if p.Key == 0 {
+	if id == ZeroRange {
 		return id, errors.New("missing: key")
 	}
 
 	return id, nil
 }
 
-func (id *Ident) ToProto() *pb.Ident {
-	return &pb.Ident{
-		Scope: id.Scope,
-		Key:   id.Key,
-	}
+func (id Ident) ToProto() uint64 {
+	return uint64(id)
 }

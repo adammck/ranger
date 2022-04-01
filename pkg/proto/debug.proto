@@ -14,7 +14,7 @@ message RangesListResponse {
 }
 
 message RangeRequest {
-    Ident range = 1;
+    uint64 range = 1;
 }
 
 message RangeResponse {

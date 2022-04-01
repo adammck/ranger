@@ -78,7 +78,7 @@ func (r *Range) toState(new StateLocal, rg RangeGetter) error {
 	old := r.State
 
 	if old == new {
-		log.Printf("R%v: %s -> %s (redundant)", r.Meta.Ident.Key, old, new)
+		log.Printf("R%v: %s -> %s (redundant)", r.Meta.Ident, old, new)
 		return nil
 	}
 
@@ -142,7 +142,7 @@ func (r *Range) toState(new StateLocal, rg RangeGetter) error {
 	r.State = new
 	r.dirty = true
 
-	log.Printf("R%v: %s -> %s", r.Meta.Ident.Key, old, new)
+	log.Printf("R%v: %s -> %s", r.Meta.Ident, old, new)
 
 	return nil
 }

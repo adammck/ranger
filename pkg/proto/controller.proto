@@ -2,12 +2,10 @@ syntax = "proto3";
 
 option go_package = "github.com/adammck/ranger/pkg/proto";
 
-import "ranje.proto";
-
 package ranger;
 
 message MoveRequest {
-  Ident range = 1;
+  uint64 range = 1;
 
   // The ident of the node to assign the range to.
   // TODO: Also allow nodes to identified by other features.
@@ -19,7 +17,7 @@ message MoveResponse {
 }
 
 message SplitRequest {
-  Ident range = 1;
+  uint64 range = 1;
 
   // The point at which to split the two ranges. This becomes the end key of the
   // left range, and the start key of the right range.
@@ -35,8 +33,8 @@ message SplitResponse {
 }
 
 message JoinRequest {
-  Ident range_left = 1;
-  Ident range_right = 2;
+  uint64 range_left = 1;
+  uint64 range_right = 2;
 
   // The ident of the node to assign the resulting range to.
   string node = 3;

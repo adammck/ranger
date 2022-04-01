@@ -19,7 +19,7 @@ func (fp *FakePersister) PutRanges([]*Range) error {
 }
 
 func Get(t *testing.T, ks *Keyspace, rID uint64) *Range {
-	r, err := ks.Get(Ident{Key: rID})
+	r, err := ks.Get(Ident(rID))
 	require.NoError(t, err)
 	return r
 }

@@ -4,15 +4,9 @@ option go_package = "github.com/adammck/ranger/pkg/proto";
 
 package ranger;
 
-// See ranger/pkg/ident/ident.go
-message Ident {
-  string scope = 1;
-  uint64 key = 2;
-}
-
 message RangeMeta {
   // Unique for every range.
-  Ident ident = 1;
+  uint64 ident = 1;
 
   // Range of the keys in this range.
   bytes start = 2; // inclusive
