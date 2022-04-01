@@ -18,7 +18,7 @@ type Keyspace struct {
 	pers     Persister
 	ranges   []*Range // TODO: don't be dumb, use an interval tree
 	mu       sync.RWMutex
-	maxIdent uint64
+	maxIdent Ident
 }
 
 type RangeGetter interface {
@@ -61,8 +61,8 @@ func New(persister Persister) *Keyspace {
 		}
 
 		// Repair the maxIdent cache.
-		if r.Meta.Ident.Key > ks.maxIdent {
-			ks.maxIdent = r.Meta.Ident.Key
+		if r.Meta.Ident > ks.maxIdent {
+			ks.maxIdent = r.Meta.Ident
 		}
 	}
 
@@ -137,10 +137,7 @@ func (ks *Keyspace) Range() *Range {
 		pers:  ks.pers,
 		State: Pending,
 		Meta: Meta{
-			Ident: Ident{
-				Scope: "", // ???
-				Key:   ks.maxIdent,
-			},
+			Ident: ks.maxIdent,
 		},
 		// Starts dirty, because it hasn't been persisted yet.
 		dirty: true,

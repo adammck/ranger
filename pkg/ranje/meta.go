@@ -56,7 +56,7 @@ func MetaFromProto(p *pb.RangeMeta) (*Meta, error) {
 	}
 
 	return &Meta{
-		Ident: *id,
+		Ident: id,
 		Start: Key(p.Start),
 		End:   Key(p.End),
 	}, nil

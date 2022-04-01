@@ -58,8 +58,9 @@ func (cp *Persister) GetRanges() ([]*ranje.Range, error) {
 		r := &ranje.Range{}
 		json.Unmarshal(kv.Value, r)
 
-		if key != r.Meta.Ident.Key {
-			log.Printf("mismatch between Consul KV key and encoded range: key=%v, r.meta.ident.key=%v", key, r.Meta.Ident.Key)
+		rID := ranje.Ident(key)
+		if rID != r.Meta.Ident {
+			log.Printf("mismatch between Consul KV key and encoded range: key=%v, r.meta.ident=%v", key, r.Meta.Ident)
 			continue
 		}
 
@@ -87,7 +88,7 @@ func (cp *Persister) PutRanges(ranges []*ranje.Range) error {
 
 		op := &api.KVTxnOp{
 			Verb:  api.KVCAS,
-			Key:   fmt.Sprintf("ranges/%d", r.Meta.Ident.Key),
+			Key:   fmt.Sprintf("ranges/%d", r.Meta.Ident),
 			Value: v,
 		}
 

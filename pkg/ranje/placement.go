@@ -125,7 +125,7 @@ func (p *Placement) toState(new StatePlacement) error {
 	p.State = new
 	p.rang.dirty = true
 
-	log.Printf("R%d P %s -> %s", p.rang.Meta.Ident.Key, old, new)
+	log.Printf("R%d P %s -> %s", p.rang.Meta.Ident, old, new)
 
 	return nil
 }
