@@ -6,14 +6,16 @@ type PlacementState uint8
 
 const (
 	// Should never be in this state. Indicates an deserializing error.
-	SpUnknown PlacementState = iota
+	PsUnknown PlacementState = iota
+
+	PsPending
 )
 
 //go:generate stringer -type=PlacementState -output=zzz_state_placement_string.go
 
 func (s PlacementState) ToProto() pb.PlacementState {
 	switch s {
-	case SpUnknown:
+	case PsUnknown:
 		return pb.PlacementState_PS_UNKNOWN
 	}
 

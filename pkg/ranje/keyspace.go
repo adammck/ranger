@@ -71,28 +71,9 @@ func New(cfg config.Config, persister Persister) *Keyspace {
 	return ks
 }
 
-func (ks *Keyspace) Step() {
-	for _, r := range ks.ranges {
-		ks.stepRange(r)
-	}
-}
-
-func (ks *Keyspace) stepRange(r *Range) {
-	switch r.State {
-	case RsActive:
-
-		// Not enough placements? Create one!
-		if len(r.Placements) < ks.cfg.Replication {
-
-			// Node will be set by the driver.
-			p := NewPlacement(r, "TODO")
-			r.Placements = append(r.Placements, p)
-
-		}
-
-	default:
-		panic(fmt.Sprintf("unknown RangeState value: %s", r.State))
-	}
+func (ks *Keyspace) Ranges() ([]*Range, func()) {
+	ks.mu.Lock()
+	return ks.ranges, ks.mu.Unlock
 }
 
 //

@@ -1,12 +1,15 @@
-package driver
+package balancer
 
 import (
 	"testing"
 
 	"github.com/adammck/ranger/pkg/config"
+	mockdisc "github.com/adammck/ranger/pkg/discovery/mock"
 	"github.com/adammck/ranger/pkg/ranje"
+	"github.com/adammck/ranger/pkg/roster"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 )
 
 type FakePersister struct {
@@ -18,6 +21,9 @@ func (fp *FakePersister) GetRanges() ([]*ranje.Range, error) {
 
 func (fp *FakePersister) PutRanges([]*ranje.Range) error {
 	return nil
+}
+
+type FakeRoster struct {
 }
 
 func Get(t *testing.T, ks *ranje.Keyspace, rID uint64) *ranje.Range {
@@ -35,7 +41,14 @@ func getConfig() config.Config {
 }
 
 func TestInitial(t *testing.T) {
-	ks := ranje.New(getConfig(), &FakePersister{})
+	cfg := getConfig()
+
+	disc, err := mockdisc.New()
+	require.NoError(t, err)
+
+	ks := ranje.New(cfg, &FakePersister{})
+	rost := roster.New(cfg, disc, nil, nil, nil)
+	srv := grpc.NewServer()
 
 	// TODO: Remove
 	assert.Equal(t, 1, ks.Len())
@@ -50,9 +63,10 @@ func TestInitial(t *testing.T) {
 	assert.Equal(t, ranje.RsActive, r.State, "range should be born active")
 	assert.Equal(t, 0, len(r.Placements), "range should be born with no placements")
 
-	d := New(ks)
+	bal := New(cfg, ks, rost, srv)
 	assert.Equal(t, "{1 [-inf, +inf] RsActive}", ks.LogString())
 
-	d.Step()
+	bal.Tick()
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=TODO:SpUnknown}", ks.LogString())
+
 }

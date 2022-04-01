@@ -61,7 +61,7 @@ func New(cfg config.Config, addrLis, addrPub string, once bool) (*Controller, er
 	// TODO: Hook up the callbacks (or replace with channels)
 	rost := roster.New(cfg, disc, nil, nil, nil)
 
-	bal := balancer.New(ks, rost, srv)
+	bal := balancer.New(cfg, ks, rost, srv)
 
 	return &Controller{
 		cfg:     cfg,
