@@ -20,11 +20,11 @@ type Placement struct {
 	sync.Mutex
 }
 
-func NewPlacement(r *Range, nodeID string) (*Placement, error) {
+func NewPlacement(r *Range, nodeID string) *Placement {
 	return &Placement{
 		rang:   r,
 		NodeID: nodeID,
-	}, nil
+	}
 }
 
 func (p *Placement) toState(new PlacementState) error {

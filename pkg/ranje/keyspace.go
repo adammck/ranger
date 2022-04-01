@@ -5,6 +5,8 @@ import (
 	"log"
 	"strings"
 	"sync"
+
+	"github.com/adammck/ranger/pkg/config"
 )
 
 // Keyspace is an overlapping set of ranges which cover all of the possible
@@ -14,6 +16,7 @@ import (
 //
 // TODO: Move this out of 'ranje' package; it's stateful.
 type Keyspace struct {
+	cfg      config.Config
 	pers     Persister
 	ranges   []*Range // TODO: don't be dumb, use an interval tree
 	mu       sync.RWMutex
@@ -24,8 +27,9 @@ type RangeGetter interface {
 	Get(id Ident) (*Range, error)
 }
 
-func New(persister Persister) *Keyspace {
+func New(cfg config.Config, persister Persister) *Keyspace {
 	ks := &Keyspace{
+		cfg:  cfg,
 		pers: persister,
 	}
 
@@ -66,6 +70,42 @@ func New(persister Persister) *Keyspace {
 
 	return ks
 }
+
+func (ks *Keyspace) Step() {
+	for _, r := range ks.ranges {
+		ks.stepRange(r)
+	}
+}
+
+func (ks *Keyspace) stepRange(r *Range) {
+	switch r.State {
+	case RsActive:
+
+		// Not enough placements? Create one!
+		if len(r.Placements) < ks.cfg.Replication {
+
+			// Node will be set by the driver.
+			p := NewPlacement(r, "TODO")
+			r.Placements = append(r.Placements, p)
+
+		}
+
+	default:
+		panic(fmt.Sprintf("unknown RangeState value: %s", r.State))
+	}
+}
+
+//
+//
+//
+//
+///
+// ---- old stuff below ----
+//
+//
+//
+//
+//
 
 // DangerousDebuggingMethods returns a keyspaceDebug. Handle with care!
 func (ks *Keyspace) DangerousDebuggingMethods() *keyspaceDebug {
@@ -136,6 +176,13 @@ func (ks *Keyspace) Range() *Range {
 		Meta: Meta{
 			Ident: ks.maxIdent,
 		},
+
+		// Born active, to be placed right away.
+		// TODO: Maybe we need a pending state first? Do the parent ranges need
+		//       to do anything else after this range is created but before it's
+		//       placed?
+		State: RsActive,
+
 		// Starts dirty, because it hasn't been persisted yet.
 		dirty: true,
 	}

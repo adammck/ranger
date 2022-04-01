@@ -32,7 +32,7 @@ func (r *Range) LogString() string {
 	ps := ""
 
 	for i, p := range r.Placements {
-		ps = fmt.Sprintf(" p%d=(%s:%s)", i, p.NodeID, p.State)
+		ps = fmt.Sprintf(" p%d=%s:%s", i, p.NodeID, p.State)
 	}
 
 	return fmt.Sprintf("{%s %s%s}", r.Meta, r.State, ps)

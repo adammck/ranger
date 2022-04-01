@@ -56,7 +56,7 @@ func New(cfg config.Config, addrLis, addrPub string, once bool) (*Controller, er
 	//rangeInfoChan := make(chan roster.RangeInfo)
 
 	pers := consulpers.New(api)
-	ks := ranje.New(pers)
+	ks := ranje.New(cfg, pers)
 
 	// TODO: Hook up the callbacks (or replace with channels)
 	rost := roster.New(cfg, disc, nil, nil, nil)

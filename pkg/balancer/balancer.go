@@ -61,7 +61,7 @@ func (b *Balancer) RangesOnNodesWantingDrain() []*ranje.Range {
 func (b *Balancer) Tick() {
 	// Find any unknown and complain about them. There should be NONE of these
 	// in the keyspace; it indicates a state bug.
-	for _, r := range b.ks.RangesByState(ranje.Unknown) {
+	for _, r := range b.ks.RangesByState(ranje.RsUnknown) {
 		log.Fatalf("range in unknown state: %v", r)
 	}
 

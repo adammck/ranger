@@ -30,59 +30,73 @@ $ examples/kv/bin/gen-proto.sh
 
 ```graphviz
 digraph G {
-    graph [fontname="Sedgwick Ave" fontsize=20 color=grey];
-    node [fontname="Handlee"];
-    edge [fontname="Handlee"];
-
     subgraph cluster_0 {
         label=RANGE;
         
-        Pending;
-        Placing;
-        PlaceError;
-        Quarantine;
-        Ready [penwidth=2];
-        Moving;
-        Splitting;
-        Joining;
-        Obsolete;
+        rActive;
+        rSubsuming;
         
-        Pending -> Placing;
-        Placing -> Ready;
-        Placing -> PlaceError;
-        PlaceError -> Placing;
-        PlaceError -> Quarantine;
-        Quarantine -> Placing;
-        Ready -> Moving;
-        Ready -> Splitting;
-        Ready -> Joining;
-
-        Moving -> Ready;
-
-        Splitting -> Obsolete;
-        Joining -> Obsolete;
+        # The range has been subsumed and should no longer be placed on any
+        # node. The controller should 
+        rObsolete;
+        
+        # The balancer has decided to split or join this range.
+        rActive -> rSubsuming;
+        
+        # The split/join failed.
+        rSubsuming -> rActive;
+        
+        # The split/join was successful.
+        rSubsuming -> rObsolete;
     }
 
     subgraph cluster_1 {
       label=PLACEMENT;
 
-      xPending [label=Pending];
-      xFetching [label=Fetching];
-      xFetched [label=Fetched];
-      xFetchFailed [label=FetchFailed];
-      xReady [label=Ready penwidth=2];
-      xTaken [label=Taken];
-      xDropped [label=Dropped];
-
-      xPending -> xReady [label=give];
-      xPending -> xFetching [label=give];
-      xFetching -> xFetched;
-      xFetching -> xFetchFailed;
-      xFetched -> xReady  [label=serve];
-      xFetchFailed -> xPending;
-      xReady -> xTaken [label=take];
-      xTaken -> xDropped [label=drop];
-      xTaken -> xReady [label=untake];
+        # The placement exists, and a candidate node has been chosen, but we
+        # haven't told the node yet.
+        # The controller should send a Give RPC to the node.
+        pPending;
+        
+        # The node has accepted the placement and is preparing to serve it by
+        # loading relevant state (either from other nodes or cold storage).
+        # The controller should ask the node whether it's finished yet.
+        pLoading;
+        
+        # We've been waiting for the node to load the placement for too long.
+        # The controller should send a Drop RPC to the node.
+        pGiveUp;
+        
+        # The placement is fully active on a node. This is the steady state.
+        # If the placement is marked as obsolete (by the Range state machine),
+        # the controller should send a Drop RPC to the node.
+        pReady;
+        
+        # The placement has been dropped from the node it was assigned to.
+        # The controller should do nothing. The Range state machine will soon
+        # destroy the placement.
+        pDropped;
+        
+        
+        # The node has accepted the placement.
+        pPending -> pLoading;
+        
+        # The node rejected the placement, or the RPC timed out too many times.
+        pPending -> pDropped;
+        
+        # The node has finished loading the placement!
+        pLoading -> pReady;
+        
+        # The node took too long to load the placement.
+        pLoading -> pGiveUp;
+        
+        # Either we told the node to Drop the placement and it succeeded, or we
+        # noticed that the node is no longer reporting that it has it.
+        pReady -> pDropped;
+        
+        # The Drop RPC was sent, and we waited a bit for a response. Whatever
+        # the outcome, we move to dropped.
+        pGiveUp -> pDropped;
     }
 }
 ```

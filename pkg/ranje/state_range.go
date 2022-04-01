@@ -9,7 +9,12 @@ import (
 type RangeState uint8
 
 const (
-	Unknown RangeState = iota
+	RsUnknown RangeState = iota
+
+	// The range is active, i.e. it should be placed on the appropriate number
+	// of nodes and left alone until we decide to supersede it with another
+	// range by joining or splitting.
+	RsActive RangeState = iota
 )
 
 //go:generate stringer -type=RangeState -output=zzz_state_range_string.go
@@ -17,16 +22,16 @@ const (
 func FromProto(s *pb.RangeState) RangeState {
 	switch *s {
 	case pb.RangeState_RS_UNKNOWN:
-		return Unknown
+		return RsUnknown
 	}
 
 	log.Printf("warn: got unknown state from proto: %s", *s)
-	return Unknown
+	return RsUnknown
 }
 
 func (s RangeState) ToProto() pb.RangeState {
 	switch s {
-	case Unknown:
+	case RsUnknown:
 		return pb.RangeState_RS_UNKNOWN
 	}
 

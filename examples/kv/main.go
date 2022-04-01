@@ -24,6 +24,7 @@ func main() {
 	cfg := config.Config{
 		DrainNodesBeforeShutdown: true,
 		NodeExpireDuration:       5 * time.Second,
+		Replication:              2,
 	}
 
 	fnod := flag.Bool("node", false, "start a node")
