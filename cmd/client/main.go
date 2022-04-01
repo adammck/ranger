@@ -199,9 +199,7 @@ func cmdRange(printReq bool, client pb.DebugClient, ctx context.Context, rID uin
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	req := &pb.RangeRequest{Range: &pb.Ident{
-		Key: rID,
-	}}
+	req := &pb.RangeRequest{Range: rID}
 
 	if printReq {
 		output(req)
@@ -271,10 +269,8 @@ func cmdMove(printReq bool, client pb.BalancerClient, ctx context.Context, rID u
 	defer cancel()
 
 	req := &pb.MoveRequest{
-		Range: &pb.Ident{
-			Key: rID,
-		},
-		Node: nID,
+		Range: rID,
+		Node:  nID,
 	}
 
 	if printReq {
@@ -299,9 +295,7 @@ func cmdSplit(printReq bool, client pb.BalancerClient, ctx context.Context, rID 
 	defer cancel()
 
 	req := &pb.SplitRequest{
-		Range: &pb.Ident{
-			Key: rID,
-		},
+		Range:     rID,
 		Boundary:  boundary,
 		NodeLeft:  nID1,
 		NodeRight: nID2,
@@ -329,13 +323,9 @@ func cmdJoin(printReq bool, client pb.BalancerClient, ctx context.Context, rID1,
 	defer cancel()
 
 	req := &pb.JoinRequest{
-		RangeLeft: &pb.Ident{
-			Key: rID1,
-		},
-		RangeRight: &pb.Ident{
-			Key: rID2,
-		},
-		Node: nID,
+		RangeLeft:  rID1,
+		RangeRight: rID2,
+		Node:       nID,
 	}
 
 	if printReq {

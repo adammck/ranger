@@ -21,7 +21,7 @@ type balancerServer struct {
 
 func (bs *balancerServer) Move(ctx context.Context, req *pb.MoveRequest) (*pb.MoveResponse, error) {
 	r := req.Range
-	if r == nil {
+	if r == 0 {
 		return nil, status.Error(codes.InvalidArgument, "missing: range")
 	}
 
@@ -152,14 +152,14 @@ func (bs *balancerServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.Jo
 
 // getRange examines the given range ident and returns the corresponding Range
 // or an error suitable for a gRPC response.
-func getRange(bs *balancerServer, pbid *pb.Ident, field string) (ranje.Ident, error) {
-	if pbid == nil {
-		return ranje.IdentInvalid, status.Error(codes.InvalidArgument, fmt.Sprintf("missing: %s", field))
+func getRange(bs *balancerServer, pbid uint64, field string) (ranje.Ident, error) {
+	if pbid == 0 {
+		return ranje.ZeroRange, status.Error(codes.InvalidArgument, fmt.Sprintf("missing: %s", field))
 	}
 
 	id, err := ranje.IdentFromProto(pbid)
 	if err != nil {
-		return ranje.IdentInvalid, status.Error(codes.InvalidArgument, fmt.Sprintf("invalid %s: %s", field, err.Error()))
+		return ranje.ZeroRange, status.Error(codes.InvalidArgument, fmt.Sprintf("invalid %s: %s", field, err.Error()))
 	}
 
 	return id, nil

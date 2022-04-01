@@ -54,7 +54,7 @@ message GiveResponse {
 }
 
 message ServeRequest {
-  Ident range = 1;
+  uint64 range = 1;
   bool force = 2;
 }
 
@@ -62,21 +62,21 @@ message ServeResponse {
 }
 
 message TakeRequest {
-  Ident range = 1;
+  uint64 range = 1;
 }
 
 message TakeResponse {
 }
 
 message UntakeRequest {
-  Ident range = 1;
+  uint64 range = 1;
 }
 
 message UntakeResponse {
 }
 
 message DropRequest {
-  Ident range = 1;
+  uint64 range = 1;
   bool force = 2;
 }
 

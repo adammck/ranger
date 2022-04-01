@@ -27,23 +27,21 @@ import (
 
 type key []byte
 
-// TODO: Move this to the lib and import it
-type rangeIdent uint64
-
-func (i rangeIdent) String() string {
-	return fmt.Sprintf("rID{%d}", i)
-}
-
 // See also pb.RangeMeta.
 type RangeMeta struct {
-	ident rangeIdent
+	ident ranje.Ident
 	start []byte
 	end   []byte
 }
 
 func parseRangeMeta(r *pbr.RangeMeta) (RangeMeta, error) {
+	rID, err := ranje.IdentFromProto(r.Ident)
+	if err != nil {
+		return RangeMeta{}, err
+	}
+
 	return RangeMeta{
-		ident: rangeIdent(r.Ident.Key),
+		ident: rID,
 		start: r.Start,
 		end:   r.End,
 	}, nil
@@ -68,7 +66,7 @@ func (rs *Ranges) Add(r RangeMeta) error {
 	return nil
 }
 
-func (rs *Ranges) Remove(ident rangeIdent) {
+func (rs *Ranges) Remove(ident ranje.Ident) {
 	idx := -1
 
 	for i := range rs.ranges {
@@ -90,14 +88,14 @@ func (rs *Ranges) Remove(ident rangeIdent) {
 	rs.ranges = rs.ranges[:len(rs.ranges)-1]
 }
 
-func (rs *Ranges) Find(k key) (rangeIdent, bool) {
+func (rs *Ranges) Find(k key) (ranje.Ident, bool) {
 	for _, rm := range rs.ranges {
 		if rm.Contains(k) {
 			return rm.ident, true
 		}
 	}
 
-	return rangeIdent(0), false
+	return ranje.ZeroRange, false
 }
 
 // Len returns the number of ranges this node has, in any state.
@@ -221,7 +219,7 @@ func (rd *RangeData) fetchOne(ctx context.Context, mu *sync.Mutex, dest RangeMet
 type Node struct {
 	cfg config.Config
 
-	data   map[rangeIdent]*RangeData
+	data   map[ranje.Ident]*RangeData
 	ranges Ranges
 	mu     sync.RWMutex // guards data and ranges, todo: split into one for ranges, and one for each range in data
 
@@ -284,7 +282,7 @@ func (n *nodeServer) Give(ctx context.Context, req *pbr.GiveRequest) (*pbr.GiveR
 
 	} else {
 		// No current host nor parents. This is a brand new range. We're
-		// probably initializing a new empty scope.
+		// probably initializing a new empty keyspace.
 		rd.state = roster.StateReady
 	}
 
@@ -398,9 +396,7 @@ func (n *nodeServer) Info(ctx context.Context, req *pbr.InfoRequest) (*pbr.InfoR
 
 		res.Ranges = append(res.Ranges, &pbr.RangeInfo{
 			Meta: &pbr.RangeMeta{
-				Ident: &pbr.Ident{
-					Key: uint64(r.ident),
-				},
+				Ident: uint64(r.ident),
 				Start: r.start,
 				End:   r.end,
 			},
@@ -426,9 +422,7 @@ func (n *nodeServer) Ranges(ctx context.Context, req *pbr.RangesRequest) (*pbr.R
 
 		res.Ranges = append(res.Ranges, &pbr.RangeMetaState{
 			Meta: &pbr.RangeMeta{
-				Ident: &pbr.Ident{
-					Key: uint64(r.ident),
-				},
+				Ident: uint64(r.ident),
 				// Empty when infinity
 				Start: r.start,
 				End:   r.end,
@@ -443,14 +437,10 @@ func (n *nodeServer) Ranges(ctx context.Context, req *pbr.RangesRequest) (*pbr.R
 }
 
 // Does not lock range map! You have do to that!
-func (s *nodeServer) getRangeData(pbi *pbr.Ident) (rangeIdent, *RangeData, error) {
-	if pbi == nil {
-		return rangeIdent(0), nil, status.Error(codes.InvalidArgument, "missing: range")
-	}
-
-	ident := rangeIdent(pbi.Key)
+func (s *nodeServer) getRangeData(pbi uint64) (ranje.Ident, *RangeData, error) {
+	ident := ranje.Ident(pbi)
 	if ident == 0 {
-		return ident, nil, status.Errorf(codes.InvalidArgument, "invalid: range.key")
+		return ranje.ZeroRange, nil, status.Error(codes.InvalidArgument, "missing: range")
 	}
 
 	rd, ok := s.node.data[ident]
@@ -469,7 +459,7 @@ type kvServer struct {
 }
 
 func (s *kvServer) Dump(ctx context.Context, req *pbkv.DumpRequest) (*pbkv.DumpResponse, error) {
-	ident := rangeIdent(req.RangeIdent)
+	ident := ranje.Ident(req.RangeIdent)
 	if ident == 0 {
 		return nil, status.Error(codes.InvalidArgument, "missing: range_ident")
 	}
@@ -595,7 +585,7 @@ func New(cfg config.Config, addrLis, addrPub string, logReqs bool) (*Node, error
 
 	n := &Node{
 		cfg:    cfg,
-		data:   make(map[rangeIdent]*RangeData),
+		data:   make(map[ranje.Ident]*RangeData),
 		ranges: NewRanges(),
 
 		addrLis: addrLis,
