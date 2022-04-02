@@ -1,6 +1,7 @@
 package balancer
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -110,6 +111,7 @@ func (b *Balancer) tickRange(r *ranje.Range) {
 		b.tickPlacement(p)
 	}
 }
+
 func (b *Balancer) tickPlacement(p *ranje.Placement) {
 	switch p.State {
 	case ranje.PsPending:
@@ -117,7 +119,6 @@ func (b *Balancer) tickPlacement(p *ranje.Placement) {
 	default:
 		panic(fmt.Sprintf("unknown PlacementState value: %s", p.State))
 	}
-
 }
 
 func (b *Balancer) PerformMove(r *ranje.Range) {
@@ -127,5 +128,25 @@ func (b *Balancer) PerformMove(r *ranje.Range) {
 func (b *Balancer) Run(t *time.Ticker) {
 	for ; true; <-t.C {
 		b.Tick()
+	}
+}
+
+const giveTimeout = 1 * time.Second
+
+func give(r *ranje.Range, n *roster.Node) {
+
+	// TODO: Include range parents
+	req := &pb.GiveRequest{
+		Range: r.Meta.ToProto(),
+	}
+
+	// TODO: Move outside this func?
+	ctx, cancel := context.WithTimeout(context.Background(), giveTimeout)
+	defer cancel()
+
+	// TODO: Retry a few times before giving up.
+	res, err := n.Client.Give(ctx, req)
+	if err != nil {
+		return err
 	}
 }
