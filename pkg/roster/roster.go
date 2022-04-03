@@ -12,6 +12,7 @@ import (
 	"github.com/adammck/ranger/pkg/discovery"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
+	"google.golang.org/grpc"
 )
 
 const (
@@ -35,6 +36,9 @@ type Roster struct {
 	// info receives NodeInfo updated whenever we receive a probe response from
 	// a node, or when we expire a node.
 	info chan NodeInfo
+
+	// To be stubbed when testing.
+	NodeConnFactory func(ctx context.Context, remote discovery.Remote) (*grpc.ClientConn, error)
 }
 
 func New(cfg config.Config, disc discovery.Discoverable, add, remove func(rem *discovery.Remote), info chan NodeInfo) *Roster {
@@ -45,7 +49,16 @@ func New(cfg config.Config, disc discovery.Discoverable, add, remove func(rem *d
 		add:    add,
 		remove: remove,
 		info:   info, // currently never closed
+
+		// Defaults to production implementation.
+		// Patch it after construction for tests.
+		NodeConnFactory: nodeConnFactory,
 	}
+}
+
+// nodeFactory returns a new node connected via a real gRPC connection.
+func nodeConnFactory(ctx context.Context, remote discovery.Remote) (*grpc.ClientConn, error) {
+	return grpc.DialContext(ctx, remote.Addr(), grpc.WithInsecure())
 }
 
 //func (ros *Roster) NodeBy(opts... NodeByOpts)
@@ -106,7 +119,15 @@ func (ros *Roster) discover() {
 
 		// New Node?
 		if !ok {
-			n = NewNode(r)
+			// TODO: Propagate context from somewhere.
+			conn, err := ros.NodeConnFactory(context.Background(), r)
+			if err != nil {
+				log.Printf("error creating node connection: %v", err)
+				continue
+			}
+
+			n = NewNode(r, conn)
+
 			ros.Nodes[r.Ident] = n
 			log.Printf("added node: %v", n.Ident())
 
@@ -190,6 +211,7 @@ func (ros *Roster) probe() {
 // probeOne sends an RPC to fetch the current ranges for one node.
 // Returns error if the RPC fails or if a probe is already in progess.
 func (ros *Roster) probeOne(ctx context.Context, n *Node) error {
+	log.Printf("probeOne: %v", n.Ident())
 	// TODO: Abort if probe in progress.
 
 	ranges := make(map[ranje.Ident]RangeInfo)

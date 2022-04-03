@@ -33,7 +33,7 @@ func (r *Range) LogString() string {
 
 	// TODO: Use Placement.LogString
 	for i, p := range r.Placements {
-		ps = fmt.Sprintf(" p%d=%s:%s", i, p.NodeID, p.State)
+		ps = fmt.Sprintf("%s p%d=%s:%s", ps, i, p.NodeID, p.State)
 	}
 
 	return fmt.Sprintf("{%s %s%s}", r.Meta, r.State, ps)
@@ -43,9 +43,9 @@ func (r *Range) String() string {
 	return fmt.Sprintf("R{%s %s}", r.Meta.String(), r.State)
 }
 
-func (r *Range) placementStateChanged(rg RangeGetter) {
-	panic("not implemented; see 839595a")
-}
+// func (r *Range) placementStateChanged(rg RangeGetter) {
+// 	panic("not implemented; see 839595a")
+// }
 
 func (r *Range) toState(new RangeState, rg RangeGetter) error {
 	panic("not implemented; see 839595a")

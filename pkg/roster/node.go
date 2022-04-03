@@ -1,10 +1,8 @@
 package roster
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
@@ -45,27 +43,15 @@ type Node struct {
 	//unexpectedRanges map[Ident]*pb.RangeMeta
 }
 
-func NewNode(remote discovery.Remote) *Node {
-	n := Node{
+func NewNode(remote discovery.Remote, conn *grpc.ClientConn) *Node {
+	return &Node{
 		Remote:       remote,
 		init:         time.Now(),
 		whenLastSeen: time.Time{}, // never
+		conn:         conn,
+		Client:       pb.NewNodeClient(conn),
 		ranges:       make(map[ranje.Ident]RangeInfo),
 	}
-
-	// start dialling in background
-	// todo: inherit context to allow global cancellation
-	conn, err := grpc.DialContext(context.Background(), n.Remote.Addr(), grpc.WithInsecure())
-	if err != nil {
-		log.Printf("error while dialing: %v", err)
-	}
-
-	n.muConn.Lock()
-	n.conn = conn
-	n.Client = pb.NewNodeClient(n.conn)
-	n.muConn.Unlock()
-
-	return &n
 }
 
 func (n *Node) Get(rangeID ranje.Ident) (RangeInfo, bool) {

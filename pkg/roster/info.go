@@ -26,6 +26,13 @@ type RangeInfo struct {
 	// TODO: LoadInfo goes here!!
 }
 
+func (ri *RangeInfo) ToProto() *pb.RangeInfo {
+	return &pb.RangeInfo{
+		Meta:  ri.Meta.ToProto(),
+		State: ri.State.ToProto(),
+	}
+}
+
 func RangeInfoFromProto(r *pb.RangeInfo) (RangeInfo, error) {
 	if r.Meta == nil {
 		return RangeInfo{}, fmt.Errorf("missing: meta")

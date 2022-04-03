@@ -46,6 +46,10 @@ func (p *Placement) toState(new PlacementState) error {
 		if new == PsLoading {
 			ok = true
 		}
+	} else if old == PsLoading {
+		if new == PsReady {
+			ok = true
+		}
 	}
 
 	if !ok {

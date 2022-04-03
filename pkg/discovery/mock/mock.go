@@ -8,12 +8,14 @@ import (
 
 // TODO: Methods to add/remove remotes.
 type MockDiscovery struct {
-	remotes map[string][]discovery.Remote
+	Remotes map[string][]discovery.Remote
 	sync.RWMutex
 }
 
-func New(remotes map[string][]discovery.Remote) (*MockDiscovery, error) {
-	return &MockDiscovery{remotes: remotes}, nil
+func New() *MockDiscovery {
+	return &MockDiscovery{
+		Remotes: map[string][]discovery.Remote{},
+	}
 }
 
 // interface
@@ -30,7 +32,7 @@ func (d *MockDiscovery) Get(name string) ([]discovery.Remote, error) {
 	d.RLock()
 	defer d.RUnlock()
 
-	rems, ok := d.remotes[name]
+	rems, ok := d.Remotes[name]
 	if !ok {
 		return []discovery.Remote{}, nil
 	}
@@ -43,5 +45,11 @@ func (d *MockDiscovery) Get(name string) ([]discovery.Remote, error) {
 func (d *MockDiscovery) Set(name string, remotes []discovery.Remote) {
 	d.Lock()
 	defer d.Unlock()
-	d.remotes[name] = remotes
+	d.Remotes[name] = remotes
+}
+
+func (d *MockDiscovery) Add(name string, remote discovery.Remote) {
+	d.Lock()
+	defer d.Unlock()
+	d.Remotes[name] = append(d.Remotes[name], remote)
 }

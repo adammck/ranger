@@ -180,6 +180,32 @@ func (b *Balancer) tickPlacement(p *ranje.Placement) {
 			}
 		})
 
+	case ranje.PsLoading:
+		n := b.rost.NodeByIdent(p.NodeID)
+		if n == nil {
+			// The node disappeared while we were waiting for it to load the
+			// range.
+			b.ks.PlacementToState(p, ranje.PsGiveUp)
+			return
+		}
+
+		rID := p.Range().Meta.Ident
+		ri, ok := n.Get(rID)
+		if !ok {
+			// The node seems to have forgotten about the range while we were
+			// waiting for it to load. (This should not happen, but perhaps
+			// indicates that the node decided that it didn't have enough
+			// capacity after all.)
+			log.Printf("range went away in PsLoading: rID=%s, nID=%s", rID, p.NodeID)
+			b.ks.PlacementToState(p, ranje.PsGiveUp)
+			return
+		}
+
+		if ri.State == roster.StateFetched {
+			b.ks.PlacementToState(p, ranje.PsReady)
+			return
+		}
+
 	default:
 		panic(fmt.Sprintf("unknown PlacementState value: %s", p.State))
 	}

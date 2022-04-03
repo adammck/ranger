@@ -28,6 +28,7 @@ import (
 type key []byte
 
 // See also pb.RangeMeta.
+// TODO: Replace with ranje.Meta!
 type RangeMeta struct {
 	ident ranje.Ident
 	start []byte
