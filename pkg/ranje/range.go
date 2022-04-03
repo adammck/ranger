@@ -31,6 +31,7 @@ type Range struct {
 func (r *Range) LogString() string {
 	ps := ""
 
+	// TODO: Use Placement.LogString
 	for i, p := range r.Placements {
 		ps = fmt.Sprintf(" p%d=%s:%s", i, p.NodeID, p.State)
 	}

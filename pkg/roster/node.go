@@ -38,6 +38,9 @@ type Node struct {
 	ranges    map[ranje.Ident]RangeInfo
 	muRanges  sync.RWMutex
 
+	// to be cancelled
+	// rpcs map[ranje.Ident]context.Context
+
 	// TODO: Figure out what to do with these. They shouldn't exist, and indicate a state bug. But ignoring them probably isn't right.
 	//unexpectedRanges map[Ident]*pb.RangeMeta
 }
@@ -65,15 +68,11 @@ func NewNode(remote discovery.Remote) *Node {
 	return &n
 }
 
-func (n *Node) Get(rangeID ranje.Ident) State {
-	info, ok := n.ranges[rangeID]
-
-	if !ok {
-		// TODO: Add a new state to represent this.
-		return StateUnknown
-	}
-
-	return info.State
+func (n *Node) Get(rangeID ranje.Ident) (RangeInfo, bool) {
+	n.muConn.RLock()
+	defer n.muConn.RUnlock()
+	ri, ok := n.ranges[rangeID]
+	return ri, ok
 }
 
 func (n *Node) Ident() string {

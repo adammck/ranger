@@ -208,28 +208,15 @@ func (ros *Roster) probeOne(ctx context.Context, n *Node) error {
 	}
 
 	for _, r := range res.Ranges {
-		if r.Meta == nil {
-			log.Printf("malformed probe response from %v: Meta is nil", n.Remote.Ident)
-			continue
-		}
 
-		m, err := ranje.MetaFromProto(r.Meta)
-		if r.Meta == nil {
+		info, err := RangeInfoFromProto(r)
+		if err != nil {
 			log.Printf("malformed probe response from %v: %v", n.Remote.Ident, err)
 			continue
 		}
 
-		rID := m.Ident
-
-		// TODO: Update the map rather than overwriting it every time.
-		info := RangeInfo{
-			Meta:  *m,
-			State: RemoteStateFromProto(r.State),
-			// TODO: LoadInfo
-		}
-
 		ni.Ranges = append(ni.Ranges, info)
-		ranges[rID] = info
+		ranges[info.Meta.Ident] = info
 	}
 
 	// TODO: Should this (nil info) even be allowed?

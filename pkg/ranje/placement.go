@@ -1,6 +1,8 @@
 package ranje
 
 import (
+	"fmt"
+	"log"
 	"sync"
 )
 
@@ -24,9 +26,36 @@ func NewPlacement(r *Range, nodeID string) *Placement {
 	return &Placement{
 		rang:   r,
 		NodeID: nodeID,
+		State:  PsPending,
 	}
 }
 
+func (p *Placement) Range() *Range {
+	return p.rang
+}
+
+func (p *Placement) LogString() string {
+	return fmt.Sprintf("{%s %s:%s}", p.rang.Meta.String(), p.NodeID, p.State)
+}
+
 func (p *Placement) toState(new PlacementState) error {
-	panic("not implemented; see 839595a")
+	ok := false
+	old := p.State
+
+	if old == PsPending {
+		if new == PsLoading {
+			ok = true
+		}
+	}
+
+	if !ok {
+		return fmt.Errorf("invalid placement state transition: %s -> %s", old.String(), new.String())
+	}
+
+	p.State = new
+	p.rang.dirty = true
+
+	log.Printf("R%d P %s -> %s", p.rang.Meta.Ident, old, new)
+
+	return nil
 }

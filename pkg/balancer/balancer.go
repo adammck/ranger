@@ -3,6 +3,8 @@ package balancer
 import (
 	"context"
 	"fmt"
+	"log"
+	"sync"
 	"time"
 
 	"github.com/adammck/ranger/pkg/config"
@@ -19,6 +21,11 @@ type Balancer struct {
 	srv  *grpc.Server
 	bs   *balancerServer
 	dbg  *debugServer
+
+	// Funcs to be called at the end of the current tick.
+	cb    []func()
+	cbMu  sync.RWMutex
+	rpcWG sync.WaitGroup
 }
 
 func New(cfg config.Config, ks *ranje.Keyspace, rost *roster.Roster, srv *grpc.Server) *Balancer {
@@ -27,6 +34,7 @@ func New(cfg config.Config, ks *ranje.Keyspace, rost *roster.Roster, srv *grpc.S
 		ks:   ks,
 		rost: rost,
 		srv:  srv,
+		cb:   []func(){},
 	}
 
 	// Register the gRPC server to receive instructions from operators. This
@@ -70,6 +78,12 @@ func (b *Balancer) Tick() {
 		b.tickRange(r)
 	}
 
+	// Now that we're finished advancing the ranges and placements, wait for any
+	// RPCs emitted to complete.
+	b.rpcWG.Wait()
+
+	b.callbacks()
+
 	// Find any unknown and complain about them. There should be NONE of these
 	// in the keyspace; it indicates a state bug.
 	// for _, r := range b.ks.RangesByState(ranje.RsUnknown) {
@@ -90,6 +104,23 @@ func (b *Balancer) Tick() {
 	// }
 }
 
+func (b *Balancer) callbacks() {
+	b.cbMu.Lock()
+	defer b.cbMu.Unlock()
+
+	for _, f := range b.cb {
+		f()
+	}
+
+	b.cb = []func(){}
+}
+
+func (b *Balancer) Queue(f func()) {
+	b.cbMu.Lock()
+	defer b.cbMu.Unlock()
+	b.cb = append(b.cb, f)
+}
+
 func (b *Balancer) tickRange(r *ranje.Range) {
 	switch r.State {
 	case ranje.RsActive:
@@ -97,8 +128,14 @@ func (b *Balancer) tickRange(r *ranje.Range) {
 		// Not enough placements? Create one!
 		if len(r.Placements) < b.cfg.Replication {
 
+			nID, err := b.rost.Candidate(r)
+			if err != nil {
+				log.Printf("error finding candidate node for %v: %v", r, err)
+				return
+			}
+
 			// TODO: Find a candidate node before creating the placement.
-			p := ranje.NewPlacement(r, "TODO")
+			p := ranje.NewPlacement(r, nID)
 			r.Placements = append(r.Placements, p)
 
 		}
@@ -115,14 +152,37 @@ func (b *Balancer) tickRange(r *ranje.Range) {
 func (b *Balancer) tickPlacement(p *ranje.Placement) {
 	switch p.State {
 	case ranje.PsPending:
+		n := b.rost.NodeByIdent(p.NodeID)
+		if n == nil {
+			// The node has disappeared since it was selected.
+			b.ks.PlacementToState(p, ranje.PsDropped)
+			return
+		}
+
+		// If the node already has the range (i.e. this is not the first tick
+		// where the placement is PsPending, so the RPC may already have been
+		// sent)
+		ri, ok := n.Get(p.Range().Meta.Ident)
+		if ok {
+			if ri.State == roster.StateFetching {
+				b.ks.PlacementToState(p, ranje.PsLoading)
+				return
+			}
+		}
+
+		// Otherwise (if the node does not know about the range), send a Give
+		// RPC in the background, and register a callback func to be called at
+		// the end of the tick to update the state.
+		b.RPC(func() {
+			err := n.Give(context.Background(), p)
+			if err != nil {
+				log.Printf("error giving %v to %s: %v", p.LogString(), n.Ident(), err)
+			}
+		})
 
 	default:
 		panic(fmt.Sprintf("unknown PlacementState value: %s", p.State))
 	}
-}
-
-func (b *Balancer) PerformMove(r *ranje.Range) {
-	panic("not implemented; see bbad4b6")
 }
 
 func (b *Balancer) Run(t *time.Ticker) {
@@ -131,22 +191,11 @@ func (b *Balancer) Run(t *time.Ticker) {
 	}
 }
 
-const giveTimeout = 1 * time.Second
+func (b *Balancer) RPC(f func()) {
+	b.rpcWG.Add(1)
 
-func give(r *ranje.Range, n *roster.Node) {
-
-	// TODO: Include range parents
-	req := &pb.GiveRequest{
-		Range: r.Meta.ToProto(),
-	}
-
-	// TODO: Move outside this func?
-	ctx, cancel := context.WithTimeout(context.Background(), giveTimeout)
-	defer cancel()
-
-	// TODO: Retry a few times before giving up.
-	res, err := n.Client.Give(ctx, req)
-	if err != nil {
-		return err
-	}
+	go func() {
+		f()
+		b.rpcWG.Done()
+	}()
 }

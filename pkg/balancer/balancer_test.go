@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/adammck/ranger/pkg/config"
+	"github.com/adammck/ranger/pkg/discovery"
 	mockdisc "github.com/adammck/ranger/pkg/discovery/mock"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
@@ -43,11 +44,21 @@ func getConfig() config.Config {
 func TestInitial(t *testing.T) {
 	cfg := getConfig()
 
-	disc, err := mockdisc.New()
+	disc, err := mockdisc.New(map[string][]discovery.Remote{
+		"node": {
+			{
+				Ident: "test-aaa",
+				Host:  "host-aaa",
+				Port:  1,
+			},
+		},
+	})
 	require.NoError(t, err)
 
 	ks := ranje.New(cfg, &FakePersister{})
 	rost := roster.New(cfg, disc, nil, nil, nil)
+	rost.Tick()
+
 	srv := grpc.NewServer()
 
 	// TODO: Remove
@@ -67,6 +78,7 @@ func TestInitial(t *testing.T) {
 	assert.Equal(t, "{1 [-inf, +inf] RsActive}", ks.LogString())
 
 	bal.Tick()
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=TODO:SpUnknown}", ks.LogString())
-
+	// TODO: Assert that new placement was persisted
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=TODO:PsPending}", ks.LogString())
+	// TODO: Assert that the Give RPC was sent
 }

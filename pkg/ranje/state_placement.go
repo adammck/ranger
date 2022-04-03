@@ -9,6 +9,8 @@ const (
 	PsUnknown PlacementState = iota
 
 	PsPending
+	PsLoading
+	PsDropped
 )
 
 //go:generate stringer -type=PlacementState -output=zzz_state_placement_string.go

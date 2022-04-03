@@ -1,8 +1,10 @@
 package roster
 
 import (
+	"fmt"
 	"time"
 
+	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 )
 
@@ -22,4 +24,22 @@ type RangeInfo struct {
 	Meta  ranje.Meta
 	State State
 	// TODO: LoadInfo goes here!!
+}
+
+func RangeInfoFromProto(r *pb.RangeInfo) (RangeInfo, error) {
+	if r.Meta == nil {
+		return RangeInfo{}, fmt.Errorf("missing: meta")
+	}
+
+	m, err := ranje.MetaFromProto(r.Meta)
+	if err != nil {
+		return RangeInfo{}, fmt.Errorf("parsing meta: %v", err)
+	}
+
+	// TODO: Update the map rather than overwriting it every time.
+	return RangeInfo{
+		Meta:  *m,
+		State: RemoteStateFromProto(r.State),
+		// TODO: LoadInfo
+	}, nil
 }

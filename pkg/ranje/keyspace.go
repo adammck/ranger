@@ -287,8 +287,8 @@ func (ks *Keyspace) DropPlacement(r *Range) error {
 }
 
 func (ks *Keyspace) PlacementToState(p *Placement, state PlacementState) error {
-	ks.mu.Lock()
-	defer ks.mu.Unlock()
+	//ks.mu.Lock()
+	//defer ks.mu.Unlock()
 
 	err := p.toState(state)
 	if err != nil {
