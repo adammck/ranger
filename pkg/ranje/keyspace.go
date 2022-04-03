@@ -293,7 +293,7 @@ func (ks *Keyspace) PlacementToState(p *Placement, state PlacementState) error {
 	err := p.toState(state)
 	if err != nil {
 		panic(fmt.Sprintf("PlacementToState: %v", err))
-		return err
+		//return err
 	}
 
 	//p.rang.placementStateChanged(ks)

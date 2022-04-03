@@ -292,7 +292,10 @@ func (n *nodeServer) Give(ctx context.Context, req *pbr.GiveRequest) (*pbr.GiveR
 
 	log.Printf("Given: %s", rm.ident)
 	return &pbr.GiveResponse{
-		State: rd.state.ToProto(),
+		RangeInfo: &pbr.RangeInfo{
+			Meta:  r,
+			State: rd.state.ToProto(),
+		},
 	}, nil
 }
 
