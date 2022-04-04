@@ -3,6 +3,7 @@ package roster
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,7 +34,7 @@ type Node struct {
 
 	// Populated by probeOne
 	wantDrain bool
-	ranges    map[ranje.Ident]RangeInfo
+	ranges    map[ranje.Ident]*RangeInfo
 	muRanges  sync.RWMutex
 
 	// to be cancelled
@@ -50,15 +51,33 @@ func NewNode(remote discovery.Remote, conn *grpc.ClientConn) *Node {
 		whenLastSeen: time.Time{}, // never
 		conn:         conn,
 		Client:       pb.NewNodeClient(conn),
-		ranges:       make(map[ranje.Ident]RangeInfo),
+		ranges:       make(map[ranje.Ident]*RangeInfo),
 	}
+}
+
+func (n *Node) TestString() string {
+	n.muRanges.RLock()
+	defer n.muRanges.RUnlock()
+
+	i := 0
+	s := make([]string, len(n.ranges))
+	for _, ri := range n.ranges {
+		s[i] = fmt.Sprintf("%s:%s", ri.Meta.Ident, ri.State)
+	}
+
+	return fmt.Sprintf("{%s [%s]}", n.Remote.Ident, strings.Join(s, ", "))
 }
 
 func (n *Node) Get(rangeID ranje.Ident) (RangeInfo, bool) {
 	n.muConn.RLock()
 	defer n.muConn.RUnlock()
+
 	ri, ok := n.ranges[rangeID]
-	return ri, ok
+	if !ok {
+		return RangeInfo{}, false
+	}
+
+	return *ri, true
 }
 
 func (n *Node) Ident() string {

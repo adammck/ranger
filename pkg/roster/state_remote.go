@@ -19,6 +19,7 @@ const (
 	NsPreparingError
 	NsPrepared
 	NsReadying
+	//NSReadyingError
 	NsReady
 	NsTaking
 	NsTaken

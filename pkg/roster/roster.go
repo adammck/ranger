@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -54,6 +55,21 @@ func New(cfg config.Config, disc discovery.Discoverable, add, remove func(rem *d
 		// Patch it after construction for tests.
 		NodeConnFactory: nodeConnFactory,
 	}
+}
+
+func (ros *Roster) TestString() string {
+	ros.RLock()
+	defer ros.RUnlock()
+
+	s := make([]string, len(ros.Nodes))
+	i := 0
+
+	for _, r := range ros.Nodes {
+		s[i] = r.TestString()
+		i++
+	}
+
+	return strings.Join(s, " ")
 }
 
 // nodeFactory returns a new node connected via a real gRPC connection.
@@ -214,7 +230,7 @@ func (ros *Roster) probeOne(ctx context.Context, n *Node) error {
 	log.Printf("probeOne: %v", n.Ident())
 	// TODO: Abort if probe in progress.
 
-	ranges := make(map[ranje.Ident]RangeInfo)
+	ranges := make(map[ranje.Ident]*RangeInfo)
 
 	// TODO: This is an InfoRequest now, but we also have RangesRequest which is
 	// sufficient for the proxy. Maybe make which one is sent configurable?
@@ -238,7 +254,7 @@ func (ros *Roster) probeOne(ctx context.Context, n *Node) error {
 		}
 
 		ni.Ranges = append(ni.Ranges, info)
-		ranges[info.Meta.Ident] = info
+		ranges[info.Meta.Ident] = &info
 	}
 
 	// TODO: Should this (nil info) even be allowed?

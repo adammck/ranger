@@ -174,18 +174,18 @@ func (b *Balancer) tickPlacement(p *ranje.Placement) {
 
 		// If the node already has the range (i.e. this is not the first tick
 		// where the placement is PsPending, so the RPC may already have been
-		// sent)
-
-		// If we know that the node already has the placement (i.e. this is not
-		// the first tick), check the remote state. I
+		// sent), check its remote state, which may have been updated by a
+		// response to a Give or by a periodic probe. We may be able to advance.
 		ri, ok := n.Get(p.Range().Meta.Ident)
 		if ok {
 			switch ri.State {
 			case roster.NsPreparing:
 				log.Printf("node %s still preparing %s", n.Ident(), p.Range().Meta.Ident)
+
 			case roster.NsPrepared:
 				b.ks.PlacementToState(p, ranje.PsPrepared)
 				return
+
 			case roster.NsPreparingError:
 				// TODO: Pass back more information from the node, here. It's
 				//       not an RPC error, but there was some failure which we
@@ -193,12 +193,19 @@ func (b *Balancer) tickPlacement(p *ranje.Placement) {
 				log.Printf("error placing %s on %s", p.Range().Meta.Ident, n.Ident())
 				b.ks.PlacementToState(p, ranje.PsGiveUp)
 				return
+
 			default:
-				log.Printf("unexpected state: %s", ri.State)
+				log.Printf("very unexpected state: %s", ri.State)
+				b.ks.PlacementToState(p, ranje.PsGiveUp)
+				return
 			}
+		} else {
+			log.Printf("will give %s to %s", p.Range().Meta.Ident, n.Ident())
 		}
 
 		// Send a Give RPC (maybe not the first time; once per tick).
+		// TODO: Keep track of how many times we've tried this and for how long.
+		//       We'll want to give up if it takes too long to prepare.
 		b.RPC(func() {
 			err := n.Give(context.Background(), p)
 			if err != nil {
@@ -206,31 +213,46 @@ func (b *Balancer) tickPlacement(p *ranje.Placement) {
 			}
 		})
 
-	case ranje.PsLoading:
+	case ranje.PsPrepared:
 		n := b.rost.NodeByIdent(p.NodeID)
 		if n == nil {
-			// The node disappeared while we were waiting for it to load the
-			// range.
+			// The node has disappeared.
 			b.ks.PlacementToState(p, ranje.PsGiveUp)
 			return
 		}
 
-		rID := p.Range().Meta.Ident
-		ri, ok := n.Get(rID)
-		if !ok {
-			// The node seems to have forgotten about the range while we were
-			// waiting for it to load. (This should not happen, but perhaps
-			// indicates that the node decided that it didn't have enough
-			// capacity after all.)
-			log.Printf("range went away in PsLoading: rID=%s, nID=%s", rID, p.NodeID)
-			b.ks.PlacementToState(p, ranje.PsGiveUp)
-			return
+		ri, ok := n.Get(p.Range().Meta.Ident)
+		if ok {
+			switch ri.State {
+			case roster.NsPrepared:
+				// This is the first time around.
+				log.Printf("will instruct %s to serve %s", n.Ident(), p.Range().Meta.Ident)
+
+			case roster.NsReadying:
+				// We've already sent the Serve RPC at least once, and the node
+				// is working on it. Just keep waiting.
+				log.Printf("node %s still readying %s", n.Ident(), p.Range().Meta.Ident)
+
+			case roster.NsReady:
+				b.ks.PlacementToState(p, ranje.PsReady)
+				return
+
+			// TODO: roster.NsReadyError?
+
+			default:
+				log.Printf("very unexpected state: %s", ri.State)
+				b.ks.PlacementToState(p, ranje.PsGiveUp)
+				return
+			}
 		}
 
-		if ri.State == roster.NsPrepared {
-			b.ks.PlacementToState(p, ranje.PsReady)
-			return
-		}
+		// Send a Serve RPC to instruct this node to become ready.
+		b.RPC(func() {
+			err := n.Serve(context.Background(), p)
+			if err != nil {
+				log.Printf("error serving %v to %s: %v", p.LogString(), n.Ident(), err)
+			}
+		})
 
 	default:
 		panic(fmt.Sprintf("unknown PlacementState value: %s", p.State))

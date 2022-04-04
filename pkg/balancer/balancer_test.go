@@ -59,29 +59,27 @@ func TestInitial(t *testing.T) {
 	srv := grpc.NewServer()
 	bal := New(cfg, ks, rost, srv)
 	assert.Equal(t, "{1 [-inf, +inf] RsActive}", ks.LogString())
+	assert.Equal(t, "{test-aaa []}", rost.TestString())
 
 	bal.Tick()
+	assert.Equal(t, 1, bal.LastTickRPCs()) // Give
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsPreparing]}", rost.TestString())
 	// TODO: Assert that new placement was persisted
-	assert.Equal(t, 1, bal.LastTickRPCs())
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", ks.LogString())
 
 	bal.Tick()
-	assert.Equal(t, 1, bal.LastTickRPCs())
+	assert.Equal(t, 1, bal.LastTickRPCs()) // redundant Give
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsPreparing]}", rost.TestString())
 
-	// Check that nothing is changing.
-	// s := ks.LogString()
-	// for i := 0; i < 20; i++ {
-	// 	bal.Tick()
-	// 	assert.Equal(t, s, ks.LogString())
-	// }
-
-	// The node finished preparing.
+	// The node finished preparing, but we don't know about it.
 	nodes.RangeState("test-aaa", 1, roster.NsPrepared)
+	assert.Equal(t, "{test-aaa [1:NsPreparing]}", rost.TestString())
 
 	bal.Tick()
-	assert.Equal(t, 1, bal.LastTickRPCs())
+	assert.Equal(t, 1, bal.LastTickRPCs()) // redundant Give
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsPrepared]}", rost.TestString())
 
 	// This tick notices that the remote state (which was updated at the end of
 	// the previous tick, after the (redundant) Give RPC returned) now indicates
@@ -90,15 +88,28 @@ func TestInitial(t *testing.T) {
 	// TODO: Maybe the state update should immediately trigger another tick just
 	//       for that placement? Would save a tick, but risks infinite loops.
 	bal.Tick()
-	assert.Equal(t, 1, bal.LastTickRPCs())
+	assert.Equal(t, 0, bal.LastTickRPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPrepared}", ks.LogString())
-
-	// The node became ready.
-	nodes.RangeState("test-aaa", 1, roster.NsReady)
+	assert.Equal(t, "{test-aaa [1:NsPrepared]}", rost.TestString())
 
 	bal.Tick()
-	assert.Equal(t, 1, bal.LastTickRPCs())
+	assert.Equal(t, 1, bal.LastTickRPCs()) // Serve
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPrepared}", ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsReadying]}", rost.TestString())
+
+	// The node became ready, but as above, we don't know about it.
+	nodes.RangeState("test-aaa", 1, roster.NsReady)
+	assert.Equal(t, "{test-aaa [1:NsReadying]}", rost.TestString())
+
+	bal.Tick()
+	assert.Equal(t, 1, bal.LastTickRPCs()) // redundant Serve
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPrepared}", ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsReady]}", rost.TestString())
+
+	bal.Tick()
+	assert.Equal(t, 0, bal.LastTickRPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}", ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsReady]}", rost.TestString())
 }
 
 // -----------------------------------------------------------------------------
@@ -138,12 +149,12 @@ type testRange struct {
 
 type TestNode struct {
 	pb.UnimplementedNodeServer
-	ranges map[ranje.Ident]testRange
+	ranges map[ranje.Ident]*testRange
 }
 
 func NewTestNode() *TestNode {
 	return &TestNode{
-		ranges: map[ranje.Ident]testRange{},
+		ranges: map[ranje.Ident]*testRange{},
 	}
 }
 
@@ -158,7 +169,15 @@ func (n *TestNode) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveRespo
 	var info *roster.RangeInfo
 
 	r, ok := n.ranges[meta.Ident]
-	if ok {
+	if !ok {
+		info = &roster.RangeInfo{
+			Meta:  *meta,
+			State: roster.NsPreparing,
+		}
+		n.ranges[info.Meta.Ident] = &testRange{
+			info: info,
+		}
+	} else {
 		switch r.info.State {
 		case roster.NsPreparing, roster.NsPreparingError, roster.NsPrepared:
 			// We already know about this range, and it's in one of the states
@@ -169,18 +188,39 @@ func (n *TestNode) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveRespo
 		default:
 			return nil, status.Errorf(codes.InvalidArgument, "invalid state for redundant Give: %v", r.info.State)
 		}
-	} else {
-		info = &roster.RangeInfo{
-			Meta:  *meta,
-			State: roster.NsPreparing,
-		}
-		n.ranges[info.Meta.Ident] = testRange{
-			info: info,
-		}
 	}
 
 	return &pb.GiveResponse{
 		RangeInfo: info.ToProto(),
+	}, nil
+}
+
+func (n *TestNode) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.ServeResponse, error) {
+	log.Printf("TestNode.Serve")
+
+	rID, err := ranje.IdentFromProto(req.Range)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+
+	r, ok := n.ranges[rID]
+	if !ok {
+		return nil, status.Errorf(codes.InvalidArgument, "can't Serve unknown range: %v", rID)
+	}
+
+	switch r.info.State {
+	case roster.NsPrepared:
+		r.info.State = roster.NsReadying
+
+	case roster.NsReadying, roster.NsReady:
+		log.Printf("got redundant Serve")
+
+	default:
+		return nil, status.Errorf(codes.InvalidArgument, "invalid state for Serve: %v", r.info.State)
+	}
+
+	return &pb.ServeResponse{
+		State: r.info.State.ToProto(),
 	}, nil
 }
 

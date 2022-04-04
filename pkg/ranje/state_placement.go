@@ -10,7 +10,6 @@ const (
 
 	PsPending
 	PsPrepared
-	PsLoading
 	PsReady
 	PsTaken
 	PsGiveUp
