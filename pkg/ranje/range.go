@@ -2,6 +2,7 @@ package ranje
 
 import (
 	"fmt"
+	"log"
 	"sync"
 )
 
@@ -34,6 +35,10 @@ func (r *Range) LogString() string {
 	// TODO: Use Placement.LogString
 	for i, p := range r.Placements {
 		ps = fmt.Sprintf("%s p%d=%s:%s", ps, i, p.NodeID, p.State)
+
+		if p.WantMove {
+			ps = fmt.Sprintf("%s:want-move", ps)
+		}
 	}
 
 	return fmt.Sprintf("{%s %s%s}", r.Meta, r.State, ps)
@@ -49,4 +54,67 @@ func (r *Range) String() string {
 
 func (r *Range) toState(new RangeState, rg RangeGetter) error {
 	panic("not implemented; see 839595a")
+}
+
+// MayBecomeReady returns whether the given placement is permitted to advance
+// from PsPrepared to PsReady.
+func (r *Range) MayBecomeReady(p *Placement) bool {
+
+	// Sanity check.
+	if p.State != PsPrepared {
+		log.Printf("called MayBecomeReady in weird state: %s", p.State)
+		return false
+	}
+
+	// TODO: Should read the number of replicas from the config, not hard-code
+	//       it to one! Probably needs to move to the keyspace.
+
+	for _, p2 := range r.Placements {
+		if p2.State == PsReady {
+			return false
+		}
+	}
+
+	return true
+}
+
+// MayBeTaken returns whether the given placement, which is assumed to be in
+// state PsReady, may advance to PsTaken. The only circumstance where this is
+// true is when the placement is being replaced by another replica (i.e. a move)
+// or when the entire range has been subsumed.
+//
+// TODO: Implement the latter, when (re-)implementing splits and joins. This
+//       probably needs to move to the keyspace, for that.
+//
+func (r *Range) MayBeTaken(p *Placement) bool {
+
+	// Sanity check.
+	if p.State != PsReady {
+		log.Printf("called MayBeTaken in weird state: %s", p.State)
+		return false
+	}
+
+	if !p.WantMove {
+		return false
+	}
+
+	var replacement *Placement
+	for _, p2 := range r.Placements {
+		if p2.IsReplacing == p.NodeID {
+			replacement = p2
+			break
+		}
+	}
+
+	// p wants to be moved, but no replacement placement has been created yet.
+	// Not sure how we ended up here, but it's valid.
+	if replacement == nil {
+		return false
+	}
+
+	if replacement.State == PsPrepared {
+		return true
+	}
+
+	return false
 }

@@ -61,12 +61,16 @@ func (ros *Roster) TestString() string {
 	ros.RLock()
 	defer ros.RUnlock()
 
-	s := make([]string, len(ros.Nodes))
-	i := 0
+	keys := []string{}
+	for nID := range ros.Nodes {
+		keys = append(keys, nID)
+	}
 
-	for _, r := range ros.Nodes {
-		s[i] = r.TestString()
-		i++
+	sort.Strings(keys)
+
+	s := make([]string, len(ros.Nodes))
+	for i, nID := range keys {
+		s[i] = ros.Nodes[nID].TestString()
 	}
 
 	return strings.Join(s, " ")
@@ -316,14 +320,16 @@ func (r *Roster) Candidate(rng *ranje.Range) (string, error) {
 
 	// Exclude a node if:
 	//
-	// 1. It's drained, i.e. it doesn't want any more ranges. It's probably
+	// 1. It already has this range.
+	//
+	// 2. It's drained, i.e. it doesn't want any more ranges. It's probably
 	//    shutting down.
 	//
-	// 2. It's missing, i.e. hasn't responded to our probes in a while. It might
+	// 3. It's missing, i.e. hasn't responded to our probes in a while. It might
 	//    still come back, but let's avoid it anyway.
 	//
 	for i := range nodes {
-		if nodes[i].WantDrain() || nodes[i].IsMissing(r.cfg, time.Now()) {
+		if nodes[i].HasRange(rng.Meta.Ident) || nodes[i].WantDrain() || nodes[i].IsMissing(r.cfg, time.Now()) {
 			continue
 		}
 

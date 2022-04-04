@@ -16,6 +16,11 @@ type Placement struct {
 	// from the store. Modify it via ToState.
 	State PlacementState
 
+	// ???
+	// TODO: Persist this field.
+	WantMove    bool
+	IsReplacing string // NodeID
+
 	// Guards everything.
 	// TODO: Change into an RWLock, check callers.
 	// TODO: Should this also lock the range and node? I think no?

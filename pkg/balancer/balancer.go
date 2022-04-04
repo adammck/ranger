@@ -147,10 +147,47 @@ func (b *Balancer) tickRange(r *ranje.Range) {
 				return
 			}
 
-			// TODO: Find a candidate node before creating the placement.
 			p := ranje.NewPlacement(r, nID)
 			r.Placements = append(r.Placements, p)
 
+		}
+
+		// Placement wants moving? Create another one to replace it.
+
+		moveInProgress := map[string]struct{}{}
+		for _, p := range r.Placements {
+			if p.IsReplacing != "" {
+				moveInProgress[p.IsReplacing] = struct{}{}
+			}
+		}
+
+		initMove := []*ranje.Placement{}
+		for _, p := range r.Placements {
+			if p.WantMove {
+				_, ok := moveInProgress[p.NodeID]
+				if !ok {
+					initMove = append(initMove, p)
+				}
+			}
+		}
+
+		for _, p1 := range initMove {
+			// TODO: Deduplicate this with the above.
+			nID, err := b.rost.Candidate(r)
+			if err != nil {
+				log.Printf("error finding candidate node for %v: %v", r, err)
+				return
+			}
+
+			p2 := ranje.NewPlacement(r, nID)
+			p2.IsReplacing = p1.NodeID
+			r.Placements = append(r.Placements, p2)
+
+			// Only init one per tick, for now!
+			// TODO: Think about this, it's dumb.
+			if true {
+				break
+			}
 		}
 
 	default:
@@ -246,7 +283,13 @@ func (b *Balancer) tickPlacement(p *ranje.Placement) {
 			}
 		}
 
-		// Send a Serve RPC to instruct this node to become ready.
+		// We are ready to move from Prepared to Ready, but may have to wait for
+		// the placement that this is replacing (maybe) to relinquish it first.
+		if !p.Range().MayBecomeReady(p) {
+			log.Printf("not moving to Ready")
+			return
+		}
+
 		b.RPC(func() {
 			err := n.Serve(context.Background(), p)
 			if err != nil {
@@ -254,8 +297,53 @@ func (b *Balancer) tickPlacement(p *ranje.Placement) {
 			}
 		})
 
+	case ranje.PsReady:
+		n := b.rost.NodeByIdent(p.NodeID)
+		if n == nil {
+			// The node has disappeared.
+			b.ks.PlacementToState(p, ranje.PsGiveUp)
+			return
+		}
+
+		ri, ok := n.Get(p.Range().Meta.Ident)
+		if ok {
+			switch ri.State {
+			case roster.NsReady:
+				log.Printf("ready: %s", p.LogString())
+
+			case roster.NsTaking:
+				log.Printf("node %s still taking %s", n.Ident(), p.Range().Meta.Ident)
+
+			case roster.NsTaken:
+				b.ks.PlacementToState(p, ranje.PsTaken)
+				return
+
+			// TODO: roster.NsTakeError?
+
+			default:
+				log.Printf("very unexpected state: %s", ri.State)
+				b.ks.PlacementToState(p, ranje.PsGiveUp)
+				return
+			}
+		}
+
+		if !p.Range().MayBeTaken(p) {
+			log.Printf("not moving to Taken")
+			return
+		}
+
+		b.RPC(func() {
+			err := n.Take(context.Background(), p)
+			if err != nil {
+				log.Printf("error taking %v from %s: %v", p.LogString(), n.Ident(), err)
+			}
+		})
+
+	case ranje.PsTaken:
+		log.Printf("TODO: ranje.PsTaken")
+
 	default:
-		panic(fmt.Sprintf("unknown PlacementState value: %s", p.State))
+		panic(fmt.Sprintf("unhandled PlacementState value: %s", p.State))
 	}
 }
 

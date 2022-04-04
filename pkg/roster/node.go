@@ -109,9 +109,18 @@ func (n *Node) Utilization() uint8 {
 }
 
 func (n *Node) WantDrain() bool {
+	// TODO: Use a differet lock for this!
 	n.muRanges.RLock()
 	defer n.muRanges.RUnlock()
 	return n.wantDrain
+}
+
+// HasRange returns whether we think this node has the given range.
+func (n *Node) HasRange(rID ranje.Ident) bool {
+	n.muRanges.RLock()
+	defer n.muRanges.RUnlock()
+	_, ok := n.ranges[rID]
+	return ok
 }
 
 func (n *Node) Conn() (grpc.ClientConnInterface, error) {

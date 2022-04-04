@@ -90,3 +90,39 @@ func (n *Node) Serve(ctx context.Context, p *ranje.Placement) error {
 	log.Printf("served %s to %s; state=%v", p.LogString(), n.Ident(), s)
 	return nil
 }
+
+func (n *Node) Take(ctx context.Context, p *ranje.Placement) error {
+	log.Printf("taking %s from %s...", p.LogString(), n.Ident())
+	rID := p.Range().Meta.Ident
+
+	// TODO: Include range parents
+	req := &pb.TakeRequest{
+		Range: rID.ToProto(),
+	}
+
+	// TODO: Move outside this func?
+	ctx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	defer cancel()
+
+	// TODO: Retry a few times before giving up.
+	res, err := n.Client.Take(ctx, req)
+	if err != nil {
+		log.Printf("error taking %s from %s: %v", p.LogString(), n.Ident(), err)
+		return err
+	}
+
+	s := RemoteStateFromProto(res.State)
+
+	// Update the state in the range info cache.
+	func() {
+		n.muRanges.Lock()
+		defer n.muRanges.Unlock()
+		ri, ok := n.ranges[rID]
+		if ok {
+			ri.State = s
+		}
+	}()
+
+	log.Printf("took %s from %s; state=%v", p.LogString(), n.Ident(), s)
+	return nil
+}

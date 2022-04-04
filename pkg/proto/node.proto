@@ -40,6 +40,11 @@ service Node {
 message GiveRequest {
   RangeMeta range = 1;
 
+  // TODO: Should include the placement index in here, so the node can verify
+  //       that the controller is talking about the same placement when it sees
+  //       duplicates. Just in case the controller has gone mad and is trying
+  //       to place multiple replicas of the same range on a single node.
+
   // The range(s) which this range was created from, and the nodes where they
   // can currently be found. This is empty is the range is brand new. Nodes may
   // use this info to restore the current state of the range when accepting it.
@@ -66,6 +71,7 @@ message TakeRequest {
 }
 
 message TakeResponse {
+  RangeNodeState state = 1;
 }
 
 message UntakeRequest {
