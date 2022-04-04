@@ -42,13 +42,10 @@ func (p *Placement) toState(new PlacementState) error {
 	ok := false
 	old := p.State
 
-	if old == PsPending {
-		if new == PsLoading {
+	for _, t := range PlacementStateTransitions {
+		if t.from == old && t.to == new {
 			ok = true
-		}
-	} else if old == PsLoading {
-		if new == PsReady {
-			ok = true
+			break
 		}
 	}
 

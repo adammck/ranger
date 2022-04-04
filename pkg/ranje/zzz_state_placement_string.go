@@ -10,15 +10,17 @@ func _() {
 	var x [1]struct{}
 	_ = x[PsUnknown-0]
 	_ = x[PsPending-1]
-	_ = x[PsLoading-2]
-	_ = x[PsReady-3]
-	_ = x[PsGiveUp-4]
-	_ = x[PsDropped-5]
+	_ = x[PsPrepared-2]
+	_ = x[PsLoading-3]
+	_ = x[PsReady-4]
+	_ = x[PsTaken-5]
+	_ = x[PsGiveUp-6]
+	_ = x[PsDropped-7]
 }
 
-const _PlacementState_name = "PsUnknownPsPendingPsLoadingPsReadyPsGiveUpPsDropped"
+const _PlacementState_name = "PsUnknownPsPendingPsPreparedPsLoadingPsReadyPsTakenPsGiveUpPsDropped"
 
-var _PlacementState_index = [...]uint8{0, 9, 18, 27, 34, 42, 51}
+var _PlacementState_index = [...]uint8{0, 9, 18, 28, 37, 44, 51, 59, 68}
 
 func (i PlacementState) String() string {
 	if i >= PlacementState(len(_PlacementState_index)-1) {

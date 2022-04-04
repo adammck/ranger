@@ -1,54 +1,85 @@
 package roster
 
 import (
+	"fmt"
+
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 )
 
-// See: ranger/pkg/proto/node.proto:RangeInfo.State
-// TODO: Remove this and replace callers with ranje.PlacementState. This is a subset!
-type State uint8
+// See: ranger/pkg/proto/node.proto:RangeInfo.RemoteState
+type RemoteState uint8
 
 const (
-	StateUnknown State = iota
-	StateFetching
-	StateFetched
-	StateFetchFailed
-	StateReady
-	StateTaken
+
+	// Should never be in this state. Indicates a bug.
+	NsUnknown RemoteState = iota
+
+	// Valid states.
+	NsPreparing
+	NsPreparingError
+	NsPrepared
+	NsReadying
+	NsReady
+	NsTaking
+	NsTaken
+	NsDropping
+	NsDropped
 )
 
-//go:generate stringer -type=State -output=state_string.go
+//go:generate stringer -type=RemoteState -output=state_string.go
 
-func RemoteStateFromProto(s pb.RangeNodeState) State {
+func RemoteStateFromProto(s pb.RangeNodeState) RemoteState {
 	switch s {
-	case pb.RangeNodeState_FETCHING:
-		return StateFetching
-	case pb.RangeNodeState_FETCHED:
-		return StateFetched
-	case pb.RangeNodeState_FETCH_FAILED:
-		return StateFetchFailed
+	case pb.RangeNodeState_UNKNOWN:
+		return NsUnknown
+	case pb.RangeNodeState_PREPARING:
+		return NsPreparing
+	case pb.RangeNodeState_PREPARING_ERROR:
+		return NsPreparingError
+	case pb.RangeNodeState_PREPARED:
+		return NsPrepared
+	case pb.RangeNodeState_READYING:
+		return NsReadying
 	case pb.RangeNodeState_READY:
-		return StateReady
+		return NsReady
+	case pb.RangeNodeState_TAKING:
+		return NsTaking
 	case pb.RangeNodeState_TAKEN:
-		return StateTaken
+		return NsTaken
+	case pb.RangeNodeState_DROPPING:
+		return NsDropping
+	case pb.RangeNodeState_DROPPED:
+		return NsDropped
 	}
 
-	return StateUnknown
+	panic(fmt.Sprintf("RemoteStateFromProto got unknown node state: %#v", s))
+	//return StateUnknown
 }
 
-func (rs State) ToProto() pb.RangeNodeState {
+func (rs RemoteState) ToProto() pb.RangeNodeState {
 	switch rs {
-	case StateFetching:
-		return pb.RangeNodeState_FETCHING
-	case StateFetched:
-		return pb.RangeNodeState_FETCHED
-	case StateFetchFailed:
-		return pb.RangeNodeState_FETCH_FAILED
-	case StateReady:
+	case NsUnknown:
+		return pb.RangeNodeState_UNKNOWN
+	case NsPreparing:
+		return pb.RangeNodeState_PREPARING
+	case NsPreparingError:
+		return pb.RangeNodeState_PREPARING_ERROR
+	case NsPrepared:
+		return pb.RangeNodeState_PREPARED
+	case NsReadying:
+		return pb.RangeNodeState_READYING
+	case NsReady:
 		return pb.RangeNodeState_READY
-	case StateTaken:
+	case NsTaking:
+		return pb.RangeNodeState_TAKING
+	case NsTaken:
 		return pb.RangeNodeState_TAKEN
+	case NsDropping:
+		return pb.RangeNodeState_DROPPING
+	case NsDropped:
+		return pb.RangeNodeState_DROPPED
 	}
 
-	return pb.RangeNodeState_UNKNOWN
+	panic(fmt.Sprintf("ToProto got unknown node state: %#v", rs))
+	//return pb.RangeNodeState_UNKNOWN
 }

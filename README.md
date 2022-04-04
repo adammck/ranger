@@ -30,73 +30,64 @@ $ examples/kv/bin/gen-proto.sh
 
 ```graphviz
 digraph G {
+    edge [fontcolor=grey, fontsize=8];
+    
     subgraph cluster_0 {
-        label=RANGE;
+        label=Range;
         
-        rActive;
-        rSubsuming;
+        rActive [label=Active];
+        rSubsuming [label=Subsuming];
+        rObsolete [label=Obsolete];
         
-        # The range has been subsumed and should no longer be placed on any
-        # node. The controller should 
-        rObsolete;
-        
-        # The balancer has decided to split or join this range.
         rActive -> rSubsuming;
-        
-        # The split/join failed.
         rSubsuming -> rActive;
-        
-        # The split/join was successful.
         rSubsuming -> rObsolete;
     }
 
-    subgraph cluster_1 {
-      label=PLACEMENT;
+    subgraph cluster_2 {
+      label=Placement;
 
-        # The placement exists, and a candidate node has been chosen, but we
-        # haven't told the node yet.
-        # The controller should send a Give RPC to the node.
-        pPending;
+        pPending
+        [label=<Pending<br/><font point-size="8" color="#aaaaaa">Send <u>Give</u><br/><i>prepare_add_shard</i></font>>];
         
-        # The node has accepted the placement and is preparing to serve it by
-        # loading relevant state (either from other nodes or cold storage).
-        # The controller should ask the node whether it's finished yet.
-        pLoading;
+        pPreparing
+        [label=<Preparing<br/><font point-size="8" color="#aaaaaa">If (something):<br/>Send <u>Serve</u><i><br/>add_shard</i></font>>];
         
-        # We've been waiting for the node to load the placement for too long.
-        # The controller should send a Drop RPC to the node.
-        pGiveUp;
+        pGiveUp
+        [label=<GiveUp> color=red];
+
+        pReady
+        [penwidth=2 label=<Ready<br/><font point-size="8" color="#aaaaaa">If (something):<br/>Send <u>Take</u><i><br/>prepare_remove_shard</i></font>>];
         
-        # The placement is fully active on a node. This is the steady state.
-        # If the placement is marked as obsolete (by the Range state machine),
-        # the controller should send a Drop RPC to the node.
-        pReady;
-        
-        # The placement has been dropped from the node it was assigned to.
-        # The controller should do nothing. The Range state machine will soon
-        # destroy the placement.
+        pTaken
+        [label=<Taken<br/><font point-size="8" color="#aaaaaa">If (something):<br/>Send <u>Take</u><i><br/>remove_shard</i></font>>];
+
         pDropped;
         
+        pPending -> pPreparing
+        [label="remote state is:\nPsPreparing"];
         
-        # The node has accepted the placement.
-        pPending -> pLoading;
+        pPreparing -> pReady
+        [label="remote state is:\nPsReady"];
         
-        # The node rejected the placement, or the RPC timed out too many times.
-        pPending -> pDropped;
+        pReady -> pTaken
+        [label="remote state is:\nPsTaken"];
         
-        # The node has finished loading the placement!
-        pLoading -> pReady;
-        
-        # The node took too long to load the placement.
-        pLoading -> pGiveUp;
-        
-        # Either we told the node to Drop the placement and it succeeded, or we
-        # noticed that the node is no longer reporting that it has it.
-        pReady -> pDropped;
-        
-        # The Drop RPC was sent, and we waited a bit for a response. Whatever
-        # the outcome, we move to dropped.
+        pTaken -> pDropped
+        [label="remote state is:\nPsDropped"];
+
+        # Most states can move to GiveUp on failure. Some other placement will
+        # hopefully pick up the workload.
+        pPending -> pGiveUp;
+        pPreparing -> pGiveUp;
+        pReady -> pGiveUp;
+        pTaken -> pGiveUp;
+    
         pGiveUp -> pDropped;
+        
+        # Shortcuts for systems which don't need prepare steps.
+        #pPending -> pReady [color="grey"];
+        #pReady -> pDropped [color="grey"];
     }
 }
 ```

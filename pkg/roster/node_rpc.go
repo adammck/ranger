@@ -30,6 +30,7 @@ func (n *Node) Give(ctx context.Context, p *ranje.Placement) error {
 	// TODO: Retry a few times before giving up.
 	res, err := n.Client.Give(ctx, req)
 	if err != nil {
+		log.Printf("error giving %s to %s: %v", p.LogString(), n.Ident(), err)
 		return err
 	}
 
@@ -45,5 +46,6 @@ func (n *Node) Give(ctx context.Context, p *ranje.Placement) error {
 	n.ranges[info.Meta.Ident] = info
 	n.muRanges.Unlock()
 
+	log.Printf("gave %s to %s; info=%v", p.LogString(), n.Ident(), info)
 	return nil
 }

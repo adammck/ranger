@@ -22,7 +22,7 @@ type NodeInfo struct {
 // time. These are emitted and cached by the Roster to anyone who cares.
 type RangeInfo struct {
 	Meta  ranje.Meta
-	State State
+	State RemoteState
 	// TODO: LoadInfo goes here!!
 }
 

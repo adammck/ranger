@@ -61,31 +61,43 @@ func TestInitial(t *testing.T) {
 	assert.Equal(t, "{1 [-inf, +inf] RsActive}", ks.LogString())
 
 	bal.Tick()
-	// TODO: Assert that the Give RPC was sent
 	// TODO: Assert that new placement was persisted
+	assert.Equal(t, 1, bal.LastTickRPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", ks.LogString())
 
 	bal.Tick()
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsLoading}", ks.LogString())
+	assert.Equal(t, 1, bal.LastTickRPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", ks.LogString())
 
 	// Check that nothing is changing.
-	s := ks.LogString()
-	for i := 0; i < 20; i++ {
-		bal.Tick()
-		assert.Equal(t, s, ks.LogString())
-	}
+	// s := ks.LogString()
+	// for i := 0; i < 20; i++ {
+	// 	bal.Tick()
+	// 	assert.Equal(t, s, ks.LogString())
+	// }
 
-	// The node finished loading the range.
-	nodes.RangeState("test-aaa", 1, roster.StateFetched)
-
-	// Still in PsLoading because the roster hasn't probed it yet, so the
-	// controller doesn't know. Balancer ticks don't send probes.
-	bal.Tick()
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsLoading}", ks.LogString())
-
-	rost.Tick()
+	// The node finished preparing.
+	nodes.RangeState("test-aaa", 1, roster.NsPrepared)
 
 	bal.Tick()
+	assert.Equal(t, 1, bal.LastTickRPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", ks.LogString())
+
+	// This tick notices that the remote state (which was updated at the end of
+	// the previous tick, after the (redundant) Give RPC returned) now indicates
+	// that the node has finished preparing.
+	//
+	// TODO: Maybe the state update should immediately trigger another tick just
+	//       for that placement? Would save a tick, but risks infinite loops.
+	bal.Tick()
+	assert.Equal(t, 1, bal.LastTickRPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPrepared}", ks.LogString())
+
+	// The node became ready.
+	nodes.RangeState("test-aaa", 1, roster.NsReady)
+
+	bal.Tick()
+	assert.Equal(t, 1, bal.LastTickRPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}", ks.LogString())
 }
 
@@ -126,25 +138,46 @@ type testRange struct {
 
 type TestNode struct {
 	pb.UnimplementedNodeServer
-	ranges []testRange
+	ranges map[ranje.Ident]testRange
+}
+
+func NewTestNode() *TestNode {
+	return &TestNode{
+		ranges: map[ranje.Ident]testRange{},
+	}
 }
 
 func (n *TestNode) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveResponse, error) {
-	log.Printf("give")
+	log.Printf("TestNode.Give")
 
 	meta, err := ranje.MetaFromProto(req.Range)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "error parsing range meta: %v", err)
 	}
 
-	info := &roster.RangeInfo{
-		Meta:  *meta,
-		State: roster.StateFetching,
-	}
+	var info *roster.RangeInfo
 
-	n.ranges = append(n.ranges, testRange{
-		info: info,
-	})
+	r, ok := n.ranges[meta.Ident]
+	if ok {
+		switch r.info.State {
+		case roster.NsPreparing, roster.NsPreparingError, roster.NsPrepared:
+			// We already know about this range, and it's in one of the states
+			// that indicate a previous Give. This is a duplicate. Don't change
+			// any state, just return the RangeInfo to let the controller know
+			// how we're doing.
+			info = r.info
+		default:
+			return nil, status.Errorf(codes.InvalidArgument, "invalid state for redundant Give: %v", r.info.State)
+		}
+	} else {
+		info = &roster.RangeInfo{
+			Meta:  *meta,
+			State: roster.NsPreparing,
+		}
+		n.ranges[info.Meta.Ident] = testRange{
+			info: info,
+		}
+	}
 
 	return &pb.GiveResponse{
 		RangeInfo: info.ToProto(),
@@ -152,7 +185,7 @@ func (n *TestNode) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveRespo
 }
 
 func (n *TestNode) Info(ctx context.Context, req *pb.InfoRequest) (*pb.InfoResponse, error) {
-	log.Printf("info")
+	log.Printf("TestNode.Info")
 
 	res := &pb.InfoResponse{
 		WantDrain: false,
@@ -192,7 +225,7 @@ func (tn *TestNodes) close() {
 }
 
 func (tn *TestNodes) Add(ctx context.Context, remote discovery.Remote) {
-	n := &TestNode{}
+	n := NewTestNode()
 	tn.nodes[remote.Ident] = n
 
 	conn, closer := nodeServer(ctx, n)
@@ -202,21 +235,19 @@ func (tn *TestNodes) Add(ctx context.Context, remote discovery.Remote) {
 	tn.disc.Add("node", remote)
 }
 
-func (tn *TestNodes) RangeState(nID string, rID ranje.Ident, state roster.State) {
+func (tn *TestNodes) RangeState(nID string, rID ranje.Ident, state roster.RemoteState) {
 	n, ok := tn.nodes[nID]
 	if !ok {
 		panic(fmt.Sprintf("no such node: %s", nID))
 	}
 
-	for _, r := range n.ranges {
-		if r.info.Meta.Ident == rID {
-			log.Printf("RangeState: %s, %s -> %s", nID, rID, state)
-			r.info.State = state
-			return
-		}
+	r, ok := n.ranges[rID]
+	if !ok {
+		panic(fmt.Sprintf("no such range: %s", rID))
 	}
 
-	panic(fmt.Sprintf("no such range: %s", rID))
+	log.Printf("RangeState: %s, %s -> %s", nID, rID, state)
+	r.info.State = state
 }
 
 // Use this to stub out the Roster.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/adammck/ranger/pkg/config"
@@ -26,6 +27,9 @@ type Balancer struct {
 	cb    []func()
 	cbMu  sync.RWMutex
 	rpcWG sync.WaitGroup
+
+	// Just for testing.
+	lastTickRPCs uint32
 }
 
 func New(cfg config.Config, ks *ranje.Keyspace, rost *roster.Roster, srv *grpc.Server) *Balancer {
@@ -51,6 +55,12 @@ func New(cfg config.Config, ks *ranje.Keyspace, rost *roster.Roster, srv *grpc.S
 	return b
 }
 
+// TODO: Would be better to return a slice of {give, serve, take, drop} or
+//       something, to ensure that we're seeing the right kind of RPCs.
+func (b *Balancer) LastTickRPCs() int {
+	return int(atomic.LoadUint32(&b.lastTickRPCs))
+}
+
 func (b *Balancer) RangesOnNodesWantingDrain() []*ranje.Range {
 	out := []*ranje.Range{}
 
@@ -71,6 +81,9 @@ func (b *Balancer) RangesOnNodesWantingDrain() []*ranje.Range {
 }
 
 func (b *Balancer) Tick() {
+	log.Print("tick")
+	atomic.StoreUint32(&b.lastTickRPCs, 0)
+
 	rs, unlock := b.ks.Ranges()
 	defer unlock()
 
@@ -155,24 +168,37 @@ func (b *Balancer) tickPlacement(p *ranje.Placement) {
 		n := b.rost.NodeByIdent(p.NodeID)
 		if n == nil {
 			// The node has disappeared since it was selected.
-			b.ks.PlacementToState(p, ranje.PsDropped)
+			b.ks.PlacementToState(p, ranje.PsGiveUp)
 			return
 		}
 
 		// If the node already has the range (i.e. this is not the first tick
 		// where the placement is PsPending, so the RPC may already have been
 		// sent)
+
+		// If we know that the node already has the placement (i.e. this is not
+		// the first tick), check the remote state. I
 		ri, ok := n.Get(p.Range().Meta.Ident)
 		if ok {
-			if ri.State == roster.StateFetching {
-				b.ks.PlacementToState(p, ranje.PsLoading)
+			switch ri.State {
+			case roster.NsPreparing:
+				log.Printf("node %s still preparing %s", n.Ident(), p.Range().Meta.Ident)
+			case roster.NsPrepared:
+				b.ks.PlacementToState(p, ranje.PsPrepared)
 				return
+			case roster.NsPreparingError:
+				// TODO: Pass back more information from the node, here. It's
+				//       not an RPC error, but there was some failure which we
+				//       can log or handle here.
+				log.Printf("error placing %s on %s", p.Range().Meta.Ident, n.Ident())
+				b.ks.PlacementToState(p, ranje.PsGiveUp)
+				return
+			default:
+				log.Printf("unexpected state: %s", ri.State)
 			}
 		}
 
-		// Otherwise (if the node does not know about the range), send a Give
-		// RPC in the background, and register a callback func to be called at
-		// the end of the tick to update the state.
+		// Send a Give RPC (maybe not the first time; once per tick).
 		b.RPC(func() {
 			err := n.Give(context.Background(), p)
 			if err != nil {
@@ -201,7 +227,7 @@ func (b *Balancer) tickPlacement(p *ranje.Placement) {
 			return
 		}
 
-		if ri.State == roster.StateFetched {
+		if ri.State == roster.NsPrepared {
 			b.ks.PlacementToState(p, ranje.PsReady)
 			return
 		}
@@ -218,6 +244,7 @@ func (b *Balancer) Run(t *time.Ticker) {
 }
 
 func (b *Balancer) RPC(f func()) {
+	atomic.AddUint32(&b.lastTickRPCs, 1)
 	b.rpcWG.Add(1)
 
 	go func() {

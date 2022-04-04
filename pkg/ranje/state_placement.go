@@ -9,11 +9,39 @@ const (
 	PsUnknown PlacementState = iota
 
 	PsPending
+	PsPrepared
 	PsLoading
 	PsReady
+	PsTaken
 	PsGiveUp
 	PsDropped
 )
+
+type PlacementStateTransition struct {
+	from PlacementState
+	to   PlacementState
+}
+
+var PlacementStateTransitions []PlacementStateTransition
+
+func init() {
+	PlacementStateTransitions = []PlacementStateTransition{
+		// Happy Path
+		{PsPending, PsPrepared},
+		{PsPrepared, PsReady},
+		{PsReady, PsTaken},
+		{PsTaken, PsDropped},
+
+		// Error paths
+		{PsPending, PsGiveUp},
+		{PsPrepared, PsGiveUp},
+		{PsReady, PsGiveUp},
+		{PsTaken, PsGiveUp},
+
+		// Recovery?
+		{PsGiveUp, PsDropped},
+	}
+}
 
 //go:generate stringer -type=PlacementState -output=zzz_state_placement_string.go
 

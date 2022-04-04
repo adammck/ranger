@@ -30,11 +30,15 @@ message PlacementTwo {
 // Keep synced with RangeState (in node.go for now)
 enum RangeNodeState {
   UNKNOWN = 0;
-  FETCHING = 1;
-  FETCHED = 2;
-  FETCH_FAILED = 3;
-  READY = 4;
-  TAKEN = 5;
+  PREPARING = 1;
+	PREPARING_ERROR = 2;
+	PREPARED = 3;
+	READYING = 4;
+	READY = 5;
+	TAKING = 6;
+	TAKEN = 7;
+	DROPPING = 8;
+	DROPPED = 9;
 }
 
 // This is only for debugging purposes, for now.
