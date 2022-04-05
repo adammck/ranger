@@ -22,9 +22,7 @@ type Balancer struct {
 	bs   *balancerServer
 	dbg  *debugServer
 
-	// Funcs to be called at the end of the current tick.
-	cb    []func()
-	cbMu  sync.RWMutex
+	// TODO: Move this into the Tick method; just pass it along.
 	rpcWG sync.WaitGroup
 }
 
@@ -34,7 +32,6 @@ func New(cfg config.Config, ks *ranje.Keyspace, rost *roster.Roster, srv *grpc.S
 		ks:   ks,
 		rost: rost,
 		srv:  srv,
-		cb:   []func(){},
 	}
 
 	// Register the gRPC server to receive instructions from operators. This
@@ -83,44 +80,6 @@ func (b *Balancer) Tick() {
 	// Now that we're finished advancing the ranges and placements, wait for any
 	// RPCs emitted to complete.
 	b.rpcWG.Wait()
-
-	b.callbacks()
-
-	// Find any unknown and complain about them. There should be NONE of these
-	// in the keyspace; it indicates a state bug.
-	// for _, r := range b.ks.RangesByState(ranje.RsUnknown) {
-	// 	log.Fatalf("range in unknown state: %v", r)
-	// }
-
-	// Find any placements on nodes which are unknown to the roster. This can
-	// happen if a node goes away while the controller is down, and probably
-	// other state snafus.
-	// TODO
-
-	// Find any pending ranges and find any node to assign them to.
-	// TODO
-
-	// Find any ranges on nodes wanting drain, and move them.
-	// for _, r := range b.RangesOnNodesWantingDrain() {
-	// 	b.PerformMove(r)
-	// }
-}
-
-func (b *Balancer) callbacks() {
-	b.cbMu.Lock()
-	defer b.cbMu.Unlock()
-
-	for _, f := range b.cb {
-		f()
-	}
-
-	b.cb = []func(){}
-}
-
-func (b *Balancer) Queue(f func()) {
-	b.cbMu.Lock()
-	defer b.cbMu.Unlock()
-	b.cb = append(b.cb, f)
 }
 
 func (b *Balancer) tickRange(r *ranje.Range) {

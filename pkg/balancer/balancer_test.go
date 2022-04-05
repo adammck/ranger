@@ -16,78 +16,117 @@ import (
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 )
 
-func TestInitial(t *testing.T) {
-	ctx := context.Background()
-	cfg := getConfig()
+type BalancerSuite struct {
+	suite.Suite
+	ctx   context.Context
+	cfg   config.Config
+	nodes *TestNodes
+	ks    *ranje.Keyspace
+	rost  *roster.Roster
+	spy   *RpcSpy
+	bal   *Balancer
+}
 
-	nodes, closer := NewTestNodes()
-	defer closer()
+// GetRange returns a range from the test's keyspace or fails the test.
+func (ts *BalancerSuite) GetRange(rID uint64) *ranje.Range {
+	r, err := ts.ks.Get(ranje.Ident(rID))
+	ts.Require().NoError(err)
+	return r
+}
 
-	nodes.Add(ctx, discovery.Remote{
+func (ts *BalancerSuite) SetupTest() {
+	ts.ctx = context.Background()
+
+	// Sensible defaults.
+	// TODO: Better to set these per test, but that's too late because we've
+	//       already created the objects in this method, and config is supposed
+	//       to be immutable. Better rethink this.
+	ts.cfg = config.Config{
+		DrainNodesBeforeShutdown: false,
+		NodeExpireDuration:       1 * time.Hour, // never
+		Replication:              1,
+	}
+
+	ts.nodes = NewTestNodes()
+
+	ts.ks = ranje.New(ts.cfg, &NullPersister{})
+	ts.rost = roster.New(ts.cfg, ts.nodes.Discovery(), nil, nil, nil)
+	ts.rost.NodeConnFactory = ts.nodes.NodeConnFactory
+
+	// TODO: Get this stupid RpcSpy out of the actual code and into this file,
+	//       maybe call back from the handlers in TestNode.
+	ts.spy = NewRpcSpy()
+	ts.rost.RpcSpy = ts.spy.c
+	ts.spy.Start()
+
+	srv := grpc.NewServer()
+	ts.bal = New(ts.cfg, ts.ks, ts.rost, srv)
+}
+
+func (ts *BalancerSuite) TearDownTest() {
+	if ts.nodes != nil {
+		ts.nodes.Close()
+	}
+	if ts.spy != nil {
+		ts.spy.Stop()
+	}
+}
+
+func (ts *BalancerSuite) TestJunk() {
+	// TODO: Move to keyspace tests.
+
+	// TODO: Remove
+	ts.Equal(1, ts.ks.Len())
+	ts.Equal("{1 [-inf, +inf] RsActive}", ts.ks.LogString())
+	// End
+
+	r := ts.GetRange(1)
+	ts.NotNil(r)
+	ts.Equal(ranje.ZeroKey, r.Meta.Start, "range should start at ZeroKey")
+	ts.Equal(ranje.ZeroKey, r.Meta.End, "range should end at ZeroKey")
+	ts.Equal(ranje.RsActive, r.State, "range should be born active")
+	ts.Equal(0, len(r.Placements), "range should be born with no placements")
+}
+
+func (ts *BalancerSuite) TestPlacement() {
+	ts.nodes.Add(ts.ctx, discovery.Remote{
 		Ident: "test-aaa",
 		Host:  "host-aaa",
 		Port:  1,
 	})
 
-	ks := ranje.New(cfg, &NullPersister{})
-	rost := roster.New(cfg, nodes.Discovery(), nil, nil, nil)
-	rost.NodeConnFactory = nodes.NodeConnFactory
-
-	// TODO: Get this stupid RpcSpy out of the actual code and into this file,
-	//       maybe call back from the handlers in TestNode.
-	spy := NewRpcSpy()
-	rost.RpcSpy = spy.c
-	spy.Start()
-	defer spy.Stop()
-
 	// Probe all of the fake nodes.
-	rost.Tick()
+	ts.rost.Tick()
 
-	// TODO: Remove
-	assert.Equal(t, 1, ks.Len())
-	assert.Equal(t, "{1 [-inf, +inf] RsActive}", ks.LogString())
-	// End
+	ts.Equal("{1 [-inf, +inf] RsActive}", ts.ks.LogString())
+	ts.Equal("{test-aaa []}", ts.rost.TestString())
 
-	// TODO: Move to keyspace tests.
-	r := Get(t, ks, 1)
-	assert.NotNil(t, r)
-	assert.Equal(t, ranje.ZeroKey, r.Meta.Start, "range should start at ZeroKey")
-	assert.Equal(t, ranje.ZeroKey, r.Meta.End, "range should end at ZeroKey")
-	assert.Equal(t, ranje.RsActive, r.State, "range should be born active")
-	assert.Equal(t, 0, len(r.Placements), "range should be born with no placements")
-
-	srv := grpc.NewServer()
-	bal := New(cfg, ks, rost, srv)
-	assert.Equal(t, "{1 [-inf, +inf] RsActive}", ks.LogString())
-	assert.Equal(t, "{test-aaa []}", rost.TestString())
-
-	bal.Tick()
-	assert.Equal(t, []roster.RpcRecord{{Type: roster.Give, Node: "test-aaa", Range: 1}}, spy.Get())
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsPreparing]}", rost.TestString())
+	ts.bal.Tick()
+	ts.Equal([]roster.RpcRecord{{Type: roster.Give, Node: "test-aaa", Range: 1}}, ts.spy.Get())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsPreparing]}", ts.rost.TestString())
 	// TODO: Assert that new placement was persisted
 
-	bal.Tick()
-	assert.Equal(t, []roster.RpcRecord{{Type: roster.Give, Node: "test-aaa", Range: 1}}, spy.Get()) // redundant
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsPreparing]}", rost.TestString())
+	ts.bal.Tick()
+	ts.Equal([]roster.RpcRecord{{Type: roster.Give, Node: "test-aaa", Range: 1}}, ts.spy.Get()) // redundant
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsPreparing]}", ts.rost.TestString())
 
 	// The node finished preparing, but we don't know about it.
-	nodes.RangeState("test-aaa", 1, roster.NsPrepared)
-	assert.Equal(t, "{test-aaa [1:NsPreparing]}", rost.TestString())
+	ts.nodes.RangeState("test-aaa", 1, roster.NsPrepared)
+	ts.Equal("{test-aaa [1:NsPreparing]}", ts.rost.TestString())
 
-	bal.Tick()
-	assert.Equal(t, []roster.RpcRecord{{Type: roster.Give, Node: "test-aaa", Range: 1}}, spy.Get()) // redundant
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsPrepared]}", rost.TestString())
+	ts.bal.Tick()
+	ts.Equal([]roster.RpcRecord{{Type: roster.Give, Node: "test-aaa", Range: 1}}, ts.spy.Get()) // redundant
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsPrepared]}", ts.rost.TestString())
 
 	// This tick notices that the remote state (which was updated at the end of
 	// the previous tick, after the (redundant) Give RPC returned) now indicates
@@ -95,143 +134,150 @@ func TestInitial(t *testing.T) {
 	//
 	// TODO: Maybe the state update should immediately trigger another tick just
 	//       for that placement? Would save a tick, but risks infinite loops.
-	bal.Tick()
-	assert.Equal(t, 0, len(spy.Get()))
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPrepared}", ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsPrepared]}", rost.TestString())
+	ts.bal.Tick()
+	ts.Equal(0, len(ts.spy.Get()))
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsPrepared}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsPrepared]}", ts.rost.TestString())
 
-	bal.Tick()
-	assert.Equal(t, []roster.RpcRecord{{Type: roster.Serve, Node: "test-aaa", Range: 1}}, spy.Get())
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPrepared}", ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsReadying]}", rost.TestString())
+	ts.bal.Tick()
+	ts.Equal([]roster.RpcRecord{{Type: roster.Serve, Node: "test-aaa", Range: 1}}, ts.spy.Get())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsPrepared}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsReadying]}", ts.rost.TestString())
 
 	// The node became ready, but as above, we don't know about it.
-	nodes.RangeState("test-aaa", 1, roster.NsReady)
-	assert.Equal(t, "{test-aaa [1:NsReadying]}", rost.TestString())
+	ts.nodes.RangeState("test-aaa", 1, roster.NsReady)
+	ts.Equal("{test-aaa [1:NsReadying]}", ts.rost.TestString())
 
-	bal.Tick()
-	assert.Equal(t, []roster.RpcRecord{{Type: roster.Serve, Node: "test-aaa", Range: 1}}, spy.Get()) // redundant
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPrepared}", ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsReady]}", rost.TestString())
+	ts.bal.Tick()
+	ts.Equal([]roster.RpcRecord{{Type: roster.Serve, Node: "test-aaa", Range: 1}}, ts.spy.Get()) // redundant
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsPrepared}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsReady]}", ts.rost.TestString())
 
-	bal.Tick()
-	assert.Equal(t, 0, len(spy.Get()))
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}", ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsReady]}", rost.TestString())
+	ts.bal.Tick()
+	ts.Equal(0, len(ts.spy.Get()))
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsReady]}", ts.rost.TestString())
 
 	// Range Move
 	// TODO: Split this into a separate test!
 
-	nodes.Add(ctx, discovery.Remote{
+	ts.nodes.Add(ts.ctx, discovery.Remote{
 		Ident: "test-bbb",
 		Host:  "host-bbb",
 		Port:  1,
 	})
 
-	rost.Tick()
-	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb []}", rost.TestString())
+	ts.rost.Tick()
+	ts.Equal("{test-aaa [1:NsReady]} {test-bbb []}", ts.rost.TestString())
 
-	p := r.Placements[0]
-	p.WantMove = true
+	{
+		r := ts.GetRange(1)
+		p := r.Placements[0]
+		p.WantMove = true
+	}
 
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady:want-move}", ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb []}", rost.TestString())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady:want-move}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsReady]} {test-bbb []}", ts.rost.TestString())
 
-	bal.Tick()
-	assert.Equal(t, []roster.RpcRecord{{Type: roster.Give, Node: "test-bbb", Range: 1}}, spy.Get())
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady:want-move p1=test-bbb:PsPending}", ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb [1:NsPreparing]}", rost.TestString())
+	ts.bal.Tick()
+	ts.Equal([]roster.RpcRecord{{Type: roster.Give, Node: "test-bbb", Range: 1}}, ts.spy.Get())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady:want-move p1=test-bbb:PsPending}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsReady]} {test-bbb [1:NsPreparing]}", ts.rost.TestString())
 
 	// Node B finished preparing.
-	nodes.RangeState("test-bbb", 1, roster.NsPrepared)
-	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb [1:NsPreparing]}", rost.TestString())
+	ts.nodes.RangeState("test-bbb", 1, roster.NsPrepared)
+	ts.Equal("{test-aaa [1:NsReady]} {test-bbb [1:NsPreparing]}", ts.rost.TestString())
 
-	rost.Tick()
-	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb [1:NsPrepared]}", rost.TestString())
+	ts.rost.Tick()
+	ts.Equal("{test-aaa [1:NsReady]} {test-bbb [1:NsPrepared]}", ts.rost.TestString())
 
 	// Just updates state from roster.
 	// TODO: As above, should maybe trigger the next tick automatically.
-	bal.Tick()
-	assert.Equal(t, 0, len(spy.Get()))
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady:want-move p1=test-bbb:PsPrepared}", ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb [1:NsPrepared]}", rost.TestString())
+	ts.bal.Tick()
+	ts.Equal(0, len(ts.spy.Get()))
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady:want-move p1=test-bbb:PsPrepared}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsReady]} {test-bbb [1:NsPrepared]}", ts.rost.TestString())
 
-	bal.Tick()
-	assert.Equal(t, []roster.RpcRecord{{Type: roster.Take, Node: "test-aaa", Range: 1}}, spy.Get())
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady:want-move p1=test-bbb:PsPrepared}", ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsTaking]} {test-bbb [1:NsPrepared]}", rost.TestString())
+	ts.bal.Tick()
+	ts.Equal([]roster.RpcRecord{{Type: roster.Take, Node: "test-aaa", Range: 1}}, ts.spy.Get())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady:want-move p1=test-bbb:PsPrepared}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsTaking]} {test-bbb [1:NsPrepared]}", ts.rost.TestString())
 
-	bal.Tick()
-	assert.Equal(t, []roster.RpcRecord{{Type: roster.Take, Node: "test-aaa", Range: 1}}, spy.Get()) // redundant
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady:want-move p1=test-bbb:PsPrepared}", ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsTaking]} {test-bbb [1:NsPrepared]}", rost.TestString())
+	ts.bal.Tick()
+	ts.Equal([]roster.RpcRecord{{Type: roster.Take, Node: "test-aaa", Range: 1}}, ts.spy.Get()) // redundant
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady:want-move p1=test-bbb:PsPrepared}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsTaking]} {test-bbb [1:NsPrepared]}", ts.rost.TestString())
 
 	// Node A finished taking.
-	nodes.RangeState("test-aaa", 1, roster.NsTaken)
-	assert.Equal(t, "{test-aaa [1:NsTaking]} {test-bbb [1:NsPrepared]}", rost.TestString())
+	ts.nodes.RangeState("test-aaa", 1, roster.NsTaken)
+	ts.Equal("{test-aaa [1:NsTaking]} {test-bbb [1:NsPrepared]}", ts.rost.TestString())
 
-	rost.Tick()
-	assert.Equal(t, "{test-aaa [1:NsTaken]} {test-bbb [1:NsPrepared]}", rost.TestString())
+	ts.rost.Tick()
+	ts.Equal("{test-aaa [1:NsTaken]} {test-bbb [1:NsPrepared]}", ts.rost.TestString())
 
-	bal.Tick()
-	assert.Equal(t, []roster.RpcRecord{{Type: roster.Serve, Node: "test-bbb", Range: 1}}, spy.Get())
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken:want-move p1=test-bbb:PsPrepared}", ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsTaken]} {test-bbb [1:NsReadying]}", rost.TestString())
+	ts.bal.Tick()
+	ts.Equal([]roster.RpcRecord{{Type: roster.Serve, Node: "test-bbb", Range: 1}}, ts.spy.Get())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken:want-move p1=test-bbb:PsPrepared}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsTaken]} {test-bbb [1:NsReadying]}", ts.rost.TestString())
 
-	bal.Tick()
-	assert.Equal(t, []roster.RpcRecord{{Type: roster.Serve, Node: "test-bbb", Range: 1}}, spy.Get()) // redundant
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken:want-move p1=test-bbb:PsPrepared}", ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsTaken]} {test-bbb [1:NsReadying]}", rost.TestString())
+	ts.bal.Tick()
+	ts.Equal([]roster.RpcRecord{{Type: roster.Serve, Node: "test-bbb", Range: 1}}, ts.spy.Get()) // redundant
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken:want-move p1=test-bbb:PsPrepared}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsTaken]} {test-bbb [1:NsReadying]}", ts.rost.TestString())
 
 	// Node B finished becoming ready.
-	nodes.RangeState("test-bbb", 1, roster.NsReady)
-	assert.Equal(t, "{test-aaa [1:NsTaken]} {test-bbb [1:NsReadying]}", rost.TestString())
+	ts.nodes.RangeState("test-bbb", 1, roster.NsReady)
+	ts.Equal("{test-aaa [1:NsTaken]} {test-bbb [1:NsReadying]}", ts.rost.TestString())
 
-	rost.Tick()
-	assert.Equal(t, "{test-aaa [1:NsTaken]} {test-bbb [1:NsReady]}", rost.TestString())
+	ts.rost.Tick()
+	ts.Equal("{test-aaa [1:NsTaken]} {test-bbb [1:NsReady]}", ts.rost.TestString())
 
-	bal.Tick()
-	assert.Equal(t, 0, len(spy.Get()))
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken:want-move p1=test-bbb:PsReady}", ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsTaken]} {test-bbb [1:NsReady]}", rost.TestString())
+	ts.bal.Tick()
+	ts.Equal(0, len(ts.spy.Get()))
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken:want-move p1=test-bbb:PsReady}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsTaken]} {test-bbb [1:NsReady]}", ts.rost.TestString())
 
-	bal.Tick()
-	assert.Equal(t, []roster.RpcRecord{{Type: roster.Drop, Node: "test-aaa", Range: 1}}, spy.Get())
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken:want-move p1=test-bbb:PsReady}", ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsDropping]} {test-bbb [1:NsReady]}", rost.TestString())
+	ts.bal.Tick()
+	ts.Equal([]roster.RpcRecord{{Type: roster.Drop, Node: "test-aaa", Range: 1}}, ts.spy.Get())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken:want-move p1=test-bbb:PsReady}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsDropping]} {test-bbb [1:NsReady]}", ts.rost.TestString())
 
-	nodes.FinishDrop(t, "test-aaa", 1)
+	ts.nodes.FinishDrop(ts, "test-aaa", 1)
 
-	bal.Tick()
-	assert.Equal(t, []roster.RpcRecord{{Type: roster.Drop, Node: "test-aaa", Range: 1}}, spy.Get()) // redundant
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken:want-move p1=test-bbb:PsReady}", ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsDropped]} {test-bbb [1:NsReady]}", rost.TestString())
+	ts.bal.Tick()
+	ts.Equal([]roster.RpcRecord{{Type: roster.Drop, Node: "test-aaa", Range: 1}}, ts.spy.Get()) // redundant
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken:want-move p1=test-bbb:PsReady}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsDropped]} {test-bbb [1:NsReady]}", ts.rost.TestString())
 
-	bal.Tick()
-	assert.Equal(t, 0, len(spy.Get()))
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsDropped:want-move p1=test-bbb:PsReady}", ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsDropped]} {test-bbb [1:NsReady]}", rost.TestString())
+	ts.bal.Tick()
+	ts.Equal(0, len(ts.spy.Get()))
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsDropped:want-move p1=test-bbb:PsReady}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsDropped]} {test-bbb [1:NsReady]}", ts.rost.TestString())
 
 	// test-aaa is gone!
-	bal.Tick()
-	assert.Equal(t, 0, len(spy.Get()))
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-bbb:PsReady}", ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsDropped]} {test-bbb [1:NsReady]}", rost.TestString())
+	ts.bal.Tick()
+	ts.Equal(0, len(ts.spy.Get()))
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-bbb:PsReady}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsDropped]} {test-bbb [1:NsReady]}", ts.rost.TestString())
 
-	rost.Tick()
-	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsReady]}", rost.TestString())
+	ts.rost.Tick()
+	ts.Equal("{test-aaa []} {test-bbb [1:NsReady]}", ts.rost.TestString())
 
 	// Ensure that we are now in a stable state.
-	ksLog := ks.LogString()
-	rostLog := rost.TestString()
+	ksLog := ts.ks.LogString()
+	rostLog := ts.rost.TestString()
 	for i := 0; i < 20; i++ {
-		bal.Tick()
-		rost.Tick()
+		ts.bal.Tick()
+		ts.rost.Tick()
 		// Use require (vs assert) since spamming the same error doesn't help.
-		require.Zero(t, len(spy.Get()))
-		require.Equal(t, ksLog, ks.LogString())
-		require.Equal(t, rostLog, rost.TestString())
+		ts.Require().Zero(len(ts.spy.Get()))
+		ts.Require().Equal(ksLog, ts.ks.LogString())
+		ts.Require().Equal(rostLog, ts.rost.TestString())
 	}
+}
+
+func TestExampleTestSuite(t *testing.T) {
+	suite.Run(t, new(BalancerSuite))
 }
 
 // -----------------------------------------------------------------------------
@@ -270,20 +316,6 @@ func (spy *RpcSpy) Get() []roster.RpcRecord {
 	buf := spy.buf
 	spy.buf = nil
 	return buf
-}
-
-func Get(t *testing.T, ks *ranje.Keyspace, rID uint64) *ranje.Range {
-	r, err := ks.Get(ranje.Ident(rID))
-	require.NoError(t, err)
-	return r
-}
-
-func getConfig() config.Config {
-	return config.Config{
-		DrainNodesBeforeShutdown: false,
-		NodeExpireDuration:       1 * time.Hour, // never
-		Replication:              1,
-	}
 }
 
 // -----------------------------------------------------------------------------
@@ -473,17 +505,17 @@ type TestNodes struct {
 	closers []func()
 }
 
-func NewTestNodes() (*TestNodes, func()) {
+func NewTestNodes() *TestNodes {
 	tn := &TestNodes{
 		disc:  mockdisc.New(),
 		nodes: map[string]*TestNode{},
 		conns: map[string]*grpc.ClientConn{},
 	}
 
-	return tn, tn.close
+	return tn
 }
 
-func (tn *TestNodes) close() {
+func (tn *TestNodes) Close() {
 	for _, f := range tn.closers {
 		f()
 	}
@@ -515,20 +547,20 @@ func (tn *TestNodes) RangeState(nID string, rID ranje.Ident, state roster.Remote
 	r.info.State = state
 }
 
-func (tn *TestNodes) FinishDrop(t *testing.T, nID string, rID ranje.Ident) {
+func (tn *TestNodes) FinishDrop(ts *BalancerSuite, nID string, rID ranje.Ident) {
 	n, ok := tn.nodes[nID]
 	if !ok {
-		t.Fatalf("no such node: %s", nID)
+		ts.T().Fatalf("no such node: %s", nID)
 	}
 
 	r, ok := n.ranges[rID]
 	if !ok {
-		t.Fatalf("can't drop unknown range: %s", rID)
+		ts.T().Fatalf("can't drop unknown range: %s", rID)
 		return
 	}
 
 	if r.info.State != roster.NsDropping {
-		t.Fatalf("can't drop range not in NsDropping: rID=%s, state=%s", rID, r.info.State)
+		ts.T().Fatalf("can't drop range not in NsDropping: rID=%s, state=%s", rID, r.info.State)
 		return
 	}
 
