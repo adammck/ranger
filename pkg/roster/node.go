@@ -37,6 +37,10 @@ type Node struct {
 	ranges    map[ranje.Ident]*RangeInfo
 	muRanges  sync.RWMutex
 
+	// Only for tests: if non-null, nodes should send an RpcRecord every time
+	// they send an RPC.
+	RpcSpy chan RpcRecord
+
 	// to be cancelled
 	// rpcs map[ranje.Ident]context.Context
 

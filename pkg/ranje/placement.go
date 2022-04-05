@@ -22,6 +22,7 @@ type Placement struct {
 	IsReplacing string // NodeID
 
 	// Guards everything.
+	// TODO: What is "everything" ??
 	// TODO: Change into an RWLock, check callers.
 	// TODO: Should this also lock the range and node? I think no?
 	sync.Mutex

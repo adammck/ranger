@@ -94,6 +94,7 @@ func (r *Range) MayBeTaken(p *Placement) bool {
 		return false
 	}
 
+	// TODO: Is this necessary?
 	if !p.WantMove {
 		return false
 	}
@@ -113,6 +114,41 @@ func (r *Range) MayBeTaken(p *Placement) bool {
 	}
 
 	if replacement.State == PsPrepared {
+		return true
+	}
+
+	return false
+}
+
+func (r *Range) MayBeDropped(p *Placement) bool {
+
+	// Sanity check.
+	if p.State != PsTaken {
+		log.Printf("called MayBeDropped in weird state: %s", p.State)
+		return false
+	}
+
+	// TODO: Move this (same in MayBeTaken) to r.ReplacementFor or something.
+	var replacement *Placement
+	for _, p2 := range r.Placements {
+		if p2.IsReplacing == p.NodeID {
+			replacement = p2
+			break
+		}
+	}
+
+	// p is in Taken, but no replacement exists? This should not have happened.
+	// Maybe placing the replacement failed and we gave up?
+	//
+	// TODO: This should cause the placement to be *Untaken*. Maybe update this
+	//       method to return the next action, i.e. Drop or Untake?
+	//
+	if replacement == nil {
+		log.Printf("placement in PsTaken with no replacement: %s", p.LogString())
+		return false
+	}
+
+	if replacement.State == PsReady {
 		return true
 	}
 

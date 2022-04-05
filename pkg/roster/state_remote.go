@@ -19,11 +19,13 @@ const (
 	NsPreparingError
 	NsPrepared
 	NsReadying
-	//NSReadyingError
+	NsReadyingError
 	NsReady
 	NsTaking
+	NsTakingError
 	NsTaken
 	NsDropping
+	NsDroppingError
 	NsDropped
 )
 

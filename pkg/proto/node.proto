@@ -87,6 +87,7 @@ message DropRequest {
 }
 
 message DropResponse {
+  RangeNodeState state = 1;
 }
 
 message InfoRequest {

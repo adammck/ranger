@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/adammck/ranger/pkg/config"
@@ -27,9 +26,6 @@ type Balancer struct {
 	cb    []func()
 	cbMu  sync.RWMutex
 	rpcWG sync.WaitGroup
-
-	// Just for testing.
-	lastTickRPCs uint32
 }
 
 func New(cfg config.Config, ks *ranje.Keyspace, rost *roster.Roster, srv *grpc.Server) *Balancer {
@@ -55,12 +51,6 @@ func New(cfg config.Config, ks *ranje.Keyspace, rost *roster.Roster, srv *grpc.S
 	return b
 }
 
-// TODO: Would be better to return a slice of {give, serve, take, drop} or
-//       something, to ensure that we're seeing the right kind of RPCs.
-func (b *Balancer) LastTickRPCs() int {
-	return int(atomic.LoadUint32(&b.lastTickRPCs))
-}
-
 func (b *Balancer) RangesOnNodesWantingDrain() []*ranje.Range {
 	out := []*ranje.Range{}
 
@@ -82,7 +72,6 @@ func (b *Balancer) RangesOnNodesWantingDrain() []*ranje.Range {
 
 func (b *Balancer) Tick() {
 	log.Print("tick")
-	atomic.StoreUint32(&b.lastTickRPCs, 0)
 
 	rs, unlock := b.ks.Ranges()
 	defer unlock()
@@ -194,21 +183,37 @@ func (b *Balancer) tickRange(r *ranje.Range) {
 		panic(fmt.Sprintf("unknown RangeState value: %s", r.State))
 	}
 
-	for _, p := range r.Placements {
-		b.tickPlacement(p)
+	toDestroy := []int{}
+
+	for i, p := range r.Placements {
+		destroy := false
+		b.tickPlacement(p, &destroy)
+		if destroy {
+			toDestroy = append(toDestroy, i)
+		}
+	}
+
+	for _, idx := range toDestroy {
+		r.Placements = append(r.Placements[:idx], r.Placements[idx+1:]...)
 	}
 }
 
-func (b *Balancer) tickPlacement(p *ranje.Placement) {
-	switch p.State {
-	case ranje.PsPending:
-		n := b.rost.NodeByIdent(p.NodeID)
+func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
+
+	// Get the node that this placement is on.
+	// (This is a problem, in most states.)
+	n := b.rost.NodeByIdent(p.NodeID)
+	if p.State != ranje.PsGiveUp && p.State != ranje.PsDropped {
 		if n == nil {
-			// The node has disappeared since it was selected.
+			// The node has disappeared.
+			log.Printf("missing node: %s", n.Ident())
 			b.ks.PlacementToState(p, ranje.PsGiveUp)
 			return
 		}
+	}
 
+	switch p.State {
+	case ranje.PsPending:
 		// If the node already has the range (i.e. this is not the first tick
 		// where the placement is PsPending, so the RPC may already have been
 		// sent), check its remote state, which may have been updated by a
@@ -232,7 +237,7 @@ func (b *Balancer) tickPlacement(p *ranje.Placement) {
 				return
 
 			default:
-				log.Printf("very unexpected state: %s", ri.State)
+				log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
 				b.ks.PlacementToState(p, ranje.PsGiveUp)
 				return
 			}
@@ -251,13 +256,6 @@ func (b *Balancer) tickPlacement(p *ranje.Placement) {
 		})
 
 	case ranje.PsPrepared:
-		n := b.rost.NodeByIdent(p.NodeID)
-		if n == nil {
-			// The node has disappeared.
-			b.ks.PlacementToState(p, ranje.PsGiveUp)
-			return
-		}
-
 		ri, ok := n.Get(p.Range().Meta.Ident)
 		if ok {
 			switch ri.State {
@@ -270,6 +268,13 @@ func (b *Balancer) tickPlacement(p *ranje.Placement) {
 				// is working on it. Just keep waiting.
 				log.Printf("node %s still readying %s", n.Ident(), p.Range().Meta.Ident)
 
+			case roster.NsReadyingError:
+				// TODO: Pass back more information from the node, here. It's
+				//       not an RPC error, but there was some failure which we
+				//       can log or handle here.l
+				log.Printf("error readying %s on %s", p.Range().Meta.Ident, n.Ident())
+				b.ks.PlacementToState(p, ranje.PsGiveUp)
+
 			case roster.NsReady:
 				b.ks.PlacementToState(p, ranje.PsReady)
 				return
@@ -277,7 +282,7 @@ func (b *Balancer) tickPlacement(p *ranje.Placement) {
 			// TODO: roster.NsReadyError?
 
 			default:
-				log.Printf("very unexpected state: %s", ri.State)
+				log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
 				b.ks.PlacementToState(p, ranje.PsGiveUp)
 				return
 			}
@@ -298,13 +303,6 @@ func (b *Balancer) tickPlacement(p *ranje.Placement) {
 		})
 
 	case ranje.PsReady:
-		n := b.rost.NodeByIdent(p.NodeID)
-		if n == nil {
-			// The node has disappeared.
-			b.ks.PlacementToState(p, ranje.PsGiveUp)
-			return
-		}
-
 		ri, ok := n.Get(p.Range().Meta.Ident)
 		if ok {
 			switch ri.State {
@@ -314,6 +312,14 @@ func (b *Balancer) tickPlacement(p *ranje.Placement) {
 			case roster.NsTaking:
 				log.Printf("node %s still taking %s", n.Ident(), p.Range().Meta.Ident)
 
+			case roster.NsTakingError:
+				// TODO: Pass back more information from the node, here. It's
+				//       not an RPC error, but there was some failure which we
+				//       can log or handle here.
+				log.Printf("error taking %s from %s", p.Range().Meta.Ident, n.Ident())
+				b.ks.PlacementToState(p, ranje.PsGiveUp)
+				return
+
 			case roster.NsTaken:
 				b.ks.PlacementToState(p, ranje.PsTaken)
 				return
@@ -321,7 +327,7 @@ func (b *Balancer) tickPlacement(p *ranje.Placement) {
 			// TODO: roster.NsTakeError?
 
 			default:
-				log.Printf("very unexpected state: %s", ri.State)
+				log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
 				b.ks.PlacementToState(p, ranje.PsGiveUp)
 				return
 			}
@@ -340,7 +346,52 @@ func (b *Balancer) tickPlacement(p *ranje.Placement) {
 		})
 
 	case ranje.PsTaken:
-		log.Printf("TODO: ranje.PsTaken")
+		ri, ok := n.Get(p.Range().Meta.Ident)
+		if !ok {
+			log.Printf("will drop %s from %s", p.Range().Meta.Ident, n.Ident())
+		}
+
+		switch ri.State {
+		case roster.NsTaken:
+			if !p.Range().MayBeDropped(p) {
+				log.Printf("not moving to Dropped")
+				return
+			}
+
+		case roster.NsDropping:
+			// We have already decided to drop the range, and have probably sent
+			// the RPC (below) already, so cannot turn bac now.
+			log.Printf("node %s still dropping %s", n.Ident(), p.Range().Meta.Ident)
+
+		case roster.NsDroppingError:
+			// TODO: Pass back more information from the node, here. It's
+			//       not an RPC error, but there was some failure which we
+			//       can log or handle here.
+			log.Printf("error dropping %s from %s", p.Range().Meta.Ident, n.Ident())
+			b.ks.PlacementToState(p, ranje.PsGiveUp)
+			return
+
+		case roster.NsDropped:
+			b.ks.PlacementToState(p, ranje.PsDropped)
+			return
+
+		default:
+			log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
+			b.ks.PlacementToState(p, ranje.PsGiveUp)
+			return
+		}
+
+		b.RPC(func() {
+			err := n.Drop(context.Background(), p)
+			if err != nil {
+				log.Printf("error dropping %v from %s: %v", p.LogString(), n.Ident(), err)
+			}
+		})
+
+	case ranje.PsDropped:
+		log.Printf("will destroy %s", p.LogString())
+		*destroy = true
+		return
 
 	default:
 		panic(fmt.Sprintf("unhandled PlacementState value: %s", p.State))
@@ -354,7 +405,6 @@ func (b *Balancer) Run(t *time.Ticker) {
 }
 
 func (b *Balancer) RPC(f func()) {
-	atomic.AddUint32(&b.lastTickRPCs, 1)
 	b.rpcWG.Add(1)
 
 	go func() {

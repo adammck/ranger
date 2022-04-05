@@ -12,8 +12,17 @@ import (
 
 const rpcTimeout = 1 * time.Second
 
+func (n *Node) spy(rpcType RpcType, rID ranje.Ident) {
+	if n.RpcSpy == nil {
+		return
+	}
+
+	n.RpcSpy <- RpcRecord{rpcType, n.Ident(), rID}
+}
+
 func (n *Node) Give(ctx context.Context, p *ranje.Placement) error {
 	log.Printf("giving %s to %s...", p.LogString(), n.Ident())
+	n.spy(Give, p.Range().Meta.Ident)
 
 	// TODO: Do something sensible when this is called while a previous Give is
 	//       still in flight. Probably cancel the previous one first.
@@ -58,6 +67,7 @@ func (n *Node) Give(ctx context.Context, p *ranje.Placement) error {
 func (n *Node) Serve(ctx context.Context, p *ranje.Placement) error {
 	log.Printf("serving %s to %s...", p.LogString(), n.Ident())
 	rID := p.Range().Meta.Ident
+	n.spy(Serve, rID)
 
 	// TODO: Include range parents
 	req := &pb.ServeRequest{
@@ -94,6 +104,7 @@ func (n *Node) Serve(ctx context.Context, p *ranje.Placement) error {
 func (n *Node) Take(ctx context.Context, p *ranje.Placement) error {
 	log.Printf("taking %s from %s...", p.LogString(), n.Ident())
 	rID := p.Range().Meta.Ident
+	n.spy(Take, rID)
 
 	// TODO: Include range parents
 	req := &pb.TakeRequest{
@@ -124,5 +135,42 @@ func (n *Node) Take(ctx context.Context, p *ranje.Placement) error {
 	}()
 
 	log.Printf("took %s from %s; state=%v", p.LogString(), n.Ident(), s)
+	return nil
+}
+
+func (n *Node) Drop(ctx context.Context, p *ranje.Placement) error {
+	log.Printf("dropping %s from %s...", p.LogString(), n.Ident())
+	rID := p.Range().Meta.Ident
+	n.spy(Drop, rID)
+
+	// TODO: Include range parents
+	req := &pb.DropRequest{
+		Range: rID.ToProto(),
+	}
+
+	// TODO: Move outside this func?
+	ctx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	defer cancel()
+
+	// TODO: Retry a few times before giving up.
+	res, err := n.Client.Drop(ctx, req)
+	if err != nil {
+		log.Printf("error dropping %s from %s: %v", p.LogString(), n.Ident(), err)
+		return err
+	}
+
+	s := RemoteStateFromProto(res.State)
+
+	// Update the state in the range info cache.
+	func() {
+		n.muRanges.Lock()
+		defer n.muRanges.Unlock()
+		ri, ok := n.ranges[rID]
+		if ok {
+			ri.State = s
+		}
+	}()
+
+	log.Printf("dropped %s from %s; state=%v", p.LogString(), n.Ident(), s)
 	return nil
 }

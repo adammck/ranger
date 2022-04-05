@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -40,6 +41,13 @@ func TestInitial(t *testing.T) {
 	rost := roster.New(cfg, nodes.Discovery(), nil, nil, nil)
 	rost.NodeConnFactory = nodes.NodeConnFactory
 
+	// TODO: Get this stupid RpcSpy out of the actual code and into this file,
+	//       maybe call back from the handlers in TestNode.
+	spy := NewRpcSpy()
+	rost.RpcSpy = spy.c
+	spy.Start()
+	defer spy.Stop()
+
 	// Probe all of the fake nodes.
 	rost.Tick()
 
@@ -62,13 +70,13 @@ func TestInitial(t *testing.T) {
 	assert.Equal(t, "{test-aaa []}", rost.TestString())
 
 	bal.Tick()
-	assert.Equal(t, 1, bal.LastTickRPCs()) // Give
+	assert.Equal(t, []roster.RpcRecord{{Type: roster.Give, Node: "test-aaa", Range: 1}}, spy.Get())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsPreparing]}", rost.TestString())
 	// TODO: Assert that new placement was persisted
 
 	bal.Tick()
-	assert.Equal(t, 1, bal.LastTickRPCs()) // redundant Give
+	assert.Equal(t, []roster.RpcRecord{{Type: roster.Give, Node: "test-aaa", Range: 1}}, spy.Get()) // redundant
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsPreparing]}", rost.TestString())
 
@@ -77,7 +85,7 @@ func TestInitial(t *testing.T) {
 	assert.Equal(t, "{test-aaa [1:NsPreparing]}", rost.TestString())
 
 	bal.Tick()
-	assert.Equal(t, 1, bal.LastTickRPCs()) // redundant Give
+	assert.Equal(t, []roster.RpcRecord{{Type: roster.Give, Node: "test-aaa", Range: 1}}, spy.Get()) // redundant
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsPrepared]}", rost.TestString())
 
@@ -88,12 +96,12 @@ func TestInitial(t *testing.T) {
 	// TODO: Maybe the state update should immediately trigger another tick just
 	//       for that placement? Would save a tick, but risks infinite loops.
 	bal.Tick()
-	assert.Equal(t, 0, bal.LastTickRPCs())
+	assert.Equal(t, 0, len(spy.Get()))
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPrepared}", ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsPrepared]}", rost.TestString())
 
 	bal.Tick()
-	assert.Equal(t, 1, bal.LastTickRPCs()) // Serve
+	assert.Equal(t, []roster.RpcRecord{{Type: roster.Serve, Node: "test-aaa", Range: 1}}, spy.Get())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPrepared}", ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsReadying]}", rost.TestString())
 
@@ -102,12 +110,12 @@ func TestInitial(t *testing.T) {
 	assert.Equal(t, "{test-aaa [1:NsReadying]}", rost.TestString())
 
 	bal.Tick()
-	assert.Equal(t, 1, bal.LastTickRPCs()) // redundant Serve
+	assert.Equal(t, []roster.RpcRecord{{Type: roster.Serve, Node: "test-aaa", Range: 1}}, spy.Get()) // redundant
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPrepared}", ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsReady]}", rost.TestString())
 
 	bal.Tick()
-	assert.Equal(t, 0, bal.LastTickRPCs())
+	assert.Equal(t, 0, len(spy.Get()))
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}", ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsReady]}", rost.TestString())
 
@@ -130,7 +138,7 @@ func TestInitial(t *testing.T) {
 	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb []}", rost.TestString())
 
 	bal.Tick()
-	assert.Equal(t, 1, bal.LastTickRPCs()) // Give to p1
+	assert.Equal(t, []roster.RpcRecord{{Type: roster.Give, Node: "test-bbb", Range: 1}}, spy.Get())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady:want-move p1=test-bbb:PsPending}", ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb [1:NsPreparing]}", rost.TestString())
 
@@ -144,17 +152,17 @@ func TestInitial(t *testing.T) {
 	// Just updates state from roster.
 	// TODO: As above, should maybe trigger the next tick automatically.
 	bal.Tick()
-	assert.Equal(t, 0, bal.LastTickRPCs())
+	assert.Equal(t, 0, len(spy.Get()))
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady:want-move p1=test-bbb:PsPrepared}", ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb [1:NsPrepared]}", rost.TestString())
 
 	bal.Tick()
-	assert.Equal(t, 1, bal.LastTickRPCs()) // Take
+	assert.Equal(t, []roster.RpcRecord{{Type: roster.Take, Node: "test-aaa", Range: 1}}, spy.Get())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady:want-move p1=test-bbb:PsPrepared}", ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsTaking]} {test-bbb [1:NsPrepared]}", rost.TestString())
 
 	bal.Tick()
-	assert.Equal(t, 1, bal.LastTickRPCs()) // redundant Take
+	assert.Equal(t, []roster.RpcRecord{{Type: roster.Take, Node: "test-aaa", Range: 1}}, spy.Get()) // redundant
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady:want-move p1=test-bbb:PsPrepared}", ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsTaking]} {test-bbb [1:NsPrepared]}", rost.TestString())
 
@@ -166,12 +174,12 @@ func TestInitial(t *testing.T) {
 	assert.Equal(t, "{test-aaa [1:NsTaken]} {test-bbb [1:NsPrepared]}", rost.TestString())
 
 	bal.Tick()
-	assert.Equal(t, 1, bal.LastTickRPCs()) // Serve
+	assert.Equal(t, []roster.RpcRecord{{Type: roster.Serve, Node: "test-bbb", Range: 1}}, spy.Get())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken:want-move p1=test-bbb:PsPrepared}", ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsTaken]} {test-bbb [1:NsReadying]}", rost.TestString())
 
 	bal.Tick()
-	assert.Equal(t, 1, bal.LastTickRPCs()) // redundant Serve
+	assert.Equal(t, []roster.RpcRecord{{Type: roster.Serve, Node: "test-bbb", Range: 1}}, spy.Get()) // redundant
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken:want-move p1=test-bbb:PsPrepared}", ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsTaken]} {test-bbb [1:NsReadying]}", rost.TestString())
 
@@ -183,12 +191,86 @@ func TestInitial(t *testing.T) {
 	assert.Equal(t, "{test-aaa [1:NsTaken]} {test-bbb [1:NsReady]}", rost.TestString())
 
 	bal.Tick()
-	assert.Equal(t, 0, bal.LastTickRPCs()) // drop not implemented!
+	assert.Equal(t, 0, len(spy.Get()))
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken:want-move p1=test-bbb:PsReady}", ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsTaken]} {test-bbb [1:NsReady]}", rost.TestString())
+
+	bal.Tick()
+	assert.Equal(t, []roster.RpcRecord{{Type: roster.Drop, Node: "test-aaa", Range: 1}}, spy.Get())
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken:want-move p1=test-bbb:PsReady}", ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsDropping]} {test-bbb [1:NsReady]}", rost.TestString())
+
+	nodes.FinishDrop(t, "test-aaa", 1)
+
+	bal.Tick()
+	assert.Equal(t, []roster.RpcRecord{{Type: roster.Drop, Node: "test-aaa", Range: 1}}, spy.Get()) // redundant
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken:want-move p1=test-bbb:PsReady}", ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsDropped]} {test-bbb [1:NsReady]}", rost.TestString())
+
+	bal.Tick()
+	assert.Equal(t, 0, len(spy.Get()))
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsDropped:want-move p1=test-bbb:PsReady}", ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsDropped]} {test-bbb [1:NsReady]}", rost.TestString())
+
+	// test-aaa is gone!
+	bal.Tick()
+	assert.Equal(t, 0, len(spy.Get()))
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-bbb:PsReady}", ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsDropped]} {test-bbb [1:NsReady]}", rost.TestString())
+
+	rost.Tick()
+	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsReady]}", rost.TestString())
+
+	// Ensure that we are now in a stable state.
+	ksLog := ks.LogString()
+	rostLog := rost.TestString()
+	for i := 0; i < 20; i++ {
+		bal.Tick()
+		rost.Tick()
+		// Use require (vs assert) since spamming the same error doesn't help.
+		require.Zero(t, len(spy.Get()))
+		require.Equal(t, ksLog, ks.LogString())
+		require.Equal(t, rostLog, rost.TestString())
+	}
 }
 
 // -----------------------------------------------------------------------------
+
+type RpcSpy struct {
+	c   chan roster.RpcRecord
+	buf []roster.RpcRecord
+	sync.Mutex
+}
+
+func NewRpcSpy() *RpcSpy {
+	return &RpcSpy{
+		c: make(chan roster.RpcRecord),
+	}
+}
+
+func (spy *RpcSpy) Start() {
+	go func() {
+		for rec := range spy.c {
+			func() {
+				spy.Lock()
+				defer spy.Unlock()
+				spy.buf = append(spy.buf, rec)
+			}()
+		}
+	}()
+}
+
+func (spy *RpcSpy) Stop() {
+	close(spy.c)
+}
+
+func (spy *RpcSpy) Get() []roster.RpcRecord {
+	spy.Lock()
+	defer spy.Unlock()
+	buf := spy.buf
+	spy.buf = nil
+	return buf
+}
 
 func Get(t *testing.T, ks *ranje.Keyspace, rID uint64) *ranje.Range {
 	r, err := ks.Get(ranje.Ident(rID))
@@ -223,6 +305,7 @@ type testRange struct {
 	info *roster.RangeInfo
 }
 
+// TODO: Most of this should be moved into a client library. Rangelet?
 type TestNode struct {
 	pb.UnimplementedNodeServer
 	ranges map[ranje.Ident]*testRange
@@ -331,6 +414,41 @@ func (n *TestNode) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeRespo
 	}, nil
 }
 
+func (n *TestNode) Drop(ctx context.Context, req *pb.DropRequest) (*pb.DropResponse, error) {
+	log.Printf("TestNode.Drop")
+
+	rID, err := ranje.IdentFromProto(req.Range)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+
+	r, ok := n.ranges[rID]
+	if !ok {
+		// return nil, status.Errorf(codes.InvalidArgument, "can't Drop unknown range: %v", rID)
+		return &pb.DropResponse{
+			State: roster.NsDropped.ToProto(),
+		}, nil
+	}
+
+	switch r.info.State {
+	case roster.NsTaken:
+		// Actual state transition. We don't actually drop anything here, only
+		// claim that we are doing so, to simulate a slow client. Test must call
+		// FinishDrop to move to NsDropped.
+		r.info.State = roster.NsDropping
+
+	case roster.NsDropping, roster.NsDropped:
+		log.Printf("got redundant Drop")
+
+	default:
+		return nil, status.Errorf(codes.InvalidArgument, "invalid state for Drop: %v", r.info.State)
+	}
+
+	return &pb.DropResponse{
+		State: r.info.State.ToProto(),
+	}, nil
+}
+
 func (n *TestNode) Info(ctx context.Context, req *pb.InfoRequest) (*pb.InfoResponse, error) {
 	log.Printf("TestNode.Info")
 
@@ -395,6 +513,27 @@ func (tn *TestNodes) RangeState(nID string, rID ranje.Ident, state roster.Remote
 
 	log.Printf("RangeState: %s, %s -> %s", nID, rID, state)
 	r.info.State = state
+}
+
+func (tn *TestNodes) FinishDrop(t *testing.T, nID string, rID ranje.Ident) {
+	n, ok := tn.nodes[nID]
+	if !ok {
+		t.Fatalf("no such node: %s", nID)
+	}
+
+	r, ok := n.ranges[rID]
+	if !ok {
+		t.Fatalf("can't drop unknown range: %s", rID)
+		return
+	}
+
+	if r.info.State != roster.NsDropping {
+		t.Fatalf("can't drop range not in NsDropping: rID=%s, state=%s", rID, r.info.State)
+		return
+	}
+
+	log.Printf("FinishDrop: nID=%s, rID=%s", nID, rID)
+	delete(n.ranges, rID)
 }
 
 // Use this to stub out the Roster.
