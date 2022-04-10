@@ -16,6 +16,7 @@ func (bs *balancerServer) Move(ctx context.Context, req *pb.MoveRequest) (*pb.Mo
 }
 
 func (bs *balancerServer) Split(ctx context.Context, req *pb.SplitRequest) (*pb.SplitResponse, error) {
+	// TODO: Restore this now that splits are back.
 	panic("not implemented; see bbad4b6")
 }
 

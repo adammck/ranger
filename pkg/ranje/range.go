@@ -48,109 +48,36 @@ func (r *Range) String() string {
 	return fmt.Sprintf("R{%s %s}", r.Meta.String(), r.State)
 }
 
+func (r *Range) MinReady() int {
+	return 1
+}
+
 // func (r *Range) placementStateChanged(rg RangeGetter) {
 // 	panic("not implemented; see 839595a")
 // }
 
 func (r *Range) toState(new RangeState, rg RangeGetter) error {
-	panic("not implemented; see 839595a")
-}
+	r.Lock()
+	defer r.Unlock()
 
-// MayBecomeReady returns whether the given placement is permitted to advance
-// from PsPrepared to PsReady.
-func (r *Range) MayBecomeReady(p *Placement) bool {
+	ok := false
+	old := r.State
 
-	// Sanity check.
-	if p.State != PsPrepared {
-		log.Printf("called MayBecomeReady in weird state: %s", p.State)
-		return false
-	}
-
-	// TODO: Should read the number of replicas from the config, not hard-code
-	//       it to one! Probably needs to move to the keyspace.
-
-	for _, p2 := range r.Placements {
-		if p2.State == PsReady {
-			return false
-		}
-	}
-
-	return true
-}
-
-// MayBeTaken returns whether the given placement, which is assumed to be in
-// state PsReady, may advance to PsTaken. The only circumstance where this is
-// true is when the placement is being replaced by another replica (i.e. a move)
-// or when the entire range has been subsumed.
-//
-// TODO: Implement the latter, when (re-)implementing splits and joins. This
-//       probably needs to move to the keyspace, for that.
-//
-func (r *Range) MayBeTaken(p *Placement) bool {
-
-	// Sanity check.
-	if p.State != PsReady {
-		log.Printf("called MayBeTaken in weird state: %s", p.State)
-		return false
-	}
-
-	// TODO: Is this necessary?
-	if !p.WantMove {
-		return false
-	}
-
-	var replacement *Placement
-	for _, p2 := range r.Placements {
-		if p2.IsReplacing == p.NodeID {
-			replacement = p2
+	for _, t := range RangeStateTransitions {
+		if t.from == old && t.to == new {
+			ok = true
 			break
 		}
 	}
 
-	// p wants to be moved, but no replacement placement has been created yet.
-	// Not sure how we ended up here, but it's valid.
-	if replacement == nil {
-		return false
+	if !ok {
+		return fmt.Errorf("invalid range state transition: %s -> %s", old.String(), new.String())
 	}
 
-	if replacement.State == PsPrepared {
-		return true
-	}
+	r.State = new
+	r.dirty = true
 
-	return false
-}
+	log.Printf("%s %s -> %s", r, old, new)
 
-func (r *Range) MayBeDropped(p *Placement) bool {
-
-	// Sanity check.
-	if p.State != PsTaken {
-		log.Printf("called MayBeDropped in weird state: %s", p.State)
-		return false
-	}
-
-	// TODO: Move this (same in MayBeTaken) to r.ReplacementFor or something.
-	var replacement *Placement
-	for _, p2 := range r.Placements {
-		if p2.IsReplacing == p.NodeID {
-			replacement = p2
-			break
-		}
-	}
-
-	// p is in Taken, but no replacement exists? This should not have happened.
-	// Maybe placing the replacement failed and we gave up?
-	//
-	// TODO: This should cause the placement to be *Untaken*. Maybe update this
-	//       method to return the next action, i.e. Drop or Untake?
-	//
-	if replacement == nil {
-		log.Printf("placement in PsTaken with no replacement: %s", p.LogString())
-		return false
-	}
-
-	if replacement.State == PsReady {
-		return true
-	}
-
-	return false
+	return nil
 }

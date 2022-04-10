@@ -41,6 +41,15 @@ func (ts *BalancerSuite) GetRange(rID uint64) *ranje.Range {
 	return r
 }
 
+// Init should be called at the top of each test to define the state of the
+// world. Nothing will work until this method is called.
+func (ts *BalancerSuite) Init(ranges []*ranje.Range) {
+	pers := &FakePersister{ranges: ranges}
+	ts.ks = ranje.New(ts.cfg, pers)
+	srv := grpc.NewServer() // TODO: Allow this to be nil.
+	ts.bal = New(ts.cfg, ts.ks, ts.rost, srv)
+}
+
 func (ts *BalancerSuite) SetupTest() {
 	ts.ctx = context.Background()
 
@@ -55,8 +64,6 @@ func (ts *BalancerSuite) SetupTest() {
 	}
 
 	ts.nodes = NewTestNodes()
-
-	ts.ks = ranje.New(ts.cfg, &NullPersister{})
 	ts.rost = roster.New(ts.cfg, ts.nodes.Discovery(), nil, nil, nil)
 	ts.rost.NodeConnFactory = ts.nodes.NodeConnFactory
 
@@ -66,8 +73,19 @@ func (ts *BalancerSuite) SetupTest() {
 	ts.rost.RpcSpy = ts.spy.c
 	ts.spy.Start()
 
-	srv := grpc.NewServer()
-	ts.bal = New(ts.cfg, ts.ks, ts.rost, srv)
+}
+
+func (ts *BalancerSuite) EnsureStable() {
+	ksLog := ts.ks.LogString()
+	rostLog := ts.rost.TestString()
+	for i := 0; i < 20; i++ {
+		ts.bal.Tick()
+		ts.rost.Tick()
+		// Use require (vs assert) since spamming the same error doesn't help.
+		//ts.Require().Zero(len(ts.spy.Get()))
+		ts.Require().Equal(ksLog, ts.ks.LogString())
+		ts.Require().Equal(rostLog, ts.rost.TestString())
+	}
 }
 
 func (ts *BalancerSuite) TearDownTest() {
@@ -81,6 +99,7 @@ func (ts *BalancerSuite) TearDownTest() {
 
 func (ts *BalancerSuite) TestJunk() {
 	// TODO: Move to keyspace tests.
+	ts.Init(nil)
 
 	// TODO: Remove
 	ts.Equal(1, ts.ks.Len())
@@ -96,11 +115,13 @@ func (ts *BalancerSuite) TestJunk() {
 }
 
 func (ts *BalancerSuite) TestPlacement() {
+	ts.Init(nil)
+
 	ts.nodes.Add(ts.ctx, discovery.Remote{
 		Ident: "test-aaa",
 		Host:  "host-aaa",
 		Port:  1,
-	})
+	}, nil)
 
 	// Probe all of the fake nodes.
 	ts.rost.Tick()
@@ -165,7 +186,7 @@ func (ts *BalancerSuite) TestPlacement() {
 		Ident: "test-bbb",
 		Host:  "host-bbb",
 		Port:  1,
-	})
+	}, nil)
 
 	ts.rost.Tick()
 	ts.Equal("{test-aaa [1:NsReady]} {test-bbb []}", ts.rost.TestString())
@@ -263,17 +284,210 @@ func (ts *BalancerSuite) TestPlacement() {
 	ts.rost.Tick()
 	ts.Equal("{test-aaa []} {test-bbb [1:NsReady]}", ts.rost.TestString())
 
-	// Ensure that we are now in a stable state.
-	ksLog := ts.ks.LogString()
-	rostLog := ts.rost.TestString()
-	for i := 0; i < 20; i++ {
-		ts.bal.Tick()
-		ts.rost.Tick()
-		// Use require (vs assert) since spamming the same error doesn't help.
-		ts.Require().Zero(len(ts.spy.Get()))
-		ts.Require().Equal(ksLog, ts.ks.LogString())
-		ts.Require().Equal(rostLog, ts.rost.TestString())
+	ts.EnsureStable()
+}
+
+func (ts *BalancerSuite) TestSplit() {
+
+	// Nodes
+	na := discovery.Remote{
+		Ident: "test-aaa",
+		Host:  "host-aaa",
+		Port:  1,
 	}
+
+	// Controller-side
+	r0 := &ranje.Range{
+		Meta: ranje.Meta{
+			Ident: 1,
+		},
+		State: ranje.RsActive,
+		// TODO: Test that controller-side placements are repaired when a node
+		//       shows up claiming to have a (valid) placement.
+		Placements: []*ranje.Placement{{
+			NodeID: na.Ident,
+			State:  ranje.PsReady,
+		}},
+	}
+	ts.Init([]*ranje.Range{r0})
+
+	// Nodes-side
+	ts.nodes.Add(ts.ctx, na, map[ranje.Ident]*roster.RangeInfo{
+		r0.Meta.Ident: {
+			Meta:  r0.Meta,
+			State: roster.NsReady,
+		},
+	})
+
+	// Probe the fake nodes.
+	ts.rost.Tick()
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsReady]}", ts.rost.TestString())
+
+	ts.bal.Tick()
+	ts.Equal(0, len(ts.spy.Get()))
+	ts.Require().Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}", ts.ks.LogString())
+
+	func() {
+		ts.bal.opSplitsMu.Lock()
+		defer ts.bal.opSplitsMu.Unlock()
+		// TODO: Probably add a method to do this.
+		ts.bal.opSplits[r0.Meta.Ident] = OpSplit{
+			Range: r0.Meta.Ident,
+			Key:   "ccc",
+		}
+	}()
+
+	// 1. Split initiated by controller. Node hasn't heard about it yet.
+
+	ts.bal.Tick()
+	ts.Equal(0, len(ts.spy.Get()))
+	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsReady} {2 [-inf, ccc] RsActive} {3 (ccc, +inf] RsActive}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsReady]}", ts.rost.TestString())
+
+	// 2. Controller places new ranges on nodes.
+
+	ts.bal.Tick()
+	ts.ElementsMatch([]roster.RpcRecord{
+		{Type: roster.Give, Node: "test-aaa", Range: 2},
+		{Type: roster.Give, Node: "test-aaa", Range: 3},
+	}, ts.spy.Get())
+	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsReady} {2 [-inf, ccc] RsActive p0=test-aaa:PsPending} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsReady, 2:NsPreparing, 3:NsPreparing]}", ts.rost.TestString())
+
+	// 3. Wait for placements to become Prepared.
+
+	// R2 finished preparing, but R3 has not yet.
+	ts.nodes.RangeState("test-aaa", 2, roster.NsPrepared)
+	ts.Equal("{test-aaa [1:NsReady, 2:NsPreparing, 3:NsPreparing]}", ts.rost.TestString())
+
+	ts.bal.Tick()
+	ts.ElementsMatch([]roster.RpcRecord{
+		{Type: roster.Give, Node: "test-aaa", Range: 2}, // redundant
+		{Type: roster.Give, Node: "test-aaa", Range: 3}, // redundant
+	}, ts.spy.Get())
+	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsReady} {2 [-inf, ccc] RsActive p0=test-aaa:PsPending} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", ts.ks.LogString())
+
+	// R3 becomes Prepared, too.
+	ts.nodes.RangeState("test-aaa", 3, roster.NsPrepared)
+	ts.Equal("{test-aaa [1:NsReady, 2:NsPrepared, 3:NsPreparing]}", ts.rost.TestString())
+
+	ts.bal.Tick()
+	ts.ElementsMatch([]roster.RpcRecord{
+		// Note that we're not sending (redundant) Give RPCs to R2 any more.
+		{Type: roster.Give, Node: "test-aaa", Range: 3}, // redundant
+	}, ts.spy.Get())
+	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsReady} {2 [-inf, ccc] RsActive p0=test-aaa:PsPrepared} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", ts.ks.LogString())
+
+	ts.bal.Tick()
+	ts.Equal(0, len(ts.spy.Get()))
+	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsReady} {2 [-inf, ccc] RsActive p0=test-aaa:PsPrepared} {3 (ccc, +inf] RsActive p0=test-aaa:PsPrepared}", ts.ks.LogString())
+
+	// 4. Controller takes placements in parent range.
+
+	ts.bal.Tick()
+	ts.ElementsMatch([]roster.RpcRecord{
+		{Type: roster.Take, Node: "test-aaa", Range: 1},
+	}, ts.spy.Get())
+	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsReady} {2 [-inf, ccc] RsActive p0=test-aaa:PsPrepared} {3 (ccc, +inf] RsActive p0=test-aaa:PsPrepared}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsTaking, 2:NsPrepared, 3:NsPrepared]}", ts.rost.TestString())
+
+	// r1p0 finishes taking.
+	ts.nodes.RangeState("test-aaa", 1, roster.NsTaken)
+	ts.Equal("{test-aaa [1:NsTaking, 2:NsPrepared, 3:NsPrepared]}", ts.rost.TestString())
+
+	ts.bal.Tick()
+	ts.ElementsMatch([]roster.RpcRecord{
+		{Type: roster.Take, Node: "test-aaa", Range: 1}, // redundant
+	}, ts.spy.Get())
+	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsReady} {2 [-inf, ccc] RsActive p0=test-aaa:PsPrepared} {3 (ccc, +inf] RsActive p0=test-aaa:PsPrepared}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsTaken, 2:NsPrepared, 3:NsPrepared]}", ts.rost.TestString())
+
+	// 5. Controller instructs both child ranges to become Ready.
+	ts.bal.Tick()
+	ts.ElementsMatch([]roster.RpcRecord{
+		{Type: roster.Serve, Node: "test-aaa", Range: 2},
+		{Type: roster.Serve, Node: "test-aaa", Range: 3},
+	}, ts.spy.Get())
+	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsTaken} {2 [-inf, ccc] RsActive p0=test-aaa:PsPrepared} {3 (ccc, +inf] RsActive p0=test-aaa:PsPrepared}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsTaken, 2:NsReadying, 3:NsReadying]}", ts.rost.TestString())
+
+	// r3p0 becomes ready.
+	ts.nodes.RangeState("test-aaa", 3, roster.NsReady)
+
+	// Balancer notices on next tick.
+	ts.bal.Tick()
+	ts.ElementsMatch([]roster.RpcRecord{
+		{Type: roster.Serve, Node: "test-aaa", Range: 2}, // redundant
+		{Type: roster.Serve, Node: "test-aaa", Range: 3}, // redundant
+	}, ts.spy.Get())
+	ts.Equal("{test-aaa [1:NsTaken, 2:NsReadying, 3:NsReady]}", ts.rost.TestString())
+	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsTaken} {2 [-inf, ccc] RsActive p0=test-aaa:PsPrepared} {3 (ccc, +inf] RsActive p0=test-aaa:PsPrepared}", ts.ks.LogString())
+
+	// r2p0 becomes ready.
+	ts.nodes.RangeState("test-aaa", 2, roster.NsReady)
+
+	// Balancer notices on next tick.
+	ts.bal.Tick()
+	ts.ElementsMatch([]roster.RpcRecord{
+		{Type: roster.Serve, Node: "test-aaa", Range: 2}, // redundant
+	}, ts.spy.Get())
+	ts.Equal("{test-aaa [1:NsTaken, 2:NsReady, 3:NsReady]}", ts.rost.TestString())
+	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsTaken} {2 [-inf, ccc] RsActive p0=test-aaa:PsPrepared} {3 (ccc, +inf] RsActive p0=test-aaa:PsReady}", ts.ks.LogString())
+
+	ts.bal.Tick()
+	ts.Empty(ts.spy.Get())
+	ts.Equal("{test-aaa [1:NsTaken, 2:NsReady, 3:NsReady]}", ts.rost.TestString())
+	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsTaken} {2 [-inf, ccc] RsActive p0=test-aaa:PsReady} {3 (ccc, +inf] RsActive p0=test-aaa:PsReady}", ts.ks.LogString())
+
+	// 6. Balancer instructs parent range to drop placements.
+
+	ts.bal.Tick()
+	ts.ElementsMatch([]roster.RpcRecord{
+		{Type: roster.Drop, Node: "test-aaa", Range: 1},
+	}, ts.spy.Get())
+	ts.Equal("{test-aaa [1:NsDropping, 2:NsReady, 3:NsReady]}", ts.rost.TestString())
+	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsTaken} {2 [-inf, ccc] RsActive p0=test-aaa:PsReady} {3 (ccc, +inf] RsActive p0=test-aaa:PsReady}", ts.ks.LogString())
+
+	ts.bal.Tick()
+	ts.ElementsMatch([]roster.RpcRecord{
+		{Type: roster.Drop, Node: "test-aaa", Range: 1}, // redundant
+	}, ts.spy.Get())
+	ts.Equal("{test-aaa [1:NsDropping, 2:NsReady, 3:NsReady]}", ts.rost.TestString())
+	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsTaken} {2 [-inf, ccc] RsActive p0=test-aaa:PsReady} {3 (ccc, +inf] RsActive p0=test-aaa:PsReady}", ts.ks.LogString())
+
+	// r1p0 finishes dropping.
+	ts.nodes.FinishDrop(ts, "test-aaa", 1)
+
+	ts.bal.Tick()
+	ts.ElementsMatch([]roster.RpcRecord{
+		{Type: roster.Drop, Node: "test-aaa", Range: 1}, // redundant
+	}, ts.spy.Get())
+	ts.Equal("{test-aaa [1:NsDropped, 2:NsReady, 3:NsReady]}", ts.rost.TestString())
+	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsTaken} {2 [-inf, ccc] RsActive p0=test-aaa:PsReady} {3 (ccc, +inf] RsActive p0=test-aaa:PsReady}", ts.ks.LogString())
+
+	ts.bal.Tick()
+	ts.Empty(ts.spy.Get())
+	ts.Equal("{test-aaa [1:NsDropped, 2:NsReady, 3:NsReady]}", ts.rost.TestString())
+	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsDropped} {2 [-inf, ccc] RsActive p0=test-aaa:PsReady} {3 (ccc, +inf] RsActive p0=test-aaa:PsReady}", ts.ks.LogString())
+
+	ts.bal.Tick()
+	ts.Empty(ts.spy.Get())
+	ts.Equal("{test-aaa [1:NsDropped, 2:NsReady, 3:NsReady]}", ts.rost.TestString())
+	ts.Equal("{1 [-inf, +inf] RsSubsuming} {2 [-inf, ccc] RsActive p0=test-aaa:PsReady} {3 (ccc, +inf] RsActive p0=test-aaa:PsReady}", ts.ks.LogString())
+
+	ts.bal.Tick()
+	ts.Empty(ts.spy.Get())
+	ts.Equal("{test-aaa [1:NsDropped, 2:NsReady, 3:NsReady]}", ts.rost.TestString())
+	ts.Equal("{1 [-inf, +inf] RsObsolete} {2 [-inf, ccc] RsActive p0=test-aaa:PsReady} {3 (ccc, +inf] RsActive p0=test-aaa:PsReady}", ts.ks.LogString())
+
+	// Whenever the next probe cycle happens, we notice that the range is gone
+	// from the node, because it was dropped. Balancer doesn't notice this, but
+	// maybe should, after sending the redundant Drop RPC?
+	ts.rost.Tick()
+	ts.Equal("{test-aaa [2:NsReady, 3:NsReady]}", ts.rost.TestString())
+
+	ts.EnsureStable()
 }
 
 func TestExampleTestSuite(t *testing.T) {
@@ -320,14 +534,26 @@ func (spy *RpcSpy) Get() []roster.RpcRecord {
 
 // -----------------------------------------------------------------------------
 
-type NullPersister struct {
+type FakePersister struct {
+	ranges []*ranje.Range
+	called bool
 }
 
-func (fp *NullPersister) GetRanges() ([]*ranje.Range, error) {
+func (fp *FakePersister) GetRanges() ([]*ranje.Range, error) {
+	if fp.called {
+		// PutRanges is not implemented, so this doesn't make sense.
+		panic("FakePersister.GetRanges called more than once")
+	}
+	fp.called = true
+
+	if fp.ranges != nil {
+		return fp.ranges, nil
+	}
+
 	return []*ranje.Range{}, nil
 }
 
-func (fp *NullPersister) PutRanges([]*ranje.Range) error {
+func (fp *FakePersister) PutRanges([]*ranje.Range) error {
 	return nil
 }
 
@@ -343,9 +569,15 @@ type TestNode struct {
 	ranges map[ranje.Ident]*testRange
 }
 
-func NewTestNode() *TestNode {
+func NewTestNode(rangeInfos map[ranje.Ident]*roster.RangeInfo) *TestNode {
+	ranges := map[ranje.Ident]*testRange{}
+	//if rangeInfos != nil
+	for rID, ri := range rangeInfos {
+		ranges[rID] = &testRange{info: ri}
+	}
+
 	return &TestNode{
-		ranges: map[ranje.Ident]*testRange{},
+		ranges: ranges,
 	}
 }
 
@@ -521,8 +753,8 @@ func (tn *TestNodes) Close() {
 	}
 }
 
-func (tn *TestNodes) Add(ctx context.Context, remote discovery.Remote) {
-	n := NewTestNode()
+func (tn *TestNodes) Add(ctx context.Context, remote discovery.Remote, rangeInfos map[ranje.Ident]*roster.RangeInfo) {
+	n := NewTestNode(rangeInfos)
 	tn.nodes[remote.Ident] = n
 
 	conn, closer := nodeServer(ctx, n)

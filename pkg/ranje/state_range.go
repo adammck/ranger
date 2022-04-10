@@ -15,7 +15,29 @@ const (
 	// of nodes and left alone until we decide to supersede it with another
 	// range by joining or splitting.
 	RsActive RangeState = iota
+
+	// The range is actively being split or joined.
+	RsSubsuming
+
+	// The range has finished being split or joined, has been dropped from all
+	// nodes, and will never be placed on any node again.
+	RsObsolete
 )
+
+type RangeStateTransition struct {
+	from RangeState
+	to   RangeState
+}
+
+var RangeStateTransitions []RangeStateTransition
+
+func init() {
+	RangeStateTransitions = []RangeStateTransition{
+		{RsActive, RsSubsuming},
+		{RsSubsuming, RsActive},
+		{RsSubsuming, RsObsolete},
+	}
+}
 
 //go:generate stringer -type=RangeState -output=zzz_state_range_string.go
 

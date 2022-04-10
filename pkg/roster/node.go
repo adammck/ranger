@@ -3,6 +3,7 @@ package roster
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -63,9 +64,20 @@ func (n *Node) TestString() string {
 	n.muRanges.RLock()
 	defer n.muRanges.RUnlock()
 
-	i := 0
-	s := make([]string, len(n.ranges))
-	for _, ri := range n.ranges {
+	rIDs := []ranje.Ident{}
+	for rID := range n.ranges {
+		rIDs = append(rIDs, rID)
+	}
+
+	// Sort by (numeric) range ID to make output stable.
+	// (Unstable sort is fine, because range IDs are unique.)
+	sort.Slice(rIDs, func(i, j int) bool {
+		return uint64(rIDs[i]) < uint64(rIDs[j])
+	})
+
+	s := make([]string, len(rIDs))
+	for i, rID := range rIDs {
+		ri := n.ranges[rID]
 		s[i] = fmt.Sprintf("%s:%s", ri.Meta.Ident, ri.State)
 	}
 

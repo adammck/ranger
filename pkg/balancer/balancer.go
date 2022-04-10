@@ -14,6 +14,11 @@ import (
 	"google.golang.org/grpc"
 )
 
+type OpSplit struct {
+	Range ranje.Ident
+	Key   ranje.Key
+}
+
 type Balancer struct {
 	cfg  config.Config
 	ks   *ranje.Keyspace
@@ -22,16 +27,22 @@ type Balancer struct {
 	bs   *balancerServer
 	dbg  *debugServer
 
+	// Splits requested by operator (or by test).
+	// To be applied next time Tick is called.
+	opSplits   map[ranje.Ident]OpSplit
+	opSplitsMu sync.RWMutex
+
 	// TODO: Move this into the Tick method; just pass it along.
 	rpcWG sync.WaitGroup
 }
 
 func New(cfg config.Config, ks *ranje.Keyspace, rost *roster.Roster, srv *grpc.Server) *Balancer {
 	b := &Balancer{
-		cfg:  cfg,
-		ks:   ks,
-		rost: rost,
-		srv:  srv,
+		cfg:      cfg,
+		ks:       ks,
+		rost:     rost,
+		srv:      srv,
+		opSplits: map[ranje.Ident]OpSplit{},
 	}
 
 	// Register the gRPC server to receive instructions from operators. This
@@ -138,9 +149,40 @@ func (b *Balancer) tickRange(r *ranje.Range) {
 			}
 		}
 
+		// Range wants split?
+		var opSplit *OpSplit
+		func() {
+			b.opSplitsMu.RLock()
+			defer b.opSplitsMu.RUnlock()
+			os, ok := b.opSplits[r.Meta.Ident]
+			if ok {
+				delete(b.opSplits, r.Meta.Ident)
+				opSplit = &os
+			}
+		}()
+
+		if opSplit != nil {
+			b.ks.Split(r, opSplit.Key)
+		}
+
+	case ranje.RsSubsuming:
+		err := b.ks.RangeCanBeObsoleted(r)
+		if err != nil {
+			log.Printf("may not be obsoleted: %v (p=%v)", err, r)
+		} else {
+			// No error, so ready to obsolete the range.
+			b.ks.RangeToState(r, ranje.RsObsolete)
+		}
+
+	case ranje.RsObsolete:
+		// TODO: Skip obsolete ranges in Tick. There's never anything to do with
+		//       them, except possibly discard them, which we don't support yet.
+
 	default:
 		panic(fmt.Sprintf("unknown RangeState value: %s", r.State))
 	}
+
+	// Tick every placement.
 
 	toDestroy := []int{}
 
@@ -157,6 +199,8 @@ func (b *Balancer) tickRange(r *ranje.Range) {
 	}
 }
 
+// using a weird bool pointer arg to avoid having to return false from every
+// place except one.
 func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 
 	// Get the node that this placement is on.
@@ -249,7 +293,7 @@ func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 
 		// We are ready to move from Prepared to Ready, but may have to wait for
 		// the placement that this is replacing (maybe) to relinquish it first.
-		if !p.Range().MayBecomeReady(p) {
+		if !b.ks.PlacementMayBecomeReady(p) {
 			log.Printf("not moving to Ready")
 			return
 		}
@@ -292,7 +336,7 @@ func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 			}
 		}
 
-		if !p.Range().MayBeTaken(p) {
+		if !b.ks.PlacementMayBeTaken(p) {
 			log.Printf("not moving to Taken")
 			return
 		}
@@ -312,14 +356,14 @@ func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 
 		switch ri.State {
 		case roster.NsTaken:
-			if !p.Range().MayBeDropped(p) {
-				log.Printf("not moving to Dropped")
+			if err := b.ks.PlacementMayBeDropped(p); err != nil {
+				log.Printf("may not be dropped: %v (p=%v)", err, p)
 				return
 			}
 
 		case roster.NsDropping:
 			// We have already decided to drop the range, and have probably sent
-			// the RPC (below) already, so cannot turn bac now.
+			// the RPC (below) already, so cannot turn back now.
 			log.Printf("node %s still dropping %s", n.Ident(), p.Range().Meta.Ident)
 
 		case roster.NsDroppingError:
