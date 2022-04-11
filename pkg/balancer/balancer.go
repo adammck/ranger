@@ -19,6 +19,12 @@ type OpSplit struct {
 	Key   ranje.Key
 }
 
+// TODO: Allow operator to specify which node to target?
+type OpJoin struct {
+	Left  ranje.Ident
+	Right ranje.Ident
+}
+
 type Balancer struct {
 	cfg  config.Config
 	ks   *ranje.Keyspace
@@ -32,6 +38,10 @@ type Balancer struct {
 	opSplits   map[ranje.Ident]OpSplit
 	opSplitsMu sync.RWMutex
 
+	// Same for joins.
+	opJoins   []OpJoin
+	opJoinsMu sync.RWMutex
+
 	// TODO: Move this into the Tick method; just pass it along.
 	rpcWG sync.WaitGroup
 }
@@ -43,6 +53,7 @@ func New(cfg config.Config, ks *ranje.Keyspace, rost *roster.Roster, srv *grpc.S
 		rost:     rost,
 		srv:      srv,
 		opSplits: map[ranje.Ident]OpSplit{},
+		opJoins:  []OpJoin{},
 	}
 
 	// Register the gRPC server to receive instructions from operators. This
@@ -81,8 +92,40 @@ func (b *Balancer) RangesOnNodesWantingDrain() []*ranje.Range {
 func (b *Balancer) Tick() {
 	log.Print("tick")
 
+	// Hold the keyspace lock for the entire tick.
 	rs, unlock := b.ks.Ranges()
 	defer unlock()
+
+	// Any joins?
+
+	func() {
+		b.opJoinsMu.RLock()
+		defer b.opJoinsMu.RUnlock()
+
+		for _, j := range b.opJoins {
+			r1, err := b.ks.Get(j.Left)
+			if err != nil {
+				log.Printf("join with invalid left side: %v (rID=%v)", err, j.Left)
+				continue
+			}
+
+			r2, err := b.ks.Get(j.Right)
+			if err != nil {
+				log.Printf("join with invalid right side: %v (rID=%v)", err, j.Right)
+				continue
+			}
+
+			r3, err := b.ks.JoinTwo(r1, r2)
+			if err != nil {
+				log.Printf("join failed: %v (left=%v, right=%v)", err, j.Left, j.Right)
+				continue
+			}
+
+			log.Printf("new range from join: %v", r3)
+		}
+
+		b.opJoins = []OpJoin{}
+	}()
 
 	for _, r := range rs {
 		b.tickRange(r)
@@ -91,6 +134,8 @@ func (b *Balancer) Tick() {
 	// Now that we're finished advancing the ranges and placements, wait for any
 	// RPCs emitted to complete.
 	b.rpcWG.Wait()
+
+	// TODO: Persist here, instead of after individual state updates?
 }
 
 func (b *Balancer) tickRange(r *ranje.Range) {
@@ -351,37 +396,41 @@ func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 	case ranje.PsTaken:
 		ri, ok := n.Get(p.Range().Meta.Ident)
 		if !ok {
-			log.Printf("will drop %s from %s", p.Range().Meta.Ident, n.Ident())
-		}
 
-		switch ri.State {
-		case roster.NsTaken:
-			if err := b.ks.PlacementMayBeDropped(p); err != nil {
-				log.Printf("may not be dropped: %v (p=%v)", err, p)
-				return
-			}
-
-		case roster.NsDropping:
-			// We have already decided to drop the range, and have probably sent
-			// the RPC (below) already, so cannot turn back now.
-			log.Printf("node %s still dropping %s", n.Ident(), p.Range().Meta.Ident)
-
-		case roster.NsDroppingError:
-			// TODO: Pass back more information from the node, here. It's
-			//       not an RPC error, but there was some failure which we
-			//       can log or handle here.
-			log.Printf("error dropping %s from %s", p.Range().Meta.Ident, n.Ident())
-			b.ks.PlacementToState(p, ranje.PsGiveUp)
-			return
-
-		case roster.NsDropped:
+			// We can assume that the range has been dropped when the roster no
+			// longer has any info about it. This can happen in response to a
+			// Drop RPC or a normal probe cycle. Either way, the range is gone
+			// from the node. Nodes will never confirm that they used to have a
+			// range but and have dropped it.
 			b.ks.PlacementToState(p, ranje.PsDropped)
 			return
 
-		default:
-			log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
-			b.ks.PlacementToState(p, ranje.PsGiveUp)
-			return
+		} else {
+			switch ri.State {
+			case roster.NsTaken:
+				if err := b.ks.PlacementMayBeDropped(p); err != nil {
+					log.Printf("may not be dropped: %v (p=%v)", err, p)
+					return
+				}
+
+			case roster.NsDropping:
+				// We have already decided to drop the range, and have probably sent
+				// the RPC (below) already, so cannot turn back now.
+				log.Printf("node %s still dropping %s", n.Ident(), p.Range().Meta.Ident)
+
+			case roster.NsDroppingError:
+				// TODO: Pass back more information from the node, here. It's
+				//       not an RPC error, but there was some failure which we
+				//       can log or handle here.
+				log.Printf("error dropping %s from %s", p.Range().Meta.Ident, n.Ident())
+				b.ks.PlacementToState(p, ranje.PsGiveUp)
+				return
+
+			default:
+				log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
+				b.ks.PlacementToState(p, ranje.PsGiveUp)
+				return
+			}
 		}
 
 		b.RPC(func() {

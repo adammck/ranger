@@ -161,15 +161,25 @@ func (n *Node) Drop(ctx context.Context, p *ranje.Placement) error {
 
 	s := RemoteStateFromProto(res.State)
 
-	// Update the state in the range info cache.
-	func() {
-		n.muRanges.Lock()
-		defer n.muRanges.Unlock()
-		ri, ok := n.ranges[rID]
-		if ok {
-			ri.State = s
-		}
-	}()
+	if s == NsNotFound {
+		// Drop the range from the info cache.
+		func() {
+			n.muRanges.Lock()
+			defer n.muRanges.Unlock()
+			delete(n.ranges, rID)
+		}()
+
+	} else {
+		// Update the state in the range info cache.
+		func() {
+			n.muRanges.Lock()
+			defer n.muRanges.Unlock()
+			ri, ok := n.ranges[rID]
+			if ok {
+				ri.State = s
+			}
+		}()
+	}
 
 	log.Printf("dropped %s from %s; state=%v", p.LogString(), n.Ident(), s)
 	return nil

@@ -353,7 +353,7 @@ func (r *Roster) Candidate(rng *ranje.Range) (string, error) {
 	//       node, and is generally totally insufficient.
 
 	sort.Slice(candidates, func(i, j int) bool {
-		return nodes[i].Utilization() < nodes[j].Utilization()
+		return nodes[candidates[i]].Utilization() < nodes[candidates[j]].Utilization()
 	})
 
 	return nodes[candidates[0]].Ident(), nil

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"sync"
 
@@ -69,7 +70,83 @@ func New(cfg config.Config, persister Persister) *Keyspace {
 		}
 	}
 
+	// Sanity-check the ranges for no gaps and no overlaps.
+	err = ks.SanityCheck()
+	if err != nil {
+		// TODO: Not this
+		panic(fmt.Sprintf("failed sanity check: %v", err))
+	}
+
 	return ks
+}
+
+// SanityCheck returns an error if the curernt range state isn't sane. It does
+// nothing to try to rectify the situaton. This method mostly compensates for
+// the fact that I'm storing all these ranges in a single flat slice.
+func (ks *Keyspace) SanityCheck() error {
+
+	// Check for no duplicate range IDs.
+
+	seen := map[Ident]struct{}{}
+	for _, r := range ks.ranges {
+		if _, ok := seen[r.Meta.Ident]; ok {
+			return fmt.Errorf("duplicate range ID (i=%d)", r.Meta.Ident)
+		}
+		seen[r.Meta.Ident] = struct{}{}
+	}
+
+	// Check that leaf ranges (i.e. those with no children) cover the entire
+	// keyspace with no overlaps. This must always be the case; we only persist
+	// valid configurations, and do it transactionally.
+
+	leafs := []*Range{}
+	for i := range ks.ranges {
+		if len(ks.ranges[i].Children) == 0 {
+			leafs = append(leafs, ks.ranges[i])
+		}
+	}
+
+	sort.Slice(leafs, func(i, j int) bool {
+		m1 := leafs[i].Meta
+		m2 := leafs[j].Meta
+
+		if m1.Start != m2.Start {
+			return m1.Start < m2.Start
+		}
+
+		if m1.End != m2.End {
+			return m1.End < m2.End
+		}
+
+		// We know there's no duplicate Idents already.
+		return m1.Ident < m2.Ident
+	})
+
+	for i, r := range leafs {
+		if i == 0 { // first range
+			if r.Meta.Start != ZeroKey {
+				return fmt.Errorf("first leaf range did not start with zero key (rID=%d)", r.Meta.Ident)
+			}
+		} else { // not first range
+			if r.Meta.Start == ZeroKey {
+				return fmt.Errorf("non-first leaf range started with zero key (rID=%d)", r.Meta.Ident)
+			}
+			if r.Meta.Start != leafs[i-1].Meta.End {
+				return fmt.Errorf("leaf range does not begin at prior leaf range end (i=%d)", i)
+			}
+		}
+		if i == len(leafs)-1 { // last range
+			if r.Meta.End != ZeroKey {
+				return fmt.Errorf("last leaf range did not end with zero key (rID=%d)", r.Meta.Ident)
+			}
+		} else { // not last range
+			if r.Meta.End == ZeroKey {
+				return fmt.Errorf("non-last leaf range ended with zero key (rID=%d)", r.Meta.Ident)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (ks *Keyspace) Ranges() ([]*Range, func()) {
@@ -591,8 +668,50 @@ func (ks *Keyspace) mustPersistDirtyRanges() error {
 	return nil
 }
 
+// Caller must hold the keyspace lock.
 func (ks *Keyspace) JoinTwo(one *Range, two *Range) (*Range, error) {
-	panic("not implemented; see 839595a")
+	//ks.mu.Lock()
+	//defer ks.mu.Unlock()
+
+	for _, r := range []*Range{one, two} {
+		if r.State != RsActive {
+			return nil, errors.New("can't join non-ready ranges")
+		}
+
+		// This should not be possible. Panic?
+		if len(r.Children) > 0 {
+			return nil, fmt.Errorf("range %s already has %d children", r, len(r.Children))
+		}
+	}
+
+	// TODO: Probably fine to transparently flip them around in this case.
+	if one.Meta.End != two.Meta.Start {
+		return nil, fmt.Errorf("not adjacent: %s, %s", one, two)
+	}
+
+	for _, r := range []*Range{one, two} {
+		err := r.toState(RsSubsuming, ks)
+		if err != nil {
+			// The error is clear enough, no need to wrap it.
+			return nil, err
+		}
+	}
+
+	three := ks.Range()
+	three.Meta.Start = one.Meta.Start
+	three.Meta.End = two.Meta.End
+	three.Parents = []Ident{one.Meta.Ident, two.Meta.Ident}
+
+	// Insert new range at the end.
+	ks.ranges = append(ks.ranges, three)
+
+	one.Children = []Ident{three.Meta.Ident}
+	two.Children = []Ident{three.Meta.Ident}
+
+	// Persist all three ranges atomically.
+	ks.mustPersistDirtyRanges()
+
+	return three, nil
 }
 
 // index returns the index (in ks.ranges) of the given range.

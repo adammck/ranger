@@ -91,6 +91,10 @@ func (n *Node) Get(rangeID ranje.Ident) (RangeInfo, bool) {
 	ri, ok := n.ranges[rangeID]
 	if !ok {
 		return RangeInfo{}, false
+		// return RangeInfo{
+		// 	Meta:  ranje.Meta{}, // not good
+		// 	State: NsNotFound,
+		// }, false
 	}
 
 	return *ri, true
@@ -121,7 +125,15 @@ func (n *Node) IsMissing(cfg config.Config, now time.Time) bool {
 // Utilization returns a uint in [0, 255], indicating how busy this node is.
 // Ranges should generally be placed on nodes with lower utilization.
 func (n *Node) Utilization() uint8 {
-	return 255 // lol
+	n.muRanges.RLock()
+	defer n.muRanges.RUnlock()
+
+	l := len(n.ranges)
+	if l > 255 {
+		return 255
+	}
+
+	return uint8(l) // lol
 }
 
 func (n *Node) WantDrain() bool {

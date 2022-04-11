@@ -20,12 +20,12 @@ func _() {
 	_ = x[NsTaken-9]
 	_ = x[NsDropping-10]
 	_ = x[NsDroppingError-11]
-	_ = x[NsDropped-12]
+	_ = x[NsNotFound-12]
 }
 
-const _RemoteState_name = "NsUnknownNsPreparingNsPreparingErrorNsPreparedNsReadyingNsReadyingErrorNsReadyNsTakingNsTakingErrorNsTakenNsDroppingNsDroppingErrorNsDropped"
+const _RemoteState_name = "NsUnknownNsPreparingNsPreparingErrorNsPreparedNsReadyingNsReadyingErrorNsReadyNsTakingNsTakingErrorNsTakenNsDroppingNsDroppingErrorNsNotFound"
 
-var _RemoteState_index = [...]uint8{0, 9, 20, 36, 46, 56, 71, 78, 86, 99, 106, 116, 131, 140}
+var _RemoteState_index = [...]uint8{0, 9, 20, 36, 46, 56, 71, 78, 86, 99, 106, 116, 131, 141}
 
 func (i RemoteState) String() string {
 	if i >= RemoteState(len(_RemoteState_index)-1) {
