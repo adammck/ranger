@@ -3,7 +3,6 @@ package node
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"log"
 	"net"
 	"sync"
@@ -267,8 +266,17 @@ func (n *nodeServer) Give(ctx context.Context, req *pbr.GiveRequest) (*pbr.GiveR
 		if rd.state == roster.NsPreparingError {
 			delete(n.node.data, rm.ident)
 			n.node.ranges.Remove(rm.ident)
+
 		} else {
-			return nil, fmt.Errorf("already have ident: %s", rm.ident)
+
+			log.Printf("Redundant Give: %s", rm.ident)
+			return &pbr.GiveResponse{
+				RangeInfo: &pbr.RangeInfo{
+					Meta:  r,
+					State: rd.state.ToProto(),
+				},
+			}, nil
+
 		}
 	}
 
@@ -282,9 +290,15 @@ func (n *nodeServer) Give(ctx context.Context, req *pbr.GiveRequest) (*pbr.GiveR
 		rd.fetchMany(rm, req.Parents)
 
 	} else {
-		// No current host nor parents. This is a brand new range. We're
-		// probably initializing a new empty keyspace.
-		rd.state = roster.NsReady
+
+		// TODO: Restore support for this:
+		// -- No current host nor parents. This is a brand new range. We're
+		// -- probably initializing a new empty keyspace.
+		// -- rd.state = roster.NsReady
+
+		// Temporary
+		rd.state = roster.NsPrepared
+
 	}
 
 	n.node.ranges.Add(rm)
@@ -364,9 +378,19 @@ func (s *nodeServer) Drop(ctx context.Context, req *pbr.DropRequest) (*pbr.DropR
 	s.node.mu.Lock()
 	defer s.node.mu.Unlock()
 
-	ident, rd, err := s.getRangeData(req.Range)
-	if err != nil {
-		return nil, err
+	ident := ranje.Ident(req.Range)
+	if ident == 0 {
+		return nil, status.Error(codes.InvalidArgument, "missing: range")
+	}
+
+	rd, ok := s.node.data[ident]
+	if !ok {
+		log.Printf("got redundant Drop (no such range; maybe drop complete)")
+
+		// This is NOT a failure.
+		return &pbr.DropResponse{
+			State: roster.NsNotFound.ToProto(),
+		}, nil
 	}
 
 	// Skipping this for now; we'll need to cancel via a context in rd.
@@ -382,7 +406,9 @@ func (s *nodeServer) Drop(ctx context.Context, req *pbr.DropRequest) (*pbr.DropR
 	s.node.ranges.Remove(ident)
 
 	log.Printf("Dropped: %s", ident)
-	return &pbr.DropResponse{}, nil
+	return &pbr.DropResponse{
+		State: pbr.RangeNodeState_NOT_FOUND,
+	}, nil
 }
 
 func (n *nodeServer) Info(ctx context.Context, req *pbr.InfoRequest) (*pbr.InfoResponse, error) {
