@@ -45,6 +45,12 @@ func FromProto(s *pb.RangeState) RangeState {
 	switch *s {
 	case pb.RangeState_RS_UNKNOWN:
 		return RsUnknown
+	case pb.RangeState_RS_ACTIVE:
+		return RsActive
+	case pb.RangeState_RS_SUBSUMING:
+		return RsSubsuming
+	case pb.RangeState_RS_OBSOLETE:
+		return RsObsolete
 	}
 
 	log.Printf("warn: got unknown state from proto: %s", *s)
@@ -55,6 +61,12 @@ func (s RangeState) ToProto() pb.RangeState {
 	switch s {
 	case RsUnknown:
 		return pb.RangeState_RS_UNKNOWN
+	case RsActive:
+		return pb.RangeState_RS_ACTIVE
+	case RsSubsuming:
+		return pb.RangeState_RS_SUBSUMING
+	case RsObsolete:
+		return pb.RangeState_RS_OBSOLETE
 	}
 
 	// Probably a state was added but this method wasn't updated.

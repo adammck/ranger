@@ -48,6 +48,25 @@ func (s PlacementState) ToProto() pb.PlacementState {
 	switch s {
 	case PsUnknown:
 		return pb.PlacementState_PS_UNKNOWN
+
+	case PsPending:
+		return pb.PlacementState_PS_PENDING
+
+	case PsPrepared:
+		return pb.PlacementState_PS_PREPARED
+
+	case PsReady:
+		return pb.PlacementState_PS_READY
+
+	case PsTaken:
+		return pb.PlacementState_PS_TAKEN
+
+	case PsGiveUp:
+		return pb.PlacementState_PS_GIVE_UP
+
+	case PsDropped:
+		return pb.PlacementState_PS_DROPPED
+
 	}
 
 	// Probably a state was added but this method wasn't updated.

@@ -123,6 +123,10 @@ func (ks *Keyspace) SanityCheck() error {
 	})
 
 	for i, r := range leafs {
+		if r.State == RsSubsuming || r.State == RsObsolete {
+			return fmt.Errorf("non-active leaf range with no children (rID=%v)", r.Meta.Ident)
+		}
+
 		if i == 0 { // first range
 			if r.Meta.Start != ZeroKey {
 				return fmt.Errorf("first leaf range did not start with zero key (rID=%d)", r.Meta.Ident)

@@ -46,10 +46,19 @@ enum RangeNodeState {
 // Keep synced with ranje.RangeState (in pkg/ranje/state_range.go)
 enum RangeState {
   RS_UNKNOWN = 0;
+  RS_ACTIVE = 1;
+  RS_SUBSUMING = 2;
+  RS_OBSOLETE = 3;
 }
 
 // This is only for debugging purposes, for now.
 // Keep synced with ranje.PlacementState (in pkg/ranje/state_placement.go)
 enum PlacementState {
   PS_UNKNOWN = 0;
+	PS_PENDING = 1;
+	PS_PREPARED = 2;
+	PS_READY = 3;
+	PS_TAKEN = 4;
+	PS_GIVE_UP = 5;
+	PS_DROPPED = 6;
 }
