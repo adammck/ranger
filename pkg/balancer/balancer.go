@@ -254,7 +254,7 @@ func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 	if p.State != ranje.PsGiveUp && p.State != ranje.PsDropped {
 		if n == nil {
 			// The node has disappeared.
-			log.Printf("missing node: %s", n.Ident())
+			log.Printf("missing node: %s", p.NodeID)
 			b.ks.PlacementToState(p, ranje.PsGiveUp)
 			return
 		}
