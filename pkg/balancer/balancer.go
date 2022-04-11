@@ -260,6 +260,19 @@ func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 		}
 	}
 
+	// If the node this placement is on wants to be drained, mark this placement
+	// as wanting to be moved. The next Tick will create a new placement, and
+	// exclude the current node from the candidates.
+	//
+	// TODO: This whole WantMove thing was a hack to initiate moves in tests,
+	//       get rid of it and probably replace it with a on the balancer?
+	//
+	// TODO: Also this is almost certainly only valid in some placement states;
+	//       think about that.
+	if n.WantDrain() {
+		p.WantMove = true
+	}
+
 	switch p.State {
 	case ranje.PsPending:
 		// If the node already has the range (i.e. this is not the first tick

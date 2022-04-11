@@ -337,7 +337,18 @@ func (r *Roster) Candidate(rng *ranje.Range) (string, error) {
 	//    still come back, but let's avoid it anyway.
 	//
 	for i := range nodes {
-		if nodes[i].HasRange(rng.Meta.Ident) || nodes[i].WantDrain() || nodes[i].IsMissing(r.cfg, time.Now()) {
+		if nodes[i].HasRange(rng.Meta.Ident) {
+			log.Printf("node already has range (nID=%v)", nodes[i].Ident())
+			continue
+		}
+
+		if nodes[i].WantDrain() {
+			log.Printf("node wants drain (nID=%v)", nodes[i].Ident())
+			continue
+		}
+
+		if nodes[i].IsMissing(r.cfg, time.Now()) {
+			log.Printf("node is missing (nID=%v)", nodes[i].Ident())
 			continue
 		}
 

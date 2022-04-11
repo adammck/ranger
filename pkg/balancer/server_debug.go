@@ -37,8 +37,9 @@ func rangeResponse(r *ranje.Range) *pb.RangeResponse {
 func nodeResponse(ks *ranje.Keyspace, n *roster.Node) *pb.NodeResponse {
 	res := &pb.NodeResponse{
 		Node: &pb.NodeMeta{
-			Ident:   n.Ident(),
-			Address: n.Addr(),
+			Ident:     n.Ident(),
+			Address:   n.Addr(),
+			WantDrain: n.WantDrain(),
 		},
 	}
 

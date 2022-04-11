@@ -52,10 +52,6 @@ func (r *Range) MinReady() int {
 	return 1
 }
 
-// func (r *Range) placementStateChanged(rg RangeGetter) {
-// 	panic("not implemented; see 839595a")
-// }
-
 func (r *Range) toState(new RangeState, rg RangeGetter) error {
 	r.Lock()
 	defer r.Unlock()

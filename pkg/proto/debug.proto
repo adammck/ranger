@@ -37,6 +37,7 @@ message NodeRequest {
 message NodeMeta {
     string ident = 1;
     string address = 2;
+    bool want_drain = 3;
 }
 
 message NodeRange {
