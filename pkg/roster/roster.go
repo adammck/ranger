@@ -307,7 +307,8 @@ func (r *Roster) Run(t *time.Ticker) {
 }
 
 // Candidate returns the NodeIdent of a node which could accept the given range.
-func (r *Roster) Candidate(rng *ranje.Range) (string, error) {
+// TODO: Implement range constraints. Currently it's ignored.
+func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (string, error) {
 	r.RLock()
 	defer r.RUnlock()
 

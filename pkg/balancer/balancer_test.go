@@ -1,9 +1,6 @@
 package balancer
 
 import (
-	"fmt"
-	"log"
-	"net"
 	"sync"
 	"testing"
 	"time"
@@ -12,22 +9,18 @@ import (
 
 	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
-	mockdisc "github.com/adammck/ranger/pkg/discovery/mock"
-	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
+	"github.com/adammck/ranger/pkg/test/fake_nodes"
 	"github.com/stretchr/testify/suite"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"google.golang.org/grpc/test/bufconn"
 )
 
 type BalancerSuite struct {
 	suite.Suite
 	ctx   context.Context
 	cfg   config.Config
-	nodes *TestNodes
+	nodes *fake_nodes.TestNodes
 	ks    *ranje.Keyspace
 	rost  *roster.Roster
 	spy   *RpcSpy
@@ -63,7 +56,7 @@ func (ts *BalancerSuite) SetupTest() {
 		Replication:              1,
 	}
 
-	ts.nodes = NewTestNodes()
+	ts.nodes = fake_nodes.NewTestNodes()
 	ts.rost = roster.New(ts.cfg, ts.nodes.Discovery(), nil, nil, nil)
 	ts.rost.NodeConnFactory = ts.nodes.NodeConnFactory
 
@@ -115,13 +108,23 @@ func (ts *BalancerSuite) TestJunk() {
 }
 
 func (ts *BalancerSuite) TestPlacement() {
-	ts.Init(nil)
 
-	ts.nodes.Add(ts.ctx, discovery.Remote{
+	na := discovery.Remote{
 		Ident: "test-aaa",
 		Host:  "host-aaa",
 		Port:  1,
-	}, nil)
+	}
+
+	r1 := &ranje.Range{
+		Meta: ranje.Meta{
+			Ident: 1,
+			Start: ranje.ZeroKey,
+		},
+		State: ranje.RsActive,
+	}
+
+	ts.Init([]*ranje.Range{r1})
+	ts.nodes.Add(ts.ctx, na, map[ranje.Ident]*roster.RangeInfo{})
 
 	// Probe all of the fake nodes.
 	ts.rost.Tick()
@@ -179,24 +182,56 @@ func (ts *BalancerSuite) TestPlacement() {
 	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsReady]}", ts.rost.TestString())
 
-	// Range Move
-	// TODO: Split this into a separate test!
-	// TODO: Refactor to initiate move via OpMove
+	ts.EnsureStable()
+}
 
-	ts.nodes.Add(ts.ctx, discovery.Remote{
+func (ts *BalancerSuite) TestMove() {
+
+	// Start with one range placed on node aaa, and an empty node bbb.
+
+	na := discovery.Remote{
+		Ident: "test-aaa",
+		Host:  "host-aaa",
+		Port:  1,
+	}
+	nb := discovery.Remote{
 		Ident: "test-bbb",
 		Host:  "host-bbb",
 		Port:  1,
-	}, nil)
+	}
+
+	r1 := &ranje.Range{
+		Meta: ranje.Meta{
+			Ident: 1,
+			Start: ranje.ZeroKey,
+		},
+		State: ranje.RsActive,
+		Placements: []*ranje.Placement{{
+			NodeID: na.Ident,
+			State:  ranje.PsReady,
+		}},
+	}
+	ts.Init([]*ranje.Range{r1})
+
+	ts.nodes.Add(ts.ctx, na, map[ranje.Ident]*roster.RangeInfo{
+		r1.Meta.Ident: {
+			Meta:  r1.Meta,
+			State: roster.NsReady,
+		},
+	})
+	ts.nodes.Add(ts.ctx, nb, map[ranje.Ident]*roster.RangeInfo{})
+
+	// Probe to verify initial state.
 
 	ts.rost.Tick()
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsReady]} {test-bbb []}", ts.rost.TestString())
 
-	{
-		r := ts.GetRange(1)
-		p := r.Placements[0]
-		p.SetWantMoveTo(ranje.AnyNode())
-	}
+	ts.EnsureStable()
+
+	// -------------------------------------------------------------------------
+
+	r1.Placements[0].SetWantMoveTo(ranje.AnyNode())
 
 	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady:want-move(any)}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsReady]} {test-bbb []}", ts.rost.TestString())
@@ -264,7 +299,7 @@ func (ts *BalancerSuite) TestPlacement() {
 	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken:want-move(any) p1=test-bbb:PsReady}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsDropping]} {test-bbb [1:NsReady]}", ts.rost.TestString())
 
-	ts.nodes.FinishDrop(ts, "test-aaa", 1)
+	ts.nodes.FinishDrop(ts.T(), "test-aaa", 1)
 
 	ts.bal.Tick()
 	ts.Equal([]roster.RpcRecord{{Type: roster.Drop, Node: "test-aaa", Range: 1}}, ts.spy.Get()) // redundant
@@ -460,7 +495,7 @@ func (ts *BalancerSuite) TestSplit() {
 	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsTaken} {2 [-inf, ccc] RsActive p0=test-aaa:PsReady} {3 (ccc, +inf] RsActive p0=test-aaa:PsReady}", ts.ks.LogString())
 
 	// r1p0 finishes dropping.
-	ts.nodes.FinishDrop(ts, "test-aaa", 1)
+	ts.nodes.FinishDrop(ts.T(), "test-aaa", 1)
 
 	ts.bal.Tick()
 	ts.ElementsMatch([]roster.RpcRecord{
@@ -648,8 +683,8 @@ func (ts *BalancerSuite) TestJoin() {
 	ts.Equal("{test-aaa [1:NsDropping]} {test-bbb [2:NsDropping]} {test-ccc [3:NsReady]}", ts.rost.TestString())
 
 	// Drops finish.
-	ts.nodes.FinishDrop(ts, "test-aaa", 1)
-	ts.nodes.FinishDrop(ts, "test-bbb", 2)
+	ts.nodes.FinishDrop(ts.T(), "test-aaa", 1)
+	ts.nodes.FinishDrop(ts.T(), "test-bbb", 2)
 	ts.rost.Tick()
 	ts.Equal("{test-aaa []} {test-bbb []} {test-ccc [3:NsReady]}", ts.rost.TestString())
 
@@ -736,286 +771,4 @@ func (fp *FakePersister) GetRanges() ([]*ranje.Range, error) {
 
 func (fp *FakePersister) PutRanges([]*ranje.Range) error {
 	return nil
-}
-
-// -----------------------------------------------------------------------------
-
-type testRange struct {
-	info *roster.RangeInfo
-}
-
-// TODO: Most of this should be moved into a client library. Rangelet?
-type TestNode struct {
-	pb.UnimplementedNodeServer
-	ranges map[ranje.Ident]*testRange
-}
-
-func NewTestNode(rangeInfos map[ranje.Ident]*roster.RangeInfo) *TestNode {
-	ranges := map[ranje.Ident]*testRange{}
-	//if rangeInfos != nil
-	for rID, ri := range rangeInfos {
-		ranges[rID] = &testRange{info: ri}
-	}
-
-	return &TestNode{
-		ranges: ranges,
-	}
-}
-
-func (n *TestNode) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveResponse, error) {
-	log.Printf("TestNode.Give")
-
-	meta, err := ranje.MetaFromProto(req.Range)
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "error parsing range meta: %v", err)
-	}
-
-	var info *roster.RangeInfo
-
-	r, ok := n.ranges[meta.Ident]
-	if !ok {
-		info = &roster.RangeInfo{
-			Meta:  *meta,
-			State: roster.NsPreparing,
-		}
-		n.ranges[info.Meta.Ident] = &testRange{
-			info: info,
-		}
-	} else {
-		switch r.info.State {
-		case roster.NsPreparing, roster.NsPreparingError, roster.NsPrepared:
-			// We already know about this range, and it's in one of the states
-			// that indicate a previous Give. This is a duplicate. Don't change
-			// any state, just return the RangeInfo to let the controller know
-			// how we're doing.
-			info = r.info
-		default:
-			return nil, status.Errorf(codes.InvalidArgument, "invalid state for redundant Give: %v", r.info.State)
-		}
-	}
-
-	return &pb.GiveResponse{
-		RangeInfo: info.ToProto(),
-	}, nil
-}
-
-func (n *TestNode) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.ServeResponse, error) {
-	log.Printf("TestNode.Serve")
-
-	rID, err := ranje.IdentFromProto(req.Range)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-
-	r, ok := n.ranges[rID]
-	if !ok {
-		return nil, status.Errorf(codes.InvalidArgument, "can't Serve unknown range: %v", rID)
-	}
-
-	switch r.info.State {
-	case roster.NsPrepared:
-		// Actual state transition.
-		r.info.State = roster.NsReadying
-
-	case roster.NsReadying, roster.NsReady:
-		log.Printf("got redundant Serve")
-
-	default:
-		return nil, status.Errorf(codes.InvalidArgument, "invalid state for Serve: %v", r.info.State)
-	}
-
-	return &pb.ServeResponse{
-		State: r.info.State.ToProto(),
-	}, nil
-}
-
-func (n *TestNode) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeResponse, error) {
-	log.Printf("TestNode.Take")
-
-	rID, err := ranje.IdentFromProto(req.Range)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-
-	r, ok := n.ranges[rID]
-	if !ok {
-		return nil, status.Errorf(codes.InvalidArgument, "can't Take unknown range: %v", rID)
-	}
-
-	switch r.info.State {
-	case roster.NsReady:
-		// Actual state transition.
-		r.info.State = roster.NsTaking
-
-	case roster.NsTaking, roster.NsTaken:
-		log.Printf("got redundant Take")
-
-	default:
-		return nil, status.Errorf(codes.InvalidArgument, "invalid state for Take: %v", r.info.State)
-	}
-
-	return &pb.TakeResponse{
-		State: r.info.State.ToProto(),
-	}, nil
-}
-
-func (n *TestNode) Drop(ctx context.Context, req *pb.DropRequest) (*pb.DropResponse, error) {
-	log.Printf("TestNode.Drop")
-
-	rID, err := ranje.IdentFromProto(req.Range)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-
-	r, ok := n.ranges[rID]
-	if !ok {
-		log.Printf("got redundant Drop (no such range; maybe drop complete)")
-
-		// This is NOT a failure.
-		return &pb.DropResponse{
-			State: roster.NsNotFound.ToProto(),
-		}, nil
-	}
-
-	switch r.info.State {
-	case roster.NsTaken:
-		// Actual state transition. We don't actually drop anything here, only
-		// claim that we are doing so, to simulate a slow client. Test must call
-		// FinishDrop to move to NsDropped.
-		r.info.State = roster.NsDropping
-
-	case roster.NsDropping:
-		log.Printf("got redundant Drop (drop in progress)")
-
-	default:
-		return nil, status.Errorf(codes.InvalidArgument, "invalid state for Drop: %v", r.info.State)
-	}
-
-	return &pb.DropResponse{
-		State: r.info.State.ToProto(),
-	}, nil
-}
-
-func (n *TestNode) Info(ctx context.Context, req *pb.InfoRequest) (*pb.InfoResponse, error) {
-	log.Printf("TestNode.Info")
-
-	res := &pb.InfoResponse{
-		WantDrain: false,
-	}
-
-	for _, r := range n.ranges {
-		res.Ranges = append(res.Ranges, r.info.ToProto())
-	}
-
-	log.Printf("res: %v", res)
-	return res, nil
-}
-
-// -----------------------------------------------------------------------------
-
-type TestNodes struct {
-	disc    *mockdisc.MockDiscovery
-	nodes   map[string]*TestNode        // nID
-	conns   map[string]*grpc.ClientConn // addr
-	closers []func()
-}
-
-func NewTestNodes() *TestNodes {
-	tn := &TestNodes{
-		disc:  mockdisc.New(),
-		nodes: map[string]*TestNode{},
-		conns: map[string]*grpc.ClientConn{},
-	}
-
-	return tn
-}
-
-func (tn *TestNodes) Close() {
-	for _, f := range tn.closers {
-		f()
-	}
-}
-
-func (tn *TestNodes) Add(ctx context.Context, remote discovery.Remote, rangeInfos map[ranje.Ident]*roster.RangeInfo) {
-	n := NewTestNode(rangeInfos)
-	tn.nodes[remote.Ident] = n
-
-	conn, closer := nodeServer(ctx, n)
-	tn.conns[remote.Addr()] = conn
-	tn.closers = append(tn.closers, closer)
-
-	tn.disc.Add("node", remote)
-}
-
-func (tn *TestNodes) RangeState(nID string, rID ranje.Ident, state roster.RemoteState) {
-	n, ok := tn.nodes[nID]
-	if !ok {
-		panic(fmt.Sprintf("no such node: %s", nID))
-	}
-
-	r, ok := n.ranges[rID]
-	if !ok {
-		panic(fmt.Sprintf("no such range: %s", rID))
-	}
-
-	log.Printf("RangeState: %s, %s -> %s", nID, rID, state)
-	r.info.State = state
-}
-
-func (tn *TestNodes) FinishDrop(ts *BalancerSuite, nID string, rID ranje.Ident) {
-	n, ok := tn.nodes[nID]
-	if !ok {
-		ts.T().Fatalf("no such node: %s", nID)
-	}
-
-	r, ok := n.ranges[rID]
-	if !ok {
-		ts.T().Fatalf("can't drop unknown range: %s", rID)
-		return
-	}
-
-	if r.info.State != roster.NsDropping {
-		ts.T().Fatalf("can't drop range not in NsDropping: rID=%s, state=%s", rID, r.info.State)
-		return
-	}
-
-	log.Printf("FinishDrop: nID=%s, rID=%s", nID, rID)
-	delete(n.ranges, rID)
-}
-
-// Use this to stub out the Roster.
-func (tn *TestNodes) NodeConnFactory(ctx context.Context, remote discovery.Remote) (*grpc.ClientConn, error) {
-	conn, ok := tn.conns[remote.Addr()]
-	if !ok {
-		return nil, fmt.Errorf("no such connection: %v", remote.Addr())
-	}
-
-	return conn, nil
-}
-
-func (tn *TestNodes) Discovery() *mockdisc.MockDiscovery {
-	return tn.disc
-}
-
-func nodeServer(ctx context.Context, node *TestNode) (*grpc.ClientConn, func()) {
-	listener := bufconn.Listen(1024 * 1024)
-
-	s := grpc.NewServer()
-	pb.RegisterNodeServer(s, node)
-	go func() {
-		if err := s.Serve(listener); err != nil {
-			panic(err)
-		}
-	}()
-
-	conn, _ := grpc.DialContext(ctx, "", grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
-		return listener.Dial()
-	}), grpc.WithInsecure())
-
-	closer := func() {
-		listener.Close()
-		s.Stop()
-	}
-
-	return conn, closer
 }
