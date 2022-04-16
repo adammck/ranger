@@ -239,7 +239,6 @@ func (ros *Roster) probe() {
 // probeOne sends an RPC to fetch the current ranges for one node.
 // Returns error if the RPC fails or if a probe is already in progess.
 func (ros *Roster) probeOne(ctx context.Context, n *Node) error {
-	log.Printf("probeOne: %v", n.Ident())
 	// TODO: Abort if probe in progress.
 
 	ranges := make(map[ranje.Ident]*RangeInfo)

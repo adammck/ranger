@@ -90,7 +90,6 @@ func (b *Balancer) RangesOnNodesWantingDrain() []*ranje.Range {
 }
 
 func (b *Balancer) Tick() {
-	log.Print("tick")
 
 	// Hold the keyspace lock for the entire tick.
 	rs, unlock := b.ks.Ranges()
@@ -352,7 +351,6 @@ func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 		// We are ready to move from Prepared to Ready, but may have to wait for
 		// the placement that this is replacing (maybe) to relinquish it first.
 		if !b.ks.PlacementMayBecomeReady(p) {
-			log.Printf("not moving to Ready")
 			return
 		}
 
@@ -395,7 +393,6 @@ func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 		}
 
 		if !b.ks.PlacementMayBeTaken(p) {
-			log.Printf("not moving to Taken")
 			return
 		}
 
@@ -422,7 +419,6 @@ func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 			switch ri.State {
 			case roster.NsTaken:
 				if err := b.ks.PlacementMayBeDropped(p); err != nil {
-					log.Printf("may not be dropped: %v (p=%v)", err, p)
 					return
 				}
 
