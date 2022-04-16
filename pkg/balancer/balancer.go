@@ -14,6 +14,11 @@ import (
 	"google.golang.org/grpc"
 )
 
+type OpMove struct {
+	Range ranje.Ident
+	Node  string
+}
+
 type OpSplit struct {
 	Range ranje.Ident
 	Key   ranje.Key
@@ -33,8 +38,12 @@ type Balancer struct {
 	bs   *balancerServer
 	dbg  *debugServer
 
-	// Splits requested by operator (or by test).
+	// Moves requested by operator (or by test)
 	// To be applied next time Tick is called.
+	opMoves   map[ranje.Ident]OpMove
+	opMovesMu sync.RWMutex
+
+	// Same for splits.
 	opSplits   map[ranje.Ident]OpSplit
 	opSplitsMu sync.RWMutex
 
@@ -166,7 +175,8 @@ func (b *Balancer) tickRange(r *ranje.Range) {
 
 		initMove := []*ranje.Placement{}
 		for _, p := range r.Placements {
-			if p.WantMove {
+			c := p.WantMoveTo
+			if c != nil {
 				_, ok := moveInProgress[p.NodeID]
 				if !ok {
 					initMove = append(initMove, p)
@@ -269,7 +279,7 @@ func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 	// TODO: Also this is almost certainly only valid in some placement states;
 	//       think about that.
 	if n.WantDrain() {
-		p.WantMove = true
+		p.SetWantMoveTo(ranje.AnyNode())
 	}
 
 	switch p.State {

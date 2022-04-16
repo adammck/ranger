@@ -18,7 +18,11 @@ type Placement struct {
 
 	// ???
 	// TODO: Persist this field.
-	WantMove    bool
+	WantMoveTo *Constraint
+
+	// Set by the balancer to indicate that this placement was created to
+	// replace the placement of the same range on some other node. Should be
+	// cleared once the placement becomes ready.
 	IsReplacing string // NodeID
 
 	// Guards everything.
@@ -26,6 +30,22 @@ type Placement struct {
 	// TODO: Change into an RWLock, check callers.
 	// TODO: Should this also lock the range and node? I think no?
 	sync.Mutex
+}
+
+type Constraint struct {
+	NodeID string
+}
+
+func (c *Constraint) String() string {
+	if c.NodeID != "" {
+		return fmt.Sprintf("nID=%s", c.NodeID)
+	}
+
+	return "any"
+}
+
+func AnyNode() *Constraint {
+	return &Constraint{}
 }
 
 func NewPlacement(r *Range, nodeID string) *Placement {
@@ -42,6 +62,18 @@ func (p *Placement) Range() *Range {
 
 func (p *Placement) LogString() string {
 	return fmt.Sprintf("{%s %s:%s}", p.rang.Meta.String(), p.NodeID, p.State)
+}
+
+func (p *Placement) SetWantMoveTo(c *Constraint) error {
+	p.Lock()
+	defer p.Unlock()
+
+	if p.WantMoveTo != nil {
+		return fmt.Errorf("move already pending: %v", p.WantMoveTo)
+	}
+
+	p.WantMoveTo = c
+	return nil
 }
 
 func (p *Placement) toState(new PlacementState) error {

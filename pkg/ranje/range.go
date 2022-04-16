@@ -36,8 +36,8 @@ func (r *Range) LogString() string {
 	for i, p := range r.Placements {
 		ps = fmt.Sprintf("%s p%d=%s:%s", ps, i, p.NodeID, p.State)
 
-		if p.WantMove {
-			ps = fmt.Sprintf("%s:want-move", ps)
+		if c := p.WantMoveTo; c != nil {
+			ps = fmt.Sprintf("%s:want-move(%v)", ps, c)
 		}
 	}
 

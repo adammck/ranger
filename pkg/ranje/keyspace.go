@@ -228,7 +228,7 @@ func (ks *Keyspace) PlacementMayBeTaken(p *Placement) bool {
 	switch r.State {
 	case RsActive:
 		// TODO: Is this necessary?
-		if !p.WantMove {
+		if p.WantMoveTo == nil {
 			return false
 		}
 

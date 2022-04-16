@@ -8,6 +8,8 @@ import (
 	"github.com/adammck/ranger/pkg/ranje"
 )
 
+// TODO: Make node ID a proper type like range ID.
+
 type NodeInfo struct {
 	Time   time.Time
 	NodeID string
