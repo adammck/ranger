@@ -396,35 +396,40 @@ func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 
 	case ranje.PsPrepared:
 		ri, ok := n.Get(p.Range().Meta.Ident)
-		if ok {
-			switch ri.State {
-			case state.NsPrepared:
-				// This is the first time around.
-				log.Printf("will instruct %s to serve %s", n.Ident(), p.Range().Meta.Ident)
+		if !ok {
+			// The node doesn't have the placement any more! Abort.
+			log.Printf("placement missing from node (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
+			b.ks.PlacementToState(p, ranje.PsGiveUp)
+			return
+		}
 
-			case state.NsReadying:
-				// We've already sent the Serve RPC at least once, and the node
-				// is working on it. Just keep waiting.
-				log.Printf("node %s still readying %s", n.Ident(), p.Range().Meta.Ident)
+		switch ri.State {
+		case state.NsPrepared:
+			// This is the first time around.
+			log.Printf("will instruct %s to serve %s", n.Ident(), p.Range().Meta.Ident)
 
-			case state.NsReadyingError:
-				// TODO: Pass back more information from the node, here. It's
-				//       not an RPC error, but there was some failure which we
-				//       can log or handle here.l
-				log.Printf("error readying %s on %s", p.Range().Meta.Ident, n.Ident())
-				b.ks.PlacementToState(p, ranje.PsGiveUp)
+		case state.NsReadying:
+			// We've already sent the Serve RPC at least once, and the node
+			// is working on it. Just keep waiting.
+			log.Printf("node %s still readying %s", n.Ident(), p.Range().Meta.Ident)
 
-			case state.NsReady:
-				b.ks.PlacementToState(p, ranje.PsReady)
-				return
+		case state.NsReadyingError:
+			// TODO: Pass back more information from the node, here. It's
+			//       not an RPC error, but there was some failure which we
+			//       can log or handle here.l
+			log.Printf("error readying %s on %s", p.Range().Meta.Ident, n.Ident())
+			b.ks.PlacementToState(p, ranje.PsGiveUp)
 
-			// TODO: state.NsReadyError?
+		case state.NsReady:
+			b.ks.PlacementToState(p, ranje.PsReady)
+			return
 
-			default:
-				log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
-				b.ks.PlacementToState(p, ranje.PsGiveUp)
-				return
-			}
+		// TODO: state.NsReadyError?
+
+		default:
+			log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
+			b.ks.PlacementToState(p, ranje.PsGiveUp)
+			return
 		}
 
 		// We are ready to move from Prepared to Ready, but may have to wait for
@@ -442,33 +447,38 @@ func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 
 	case ranje.PsReady:
 		ri, ok := n.Get(p.Range().Meta.Ident)
-		if ok {
-			switch ri.State {
-			case state.NsReady:
-				log.Printf("ready: %s", p.LogString())
+		if !ok {
+			// The node doesn't have the placement any more! Abort.
+			log.Printf("placement missing from node (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
+			b.ks.PlacementToState(p, ranje.PsGiveUp)
+			return
+		}
 
-			case state.NsTaking:
-				log.Printf("node %s still taking %s", n.Ident(), p.Range().Meta.Ident)
+		switch ri.State {
+		case state.NsReady:
+			log.Printf("ready: %s", p.LogString())
 
-			case state.NsTakingError:
-				// TODO: Pass back more information from the node, here. It's
-				//       not an RPC error, but there was some failure which we
-				//       can log or handle here.
-				log.Printf("error taking %s from %s", p.Range().Meta.Ident, n.Ident())
-				b.ks.PlacementToState(p, ranje.PsGiveUp)
-				return
+		case state.NsTaking:
+			log.Printf("node %s still taking %s", n.Ident(), p.Range().Meta.Ident)
 
-			case state.NsTaken:
-				b.ks.PlacementToState(p, ranje.PsTaken)
-				return
+		case state.NsTakingError:
+			// TODO: Pass back more information from the node, here. It's
+			//       not an RPC error, but there was some failure which we
+			//       can log or handle here.
+			log.Printf("error taking %s from %s", p.Range().Meta.Ident, n.Ident())
+			b.ks.PlacementToState(p, ranje.PsGiveUp)
+			return
 
-			// TODO: state.NsTakeError?
+		case state.NsTaken:
+			b.ks.PlacementToState(p, ranje.PsTaken)
+			return
 
-			default:
-				log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
-				b.ks.PlacementToState(p, ranje.PsGiveUp)
-				return
-			}
+		// TODO: state.NsTakeError?
+
+		default:
+			log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
+			b.ks.PlacementToState(p, ranje.PsGiveUp)
+			return
 		}
 
 		if !b.ks.PlacementMayBeTaken(p) {
@@ -527,6 +537,13 @@ func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 				log.Printf("error dropping %v from %s: %v", p.LogString(), n.Ident(), err)
 			}
 		})
+
+	case ranje.PsGiveUp:
+		// This transition only exists to provide an error-handling path to
+		// PsDropped without sending any RPCs.
+		log.Printf("giving up on %s", p.LogString())
+		b.ks.PlacementToState(p, ranje.PsDropped)
+		return
 
 	case ranje.PsDropped:
 		log.Printf("will destroy %s", p.LogString())

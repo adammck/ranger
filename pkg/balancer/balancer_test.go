@@ -186,6 +186,70 @@ func (ts *BalancerSuite) TestPlacement() {
 	ts.EnsureStable()
 }
 
+func (ts *BalancerSuite) TestMissingPlacement() {
+
+	// One node claiming that it's empty.
+	na := discovery.Remote{
+		Ident: "test-aaa",
+		Host:  "host-aaa",
+		Port:  1,
+	}
+	ts.nodes.Add(ts.ctx, na, map[ranje.Ident]*info.RangeInfo{})
+
+	// One range, which the controller thinks should be on that node.
+	r1 := &ranje.Range{
+		Meta: ranje.Meta{
+			Ident: 1,
+			Start: ranje.ZeroKey,
+		},
+		State: ranje.RsActive,
+		Placements: []*ranje.Placement{{
+			NodeID: na.Ident, // <--
+			State:  ranje.PsReady,
+		}},
+	}
+	ts.Init([]*ranje.Range{r1})
+
+	// Probe to verify initial state.
+
+	ts.rost.Tick()
+	ts.Equal("{test-aaa []}", ts.rost.TestString())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}", ts.ks.LogString())
+
+	// -------------------------------------------------------------------------
+
+	// Balancer notices that the node doesn't have the range, so marks the
+	// placement as abandoned.
+
+	ts.bal.Tick()
+	ts.Empty(ts.spy.Get())
+	ts.Equal("{test-aaa []}", ts.rost.TestString())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsGiveUp}", ts.ks.LogString())
+
+	// Balancer advances to drop the placement, but (unlike when moving) doesn't
+	// bother to notify the node via RPC. It has already told us that it doesn't
+	// have the range.
+
+	ts.bal.Tick()
+	ts.Empty(ts.spy.Get())
+	ts.Equal("{test-aaa []}", ts.rost.TestString())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsDropped}", ts.ks.LogString())
+
+	// The placement is destroyed.
+
+	ts.bal.Tick()
+	ts.Empty(ts.spy.Get())
+	ts.Equal("{test-aaa []}", ts.rost.TestString())
+	ts.Equal("{1 [-inf, +inf] RsActive}", ts.ks.LogString())
+
+	// From here we continue as usual. No need to repeat TestPlacement.
+
+	ts.bal.Tick()
+	ts.Equal([]roster.RpcRecord{{Type: roster.Give, Node: "test-aaa", Range: 1}}, ts.spy.Get())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsPreparing]}", ts.rost.TestString())
+}
+
 func (ts *BalancerSuite) TestMove() {
 
 	// Start with one range placed on node aaa, and an empty node bbb.
@@ -258,7 +322,7 @@ func (ts *BalancerSuite) TestMove() {
 	// Just updates state from roster.
 	// TODO: As above, should maybe trigger the next tick automatically.
 	ts.bal.Tick()
-	ts.Equal(0, len(ts.spy.Get()))
+	ts.Equal(0, len(ts.spy.Get())) // TODO: Replace all these with: ts.Empty(ts.spy.Get())
 	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady p1=test-bbb:PsPrepared:replacing(test-aaa)}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsReady]} {test-bbb [1:NsPrepared]}", ts.rost.TestString())
 
