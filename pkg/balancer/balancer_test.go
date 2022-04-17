@@ -233,14 +233,20 @@ func (ts *BalancerSuite) TestMove() {
 
 	// -------------------------------------------------------------------------
 
-	r1.Placements[0].SetWantMoveTo(ranje.AnyNode())
-
-	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady:want-move(any)}", ts.ks.LogString())
-	ts.Equal("{test-aaa [1:NsReady]} {test-bbb []}", ts.rost.TestString())
+	func() {
+		ts.bal.opMovesMu.Lock()
+		defer ts.bal.opMovesMu.Unlock()
+		// TODO: Probably add a method to do this.
+		ts.bal.opMoves = append(ts.bal.opMoves, OpMove{
+			Range: r1.Meta.Ident,
+			//Node:  "test-aaa",
+			Dest: "test-bbb",
+		})
+	}()
 
 	ts.bal.Tick()
 	ts.Equal([]roster.RpcRecord{{Type: roster.Give, Node: "test-bbb", Range: 1}}, ts.spy.Get())
-	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady:want-move(any) p1=test-bbb:PsPending}", ts.ks.LogString())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady p1=test-bbb:PsPending:replacing(test-aaa)}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsReady]} {test-bbb [1:NsPreparing]}", ts.rost.TestString())
 
 	// Node B finished preparing.
@@ -254,17 +260,17 @@ func (ts *BalancerSuite) TestMove() {
 	// TODO: As above, should maybe trigger the next tick automatically.
 	ts.bal.Tick()
 	ts.Equal(0, len(ts.spy.Get()))
-	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady:want-move(any) p1=test-bbb:PsPrepared}", ts.ks.LogString())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady p1=test-bbb:PsPrepared:replacing(test-aaa)}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsReady]} {test-bbb [1:NsPrepared]}", ts.rost.TestString())
 
 	ts.bal.Tick()
 	ts.Equal([]roster.RpcRecord{{Type: roster.Take, Node: "test-aaa", Range: 1}}, ts.spy.Get())
-	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady:want-move(any) p1=test-bbb:PsPrepared}", ts.ks.LogString())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady p1=test-bbb:PsPrepared:replacing(test-aaa)}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsTaking]} {test-bbb [1:NsPrepared]}", ts.rost.TestString())
 
 	ts.bal.Tick()
 	ts.Equal([]roster.RpcRecord{{Type: roster.Take, Node: "test-aaa", Range: 1}}, ts.spy.Get()) // redundant
-	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady:want-move(any) p1=test-bbb:PsPrepared}", ts.ks.LogString())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady p1=test-bbb:PsPrepared:replacing(test-aaa)}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsTaking]} {test-bbb [1:NsPrepared]}", ts.rost.TestString())
 
 	// Node A finished taking.
@@ -276,12 +282,12 @@ func (ts *BalancerSuite) TestMove() {
 
 	ts.bal.Tick()
 	ts.Equal([]roster.RpcRecord{{Type: roster.Serve, Node: "test-bbb", Range: 1}}, ts.spy.Get())
-	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken:want-move(any) p1=test-bbb:PsPrepared}", ts.ks.LogString())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken p1=test-bbb:PsPrepared:replacing(test-aaa)}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsTaken]} {test-bbb [1:NsReadying]}", ts.rost.TestString())
 
 	ts.bal.Tick()
 	ts.Equal([]roster.RpcRecord{{Type: roster.Serve, Node: "test-bbb", Range: 1}}, ts.spy.Get()) // redundant
-	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken:want-move(any) p1=test-bbb:PsPrepared}", ts.ks.LogString())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken p1=test-bbb:PsPrepared:replacing(test-aaa)}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsTaken]} {test-bbb [1:NsReadying]}", ts.rost.TestString())
 
 	// Node B finished becoming ready.
@@ -293,33 +299,36 @@ func (ts *BalancerSuite) TestMove() {
 
 	ts.bal.Tick()
 	ts.Equal(0, len(ts.spy.Get()))
-	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken:want-move(any) p1=test-bbb:PsReady}", ts.ks.LogString())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken p1=test-bbb:PsReady:replacing(test-aaa)}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsTaken]} {test-bbb [1:NsReady]}", ts.rost.TestString())
 
 	ts.bal.Tick()
 	ts.Equal([]roster.RpcRecord{{Type: roster.Drop, Node: "test-aaa", Range: 1}}, ts.spy.Get())
-	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken:want-move(any) p1=test-bbb:PsReady}", ts.ks.LogString())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken p1=test-bbb:PsReady:replacing(test-aaa)}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsDropping]} {test-bbb [1:NsReady]}", ts.rost.TestString())
 
 	ts.nodes.FinishDrop(ts.T(), "test-aaa", 1)
 
 	ts.bal.Tick()
 	ts.Equal([]roster.RpcRecord{{Type: roster.Drop, Node: "test-aaa", Range: 1}}, ts.spy.Get()) // redundant
-	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken:want-move(any) p1=test-bbb:PsReady}", ts.ks.LogString())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken p1=test-bbb:PsReady:replacing(test-aaa)}", ts.ks.LogString())
 	ts.Equal("{test-aaa []} {test-bbb [1:NsReady]}", ts.rost.TestString())
 
 	ts.bal.Tick()
 	ts.Equal(0, len(ts.spy.Get()))
-	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsDropped:want-move(any) p1=test-bbb:PsReady}", ts.ks.LogString())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsDropped p1=test-bbb:PsReady:replacing(test-aaa)}", ts.ks.LogString())
 	ts.Equal("{test-aaa []} {test-bbb [1:NsReady]}", ts.rost.TestString())
 
 	// test-aaa is gone!
 	ts.bal.Tick()
 	ts.Equal(0, len(ts.spy.Get()))
-	ts.Equal("{1 [-inf, +inf] RsActive p0=test-bbb:PsReady}", ts.ks.LogString())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-bbb:PsReady:replacing(test-aaa)}", ts.ks.LogString())
 	ts.Equal("{test-aaa []} {test-bbb [1:NsReady]}", ts.rost.TestString())
 
-	ts.rost.Tick()
+	// IsReplacing annotation is gone.
+	ts.bal.Tick()
+	ts.Equal(0, len(ts.spy.Get()))
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-bbb:PsReady}", ts.ks.LogString())
 	ts.Equal("{test-aaa []} {test-bbb [1:NsReady]}", ts.rost.TestString())
 
 	ts.EnsureStable()

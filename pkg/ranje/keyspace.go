@@ -227,11 +227,6 @@ func (ks *Keyspace) PlacementMayBeTaken(p *Placement) bool {
 
 	switch r.State {
 	case RsActive:
-		// TODO: Is this necessary?
-		if p.WantMoveTo == nil {
-			return false
-		}
-
 		var replacement *Placement
 		for _, p2 := range r.Placements {
 			if p2.IsReplacing == p.NodeID {

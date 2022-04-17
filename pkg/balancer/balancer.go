@@ -15,9 +15,11 @@ import (
 	"google.golang.org/grpc"
 )
 
+// TODO: Split this into Add, Remove
 type OpMove struct {
 	Range ranje.Ident
 	Node  string
+	Dest  string
 }
 
 type OpSplit struct {
@@ -41,7 +43,7 @@ type Balancer struct {
 
 	// Moves requested by operator (or by test)
 	// To be applied next time Tick is called.
-	opMoves   map[ranje.Ident]OpMove
+	opMoves   []OpMove
 	opMovesMu sync.RWMutex
 
 	// Same for splits.
@@ -62,6 +64,7 @@ func New(cfg config.Config, ks *ranje.Keyspace, rost *roster.Roster, srv *grpc.S
 		ks:       ks,
 		rost:     rost,
 		srv:      srv,
+		opMoves:  []OpMove{},
 		opSplits: map[ranje.Ident]OpSplit{},
 		opJoins:  []OpJoin{},
 	}
@@ -165,36 +168,27 @@ func (b *Balancer) tickRange(r *ranje.Range) {
 
 		}
 
-		// Placement wants moving? Create another one to replace it.
+		// Range wants move
+		var opMove *OpMove
+		func() {
+			b.opMovesMu.RLock()
+			defer b.opMovesMu.RUnlock()
 
-		// Create a list of placement moves which are currently in progress, so
-		// we can avoid re-initiating it.
-		moveInProgress := map[string]struct{}{}
-		for _, p := range r.Placements {
-			if p.IsReplacing != "" {
-				moveInProgress[p.IsReplacing] = struct{}{}
+			// TODO: Incredibly dumb to iterate this list for every range. Do it
+			//       once in the parent method!
+			for i := range b.opMoves {
+				if b.opMoves[i].Range == r.Meta.Ident {
+					opMove = &b.opMoves[i]
+					b.opMoves = append(b.opMoves[:i], b.opMoves[i+1:]...)
+					break
+				}
 			}
-		}
-
-		// For placements wanting to move...
-		for _, p := range r.Placements {
-			if c := p.WantMoveTo; c != nil {
-
-				// Move already in progress? Skip it.
-				if _, ok := moveInProgress[p.NodeID]; ok {
-					continue
-				}
-
-				// TODO: Deduplicate this with the above.
-				nID, err := b.rost.Candidate(r, *c)
-				if err != nil {
-					log.Printf("error finding candidate node for %v: %v", r, err)
-					continue
-				}
-
-				p2 := ranje.NewPlacement(r, nID)
-				p2.IsReplacing = p.NodeID
-				r.Placements = append(r.Placements, p2)
+		}()
+		if opMove != nil {
+			err := b.doMove(r, opMove)
+			if err != nil {
+				log.Printf("error initiating move: %v", err)
+				return
 			}
 		}
 
@@ -248,6 +242,49 @@ func (b *Balancer) tickRange(r *ranje.Range) {
 	}
 }
 
+func (b *Balancer) doMove(r *ranje.Range, opMove *OpMove) error {
+	var src *ranje.Placement
+	if opMove.Node != "" {
+
+		// Source node was given, so take placement from that.
+		for _, p := range r.Placements {
+			if p.NodeID == opMove.Node {
+				src = p
+				break
+			}
+		}
+
+		if src == nil {
+			return fmt.Errorf("no placement found (rID=%v, nID=%v)", r.Meta.Ident, opMove.Node)
+		}
+
+	} else {
+
+		// No source node given, so just take the first Ready placement.
+		for _, p := range r.Placements {
+			if p.State == ranje.PsReady {
+				src = p
+				break
+			}
+		}
+
+		if src == nil {
+			return fmt.Errorf("no ready placement found (rID=%v)", r.Meta.Ident)
+		}
+	}
+
+	destNodeID, err := b.rost.Candidate(r, ranje.Constraint{NodeID: opMove.Dest})
+	if err != nil {
+		return err
+	}
+
+	p := ranje.NewPlacement(r, destNodeID)
+	p.IsReplacing = src.NodeID
+	r.Placements = append(r.Placements, p)
+
+	return nil
+}
+
 // using a weird bool pointer arg to avoid having to return false from every
 // place except one.
 func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
@@ -264,6 +301,23 @@ func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 		}
 	}
 
+	// If this placement is replacing another, and that placement is gone from
+	// the keyspace, then clear the annotation. (Note that we don't care what
+	// the roster says; this is just cleanup.)
+	if p.IsReplacing != "" {
+		found := false
+		for _, pp := range p.Range().Placements {
+			if p.IsReplacing == pp.NodeID {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			p.IsReplacing = ""
+		}
+	}
+
 	// If the node this placement is on wants to be drained, mark this placement
 	// as wanting to be moved. The next Tick will create a new placement, and
 	// exclude the current node from the candidates.
@@ -274,7 +328,19 @@ func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 	// TODO: Also this is almost certainly only valid in some placement states;
 	//       think about that.
 	if n.WantDrain() {
-		p.SetWantMoveTo(ranje.AnyNode())
+		func() {
+			b.opMovesMu.Lock()
+			defer b.opMovesMu.Unlock()
+
+			// TODO: Probably add a method to do this.
+			b.opMoves = append(b.opMoves, OpMove{
+				Range: p.Range().Meta.Ident,
+				Node:  n.Ident(),
+			})
+		}()
+
+		// TODO: Fix
+		//p.SetWantMoveTo(ranje.AnyNode())
 	}
 
 	switch p.State {

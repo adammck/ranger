@@ -16,14 +16,10 @@ type Placement struct {
 	// from the store. Modify it via ToState.
 	State PlacementState
 
-	// ???
-	// TODO: Persist this field.
-	// Clear this after IsReplacing is set?
-	WantMoveTo *Constraint
-
 	// Set by the balancer to indicate that this placement was created to
 	// replace the placement of the same range on some other node. Should be
 	// cleared once the placement becomes ready.
+	// TODO: Change this to some kind of uuid.
 	IsReplacing string // NodeID
 
 	// Guards everything.
@@ -47,18 +43,6 @@ func (p *Placement) Range() *Range {
 
 func (p *Placement) LogString() string {
 	return fmt.Sprintf("{%s %s:%s}", p.rang.Meta.String(), p.NodeID, p.State)
-}
-
-func (p *Placement) SetWantMoveTo(c *Constraint) error {
-	p.Lock()
-	defer p.Unlock()
-
-	if p.WantMoveTo != nil {
-		return fmt.Errorf("move already pending: %v", p.WantMoveTo)
-	}
-
-	p.WantMoveTo = c
-	return nil
 }
 
 func (p *Placement) toState(new PlacementState) error {
