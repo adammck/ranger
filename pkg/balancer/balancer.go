@@ -11,6 +11,7 @@ import (
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
+	"github.com/adammck/ranger/pkg/roster/state"
 	"google.golang.org/grpc"
 )
 
@@ -153,7 +154,7 @@ func (b *Balancer) tickRange(r *ranje.Range) {
 		// Not enough placements? Create one!
 		if len(r.Placements) < b.cfg.Replication {
 
-			nID, err := b.rost.Candidate(r)
+			nID, err := b.rost.Candidate(r, *ranje.AnyNode())
 			if err != nil {
 				log.Printf("error finding candidate node for %v: %v", r, err)
 				return
@@ -166,6 +167,8 @@ func (b *Balancer) tickRange(r *ranje.Range) {
 
 		// Placement wants moving? Create another one to replace it.
 
+		// Create a list of placement moves which are currently in progress, so
+		// we can avoid re-initiating it.
 		moveInProgress := map[string]struct{}{}
 		for _, p := range r.Placements {
 			if p.IsReplacing != "" {
@@ -173,33 +176,25 @@ func (b *Balancer) tickRange(r *ranje.Range) {
 			}
 		}
 
-		initMove := []*ranje.Placement{}
+		// For placements wanting to move...
 		for _, p := range r.Placements {
-			c := p.WantMoveTo
-			if c != nil {
-				_, ok := moveInProgress[p.NodeID]
-				if !ok {
-					initMove = append(initMove, p)
+			if c := p.WantMoveTo; c != nil {
+
+				// Move already in progress? Skip it.
+				if _, ok := moveInProgress[p.NodeID]; ok {
+					continue
 				}
-			}
-		}
 
-		for _, p1 := range initMove {
-			// TODO: Deduplicate this with the above.
-			nID, err := b.rost.Candidate(r)
-			if err != nil {
-				log.Printf("error finding candidate node for %v: %v", r, err)
-				return
-			}
+				// TODO: Deduplicate this with the above.
+				nID, err := b.rost.Candidate(r, *c)
+				if err != nil {
+					log.Printf("error finding candidate node for %v: %v", r, err)
+					continue
+				}
 
-			p2 := ranje.NewPlacement(r, nID)
-			p2.IsReplacing = p1.NodeID
-			r.Placements = append(r.Placements, p2)
-
-			// Only init one per tick, for now!
-			// TODO: Think about this, it's dumb.
-			if true {
-				break
+				p2 := ranje.NewPlacement(r, nID)
+				p2.IsReplacing = p.NodeID
+				r.Placements = append(r.Placements, p2)
 			}
 		}
 
@@ -291,14 +286,14 @@ func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 		ri, ok := n.Get(p.Range().Meta.Ident)
 		if ok {
 			switch ri.State {
-			case roster.NsPreparing:
+			case state.NsPreparing:
 				log.Printf("node %s still preparing %s", n.Ident(), p.Range().Meta.Ident)
 
-			case roster.NsPrepared:
+			case state.NsPrepared:
 				b.ks.PlacementToState(p, ranje.PsPrepared)
 				return
 
-			case roster.NsPreparingError:
+			case state.NsPreparingError:
 				// TODO: Pass back more information from the node, here. It's
 				//       not an RPC error, but there was some failure which we
 				//       can log or handle here.
@@ -329,27 +324,27 @@ func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 		ri, ok := n.Get(p.Range().Meta.Ident)
 		if ok {
 			switch ri.State {
-			case roster.NsPrepared:
+			case state.NsPrepared:
 				// This is the first time around.
 				log.Printf("will instruct %s to serve %s", n.Ident(), p.Range().Meta.Ident)
 
-			case roster.NsReadying:
+			case state.NsReadying:
 				// We've already sent the Serve RPC at least once, and the node
 				// is working on it. Just keep waiting.
 				log.Printf("node %s still readying %s", n.Ident(), p.Range().Meta.Ident)
 
-			case roster.NsReadyingError:
+			case state.NsReadyingError:
 				// TODO: Pass back more information from the node, here. It's
 				//       not an RPC error, but there was some failure which we
 				//       can log or handle here.l
 				log.Printf("error readying %s on %s", p.Range().Meta.Ident, n.Ident())
 				b.ks.PlacementToState(p, ranje.PsGiveUp)
 
-			case roster.NsReady:
+			case state.NsReady:
 				b.ks.PlacementToState(p, ranje.PsReady)
 				return
 
-			// TODO: roster.NsReadyError?
+			// TODO: state.NsReadyError?
 
 			default:
 				log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
@@ -375,13 +370,13 @@ func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 		ri, ok := n.Get(p.Range().Meta.Ident)
 		if ok {
 			switch ri.State {
-			case roster.NsReady:
+			case state.NsReady:
 				log.Printf("ready: %s", p.LogString())
 
-			case roster.NsTaking:
+			case state.NsTaking:
 				log.Printf("node %s still taking %s", n.Ident(), p.Range().Meta.Ident)
 
-			case roster.NsTakingError:
+			case state.NsTakingError:
 				// TODO: Pass back more information from the node, here. It's
 				//       not an RPC error, but there was some failure which we
 				//       can log or handle here.
@@ -389,11 +384,11 @@ func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 				b.ks.PlacementToState(p, ranje.PsGiveUp)
 				return
 
-			case roster.NsTaken:
+			case state.NsTaken:
 				b.ks.PlacementToState(p, ranje.PsTaken)
 				return
 
-			// TODO: roster.NsTakeError?
+			// TODO: state.NsTakeError?
 
 			default:
 				log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
@@ -427,17 +422,17 @@ func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 
 		} else {
 			switch ri.State {
-			case roster.NsTaken:
+			case state.NsTaken:
 				if err := b.ks.PlacementMayBeDropped(p); err != nil {
 					return
 				}
 
-			case roster.NsDropping:
+			case state.NsDropping:
 				// We have already decided to drop the range, and have probably sent
 				// the RPC (below) already, so cannot turn back now.
 				log.Printf("node %s still dropping %s", n.Ident(), p.Range().Meta.Ident)
 
-			case roster.NsDroppingError:
+			case state.NsDroppingError:
 				// TODO: Pass back more information from the node, here. It's
 				//       not an RPC error, but there was some failure which we
 				//       can log or handle here.

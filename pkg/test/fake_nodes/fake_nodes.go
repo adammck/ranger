@@ -12,7 +12,8 @@ import (
 	mockdisc "github.com/adammck/ranger/pkg/discovery/mock"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
-	"github.com/adammck/ranger/pkg/roster"
+	"github.com/adammck/ranger/pkg/roster/info"
+	"github.com/adammck/ranger/pkg/roster/state"
 	"github.com/adammck/ranger/pkg/test/fake_node"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/test/bufconn"
@@ -41,7 +42,7 @@ func (tn *TestNodes) Close() {
 	}
 }
 
-func (tn *TestNodes) Add(ctx context.Context, remote discovery.Remote, rangeInfos map[ranje.Ident]*roster.RangeInfo) {
+func (tn *TestNodes) Add(ctx context.Context, remote discovery.Remote, rangeInfos map[ranje.Ident]*info.RangeInfo) {
 	n := fake_node.NewTestNode(rangeInfos)
 	tn.nodes[remote.Ident] = n
 
@@ -52,7 +53,7 @@ func (tn *TestNodes) Add(ctx context.Context, remote discovery.Remote, rangeInfo
 	tn.disc.Add("node", remote)
 }
 
-func (tn *TestNodes) RangeState(nID string, rID ranje.Ident, state roster.RemoteState) {
+func (tn *TestNodes) RangeState(nID string, rID ranje.Ident, state state.RemoteState) {
 	n, ok := tn.nodes[nID]
 	if !ok {
 		panic(fmt.Sprintf("no such node: %s", nID))
@@ -79,7 +80,7 @@ func (tn *TestNodes) FinishDrop(t *testing.T, nID string, rID ranje.Ident) {
 		return
 	}
 
-	if r.Info.State != roster.NsDropping {
+	if r.Info.State != state.NsDropping {
 		t.Fatalf("can't drop range not in NsDropping: rID=%s, state=%s", rID, r.Info.State)
 		return
 	}

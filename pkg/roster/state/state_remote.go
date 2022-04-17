@@ -1,4 +1,4 @@
-package roster
+package state
 
 import (
 	"fmt"

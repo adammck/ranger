@@ -6,13 +6,14 @@ import (
 
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
-	"github.com/adammck/ranger/pkg/roster"
+	"github.com/adammck/ranger/pkg/roster/info"
+	"github.com/adammck/ranger/pkg/roster/state"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 type testRange struct {
-	Info *roster.RangeInfo
+	Info *info.RangeInfo
 }
 
 // TODO: Most of this should be moved into a client library. Rangelet?
@@ -24,7 +25,7 @@ type TestNode struct {
 	TestRanges map[ranje.Ident]*testRange
 }
 
-func NewTestNode(rangeInfos map[ranje.Ident]*roster.RangeInfo) *TestNode {
+func NewTestNode(rangeInfos map[ranje.Ident]*info.RangeInfo) *TestNode {
 	ranges := map[ranje.Ident]*testRange{}
 	//if rangeInfos != nil
 	for rID, ri := range rangeInfos {
@@ -44,32 +45,32 @@ func (n *TestNode) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveRespo
 		return nil, status.Errorf(codes.InvalidArgument, "error parsing range meta: %v", err)
 	}
 
-	var info *roster.RangeInfo
+	var ri *info.RangeInfo
 
 	r, ok := n.TestRanges[meta.Ident]
 	if !ok {
-		info = &roster.RangeInfo{
+		ri = &info.RangeInfo{
 			Meta:  *meta,
-			State: roster.NsPreparing,
+			State: state.NsPreparing,
 		}
-		n.TestRanges[info.Meta.Ident] = &testRange{
-			Info: info,
+		n.TestRanges[ri.Meta.Ident] = &testRange{
+			Info: ri,
 		}
 	} else {
 		switch r.Info.State {
-		case roster.NsPreparing, roster.NsPreparingError, roster.NsPrepared:
+		case state.NsPreparing, state.NsPreparingError, state.NsPrepared:
 			// We already know about this range, and it's in one of the states
 			// that indicate a previous Give. This is a duplicate. Don't change
 			// any state, just return the RangeInfo to let the controller know
 			// how we're doing.
-			info = r.Info
+			ri = r.Info
 		default:
 			return nil, status.Errorf(codes.InvalidArgument, "invalid state for redundant Give: %v", r.Info.State)
 		}
 	}
 
 	return &pb.GiveResponse{
-		RangeInfo: info.ToProto(),
+		RangeInfo: ri.ToProto(),
 	}, nil
 }
 
@@ -87,11 +88,11 @@ func (n *TestNode) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.ServeRe
 	}
 
 	switch r.Info.State {
-	case roster.NsPrepared:
+	case state.NsPrepared:
 		// Actual state transition.
-		r.Info.State = roster.NsReadying
+		r.Info.State = state.NsReadying
 
-	case roster.NsReadying, roster.NsReady:
+	case state.NsReadying, state.NsReady:
 		log.Printf("got redundant Serve")
 
 	default:
@@ -117,11 +118,11 @@ func (n *TestNode) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeRespo
 	}
 
 	switch r.Info.State {
-	case roster.NsReady:
+	case state.NsReady:
 		// Actual state transition.
-		r.Info.State = roster.NsTaking
+		r.Info.State = state.NsTaking
 
-	case roster.NsTaking, roster.NsTaken:
+	case state.NsTaking, state.NsTaken:
 		log.Printf("got redundant Take")
 
 	default:
@@ -147,18 +148,18 @@ func (n *TestNode) Drop(ctx context.Context, req *pb.DropRequest) (*pb.DropRespo
 
 		// This is NOT a failure.
 		return &pb.DropResponse{
-			State: roster.NsNotFound.ToProto(),
+			State: state.NsNotFound.ToProto(),
 		}, nil
 	}
 
 	switch r.Info.State {
-	case roster.NsTaken:
+	case state.NsTaken:
 		// Actual state transition. We don't actually drop anything here, only
 		// claim that we are doing so, to simulate a slow client. Test must call
 		// FinishDrop to move to NsDropped.
-		r.Info.State = roster.NsDropping
+		r.Info.State = state.NsDropping
 
-	case roster.NsDropping:
+	case state.NsDropping:
 		log.Printf("got redundant Drop (drop in progress)")
 
 	default:

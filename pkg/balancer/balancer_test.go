@@ -11,6 +11,8 @@ import (
 	"github.com/adammck/ranger/pkg/discovery"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
+	"github.com/adammck/ranger/pkg/roster/info"
+	"github.com/adammck/ranger/pkg/roster/state"
 	"github.com/adammck/ranger/pkg/test/fake_nodes"
 	"github.com/stretchr/testify/suite"
 	"google.golang.org/grpc"
@@ -124,7 +126,7 @@ func (ts *BalancerSuite) TestPlacement() {
 	}
 
 	ts.Init([]*ranje.Range{r1})
-	ts.nodes.Add(ts.ctx, na, map[ranje.Ident]*roster.RangeInfo{})
+	ts.nodes.Add(ts.ctx, na, map[ranje.Ident]*info.RangeInfo{})
 
 	// Probe all of the fake nodes.
 	ts.rost.Tick()
@@ -144,7 +146,7 @@ func (ts *BalancerSuite) TestPlacement() {
 	ts.Equal("{test-aaa [1:NsPreparing]}", ts.rost.TestString())
 
 	// The node finished preparing, but we don't know about it.
-	ts.nodes.RangeState("test-aaa", 1, roster.NsPrepared)
+	ts.nodes.RangeState("test-aaa", 1, state.NsPrepared)
 	ts.Equal("{test-aaa [1:NsPreparing]}", ts.rost.TestString())
 
 	ts.bal.Tick()
@@ -169,7 +171,7 @@ func (ts *BalancerSuite) TestPlacement() {
 	ts.Equal("{test-aaa [1:NsReadying]}", ts.rost.TestString())
 
 	// The node became ready, but as above, we don't know about it.
-	ts.nodes.RangeState("test-aaa", 1, roster.NsReady)
+	ts.nodes.RangeState("test-aaa", 1, state.NsReady)
 	ts.Equal("{test-aaa [1:NsReadying]}", ts.rost.TestString())
 
 	ts.bal.Tick()
@@ -213,13 +215,13 @@ func (ts *BalancerSuite) TestMove() {
 	}
 	ts.Init([]*ranje.Range{r1})
 
-	ts.nodes.Add(ts.ctx, na, map[ranje.Ident]*roster.RangeInfo{
+	ts.nodes.Add(ts.ctx, na, map[ranje.Ident]*info.RangeInfo{
 		r1.Meta.Ident: {
 			Meta:  r1.Meta,
-			State: roster.NsReady,
+			State: state.NsReady,
 		},
 	})
-	ts.nodes.Add(ts.ctx, nb, map[ranje.Ident]*roster.RangeInfo{})
+	ts.nodes.Add(ts.ctx, nb, map[ranje.Ident]*info.RangeInfo{})
 
 	// Probe to verify initial state.
 
@@ -242,7 +244,7 @@ func (ts *BalancerSuite) TestMove() {
 	ts.Equal("{test-aaa [1:NsReady]} {test-bbb [1:NsPreparing]}", ts.rost.TestString())
 
 	// Node B finished preparing.
-	ts.nodes.RangeState("test-bbb", 1, roster.NsPrepared)
+	ts.nodes.RangeState("test-bbb", 1, state.NsPrepared)
 	ts.Equal("{test-aaa [1:NsReady]} {test-bbb [1:NsPreparing]}", ts.rost.TestString())
 
 	ts.rost.Tick()
@@ -266,7 +268,7 @@ func (ts *BalancerSuite) TestMove() {
 	ts.Equal("{test-aaa [1:NsTaking]} {test-bbb [1:NsPrepared]}", ts.rost.TestString())
 
 	// Node A finished taking.
-	ts.nodes.RangeState("test-aaa", 1, roster.NsTaken)
+	ts.nodes.RangeState("test-aaa", 1, state.NsTaken)
 	ts.Equal("{test-aaa [1:NsTaking]} {test-bbb [1:NsPrepared]}", ts.rost.TestString())
 
 	ts.rost.Tick()
@@ -283,7 +285,7 @@ func (ts *BalancerSuite) TestMove() {
 	ts.Equal("{test-aaa [1:NsTaken]} {test-bbb [1:NsReadying]}", ts.rost.TestString())
 
 	// Node B finished becoming ready.
-	ts.nodes.RangeState("test-bbb", 1, roster.NsReady)
+	ts.nodes.RangeState("test-bbb", 1, state.NsReady)
 	ts.Equal("{test-aaa [1:NsTaken]} {test-bbb [1:NsReadying]}", ts.rost.TestString())
 
 	ts.rost.Tick()
@@ -348,10 +350,10 @@ func (ts *BalancerSuite) TestSplit() {
 	ts.Init([]*ranje.Range{r0})
 
 	// Nodes-side
-	ts.nodes.Add(ts.ctx, na, map[ranje.Ident]*roster.RangeInfo{
+	ts.nodes.Add(ts.ctx, na, map[ranje.Ident]*info.RangeInfo{
 		r0.Meta.Ident: {
 			Meta:  r0.Meta,
-			State: roster.NsReady,
+			State: state.NsReady,
 		},
 	})
 
@@ -396,7 +398,7 @@ func (ts *BalancerSuite) TestSplit() {
 	// 3. Wait for placements to become Prepared.
 
 	// R2 finished preparing, but R3 has not yet.
-	ts.nodes.RangeState("test-aaa", 2, roster.NsPrepared)
+	ts.nodes.RangeState("test-aaa", 2, state.NsPrepared)
 	ts.Equal("{test-aaa [1:NsReady, 2:NsPreparing, 3:NsPreparing]}", ts.rost.TestString())
 
 	ts.bal.Tick()
@@ -407,7 +409,7 @@ func (ts *BalancerSuite) TestSplit() {
 	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsReady} {2 [-inf, ccc] RsActive p0=test-aaa:PsPending} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", ts.ks.LogString())
 
 	// R3 becomes Prepared, too.
-	ts.nodes.RangeState("test-aaa", 3, roster.NsPrepared)
+	ts.nodes.RangeState("test-aaa", 3, state.NsPrepared)
 	ts.Equal("{test-aaa [1:NsReady, 2:NsPrepared, 3:NsPreparing]}", ts.rost.TestString())
 
 	ts.bal.Tick()
@@ -431,7 +433,7 @@ func (ts *BalancerSuite) TestSplit() {
 	ts.Equal("{test-aaa [1:NsTaking, 2:NsPrepared, 3:NsPrepared]}", ts.rost.TestString())
 
 	// r1p0 finishes taking.
-	ts.nodes.RangeState("test-aaa", 1, roster.NsTaken)
+	ts.nodes.RangeState("test-aaa", 1, state.NsTaken)
 	ts.Equal("{test-aaa [1:NsTaking, 2:NsPrepared, 3:NsPrepared]}", ts.rost.TestString())
 
 	ts.bal.Tick()
@@ -451,7 +453,7 @@ func (ts *BalancerSuite) TestSplit() {
 	ts.Equal("{test-aaa [1:NsTaken, 2:NsReadying, 3:NsReadying]}", ts.rost.TestString())
 
 	// r3p0 becomes ready.
-	ts.nodes.RangeState("test-aaa", 3, roster.NsReady)
+	ts.nodes.RangeState("test-aaa", 3, state.NsReady)
 
 	// Balancer notices on next tick.
 	ts.bal.Tick()
@@ -463,7 +465,7 @@ func (ts *BalancerSuite) TestSplit() {
 	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsTaken} {2 [-inf, ccc] RsActive p0=test-aaa:PsPrepared} {3 (ccc, +inf] RsActive p0=test-aaa:PsPrepared}", ts.ks.LogString())
 
 	// r2p0 becomes ready.
-	ts.nodes.RangeState("test-aaa", 2, roster.NsReady)
+	ts.nodes.RangeState("test-aaa", 2, state.NsReady)
 
 	// Balancer notices on next tick.
 	ts.bal.Tick()
@@ -575,19 +577,19 @@ func (ts *BalancerSuite) TestJoin() {
 	}
 	ts.Init([]*ranje.Range{r1, r2})
 
-	ts.nodes.Add(ts.ctx, na, map[ranje.Ident]*roster.RangeInfo{
+	ts.nodes.Add(ts.ctx, na, map[ranje.Ident]*info.RangeInfo{
 		r1.Meta.Ident: {
 			Meta:  r1.Meta,
-			State: roster.NsReady,
+			State: state.NsReady,
 		},
 	})
-	ts.nodes.Add(ts.ctx, nb, map[ranje.Ident]*roster.RangeInfo{
+	ts.nodes.Add(ts.ctx, nb, map[ranje.Ident]*info.RangeInfo{
 		r2.Meta.Ident: {
 			Meta:  r2.Meta,
-			State: roster.NsReady,
+			State: state.NsReady,
 		},
 	})
-	ts.nodes.Add(ts.ctx, nc, map[ranje.Ident]*roster.RangeInfo{})
+	ts.nodes.Add(ts.ctx, nc, map[ranje.Ident]*info.RangeInfo{})
 
 	// Probe the fake nodes to verify the setup.
 
@@ -630,7 +632,7 @@ func (ts *BalancerSuite) TestJoin() {
 
 	// 2. New range finishes preparing.
 
-	ts.nodes.RangeState("test-ccc", 3, roster.NsPrepared)
+	ts.nodes.RangeState("test-ccc", 3, state.NsPrepared)
 	ts.rost.Tick()
 	ts.Equal("{test-aaa [1:NsReady]} {test-bbb [2:NsReady]} {test-ccc [3:NsPrepared]}", ts.rost.TestString())
 
@@ -651,8 +653,8 @@ func (ts *BalancerSuite) TestJoin() {
 
 	// 4. Old ranges becomes taken.
 
-	ts.nodes.RangeState("test-aaa", 1, roster.NsTaken)
-	ts.nodes.RangeState("test-bbb", 2, roster.NsTaken)
+	ts.nodes.RangeState("test-aaa", 1, state.NsTaken)
+	ts.nodes.RangeState("test-bbb", 2, state.NsTaken)
 	ts.rost.Tick()
 	ts.Equal("{test-aaa [1:NsTaken]} {test-bbb [2:NsTaken]} {test-ccc [3:NsPrepared]}", ts.rost.TestString())
 
@@ -665,7 +667,7 @@ func (ts *BalancerSuite) TestJoin() {
 
 	// 5. New range becomes ready.
 
-	ts.nodes.RangeState("test-ccc", 3, roster.NsReady)
+	ts.nodes.RangeState("test-ccc", 3, state.NsReady)
 	ts.rost.Tick()
 	ts.Equal("{test-aaa [1:NsTaken]} {test-bbb [2:NsTaken]} {test-ccc [3:NsReady]}", ts.rost.TestString())
 

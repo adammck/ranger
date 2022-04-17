@@ -20,7 +20,7 @@ import (
 	consuldisc "github.com/adammck/ranger/pkg/discovery/consul"
 	pbr "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
-	"github.com/adammck/ranger/pkg/roster"
+	"github.com/adammck/ranger/pkg/roster/state"
 	consulapi "github.com/hashicorp/consul/api"
 )
 
@@ -108,7 +108,7 @@ type RangeData struct {
 	data map[string][]byte
 
 	// TODO: Move this to the rangemeta!!
-	state roster.RemoteState // TODO: guard this
+	state state.RemoteState // TODO: guard this
 }
 
 func (rd *RangeData) fetchMany(dest RangeMeta, parents []*pbr.Placement) {
@@ -120,7 +120,7 @@ func (rd *RangeData) fetchMany(dest RangeMeta, parents []*pbr.Placement) {
 		rm, err := parseRangeMeta(p.Range)
 		if err != nil {
 			log.Printf("FetchMany failed fast: %s", err)
-			rd.state = roster.NsPreparingError
+			rd.state = state.NsPreparingError
 			return
 		}
 		rms[i] = &rm
@@ -157,7 +157,7 @@ func (rd *RangeData) fetchMany(dest RangeMeta, parents []*pbr.Placement) {
 	}
 
 	if err := g.Wait(); err != nil {
-		rd.state = roster.NsPreparingError
+		rd.state = state.NsPreparingError
 		return
 	}
 
@@ -165,7 +165,7 @@ func (rd *RangeData) fetchMany(dest RangeMeta, parents []*pbr.Placement) {
 	// node(s) are still serving reads, and if we start writing, they'll be
 	// wrong. We can only serve reads until the assigner tells them to stop,
 	// which will redirect all reads to us. Then we can start writing.
-	rd.state = roster.NsPrepared
+	rd.state = state.NsPrepared
 }
 
 func (rd *RangeData) fetchOne(ctx context.Context, mu *sync.Mutex, dest RangeMeta, addr string, src *RangeMeta) error {
@@ -263,7 +263,7 @@ func (n *nodeServer) Give(ctx context.Context, req *pbr.GiveRequest) (*pbr.GiveR
 		// Special case: We already have this range, but gave up on fetching it.
 		// To keep things simple, delete it. it'll be added again (while still
 		// holding the lock) below.
-		if rd.state == roster.NsPreparingError {
+		if rd.state == state.NsPreparingError {
 			delete(n.node.data, rm.ident)
 			n.node.ranges.Remove(rm.ident)
 
@@ -282,11 +282,11 @@ func (n *nodeServer) Give(ctx context.Context, req *pbr.GiveRequest) (*pbr.GiveR
 
 	rd = &RangeData{
 		data:  make(map[string][]byte),
-		state: roster.NsUnknown, // default
+		state: state.NsUnknown, // default
 	}
 
 	if req.Parents != nil && len(req.Parents) > 0 {
-		rd.state = roster.NsPreparing
+		rd.state = state.NsPreparing
 		rd.fetchMany(rm, req.Parents)
 
 	} else {
@@ -294,10 +294,10 @@ func (n *nodeServer) Give(ctx context.Context, req *pbr.GiveRequest) (*pbr.GiveR
 		// TODO: Restore support for this:
 		// -- No current host nor parents. This is a brand new range. We're
 		// -- probably initializing a new empty keyspace.
-		// -- rd.state = roster.NsReady
+		// -- rd.state = state.NsReady
 
 		// Temporary
-		rd.state = roster.NsPrepared
+		rd.state = state.NsPrepared
 
 	}
 
@@ -323,11 +323,11 @@ func (s *nodeServer) Serve(ctx context.Context, req *pbr.ServeRequest) (*pbr.Ser
 		return nil, err
 	}
 
-	if rd.state != roster.NsPrepared && !req.Force {
+	if rd.state != state.NsPrepared && !req.Force {
 		return nil, status.Error(codes.Aborted, "won't serve ranges not in the FETCHED state without FORCE")
 	}
 
-	rd.state = roster.NsReady
+	rd.state = state.NsReady
 
 	log.Printf("Serving: %s", ident)
 	return &pbr.ServeResponse{}, nil
@@ -343,11 +343,11 @@ func (s *nodeServer) Take(ctx context.Context, req *pbr.TakeRequest) (*pbr.TakeR
 		return nil, err
 	}
 
-	if rd.state != roster.NsReady {
+	if rd.state != state.NsReady {
 		return nil, status.Error(codes.FailedPrecondition, "can only take ranges in the READY state")
 	}
 
-	rd.state = roster.NsTaken
+	rd.state = state.NsTaken
 
 	log.Printf("Taken: %s", ident)
 	return &pbr.TakeResponse{}, nil
@@ -363,11 +363,11 @@ func (s *nodeServer) Untake(ctx context.Context, req *pbr.UntakeRequest) (*pbr.U
 		return nil, err
 	}
 
-	if rd.state != roster.NsTaken {
+	if rd.state != state.NsTaken {
 		return nil, status.Error(codes.FailedPrecondition, "can only untake ranges in the TAKEN state")
 	}
 
-	rd.state = roster.NsReady
+	rd.state = state.NsReady
 
 	log.Printf("Untaken: %s", ident)
 	return &pbr.UntakeResponse{}, nil
@@ -389,16 +389,16 @@ func (s *nodeServer) Drop(ctx context.Context, req *pbr.DropRequest) (*pbr.DropR
 
 		// This is NOT a failure.
 		return &pbr.DropResponse{
-			State: roster.NsNotFound.ToProto(),
+			State: state.NsNotFound.ToProto(),
 		}, nil
 	}
 
 	// Skipping this for now; we'll need to cancel via a context in rd.
-	if rd.state == roster.NsPreparing {
+	if rd.state == state.NsPreparing {
 		return nil, status.Error(codes.Unimplemented, "dropping ranges in the FETCHING state is not supported yet")
 	}
 
-	if rd.state != roster.NsTaken && !req.Force {
+	if rd.state != state.NsTaken && !req.Force {
 		return nil, status.Error(codes.Aborted, "won't drop ranges not in the TAKEN state without FORCE")
 	}
 
@@ -503,7 +503,7 @@ func (s *kvServer) Dump(ctx context.Context, req *pbkv.DumpRequest) (*pbkv.DumpR
 		return nil, status.Error(codes.InvalidArgument, "range not found")
 	}
 
-	if rd.state != roster.NsTaken {
+	if rd.state != state.NsTaken {
 		return nil, status.Error(codes.FailedPrecondition, "can only dump ranges in the TAKEN state")
 	}
 
@@ -535,7 +535,7 @@ func (s *kvServer) Get(ctx context.Context, req *pbkv.GetRequest) (*pbkv.GetResp
 		panic("range found in map but no data?!")
 	}
 
-	if rd.state != roster.NsReady && rd.state != roster.NsPrepared && rd.state != roster.NsTaken {
+	if rd.state != state.NsReady && rd.state != state.NsPrepared && rd.state != state.NsTaken {
 		return nil, status.Error(codes.FailedPrecondition, "can only GET from ranges in the READY, FETCHED, and TAKEN states")
 	}
 
@@ -572,7 +572,7 @@ func (s *kvServer) Put(ctx context.Context, req *pbkv.PutRequest) (*pbkv.PutResp
 		panic("range found in map but no data?!")
 	}
 
-	if rd.state != roster.NsReady {
+	if rd.state != state.NsReady {
 		return nil, status.Error(codes.FailedPrecondition, "can only PUT to ranges in the READY state")
 	}
 

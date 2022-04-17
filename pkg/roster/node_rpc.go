@@ -8,6 +8,8 @@ import (
 
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
+	"github.com/adammck/ranger/pkg/roster/info"
+	"github.com/adammck/ranger/pkg/roster/state"
 )
 
 const rpcTimeout = 1 * time.Second
@@ -47,7 +49,7 @@ func (n *Node) Give(ctx context.Context, p *ranje.Placement) error {
 	// TODO: This should only contain the remote state. We already know the
 	//       meta, and the rest (usage info) is all probably zero at this point,
 	//       and can be filled in by the next probe anyway.
-	info, err := RangeInfoFromProto(res.RangeInfo)
+	info, err := info.RangeInfoFromProto(res.RangeInfo)
 	if err != nil {
 		return fmt.Errorf("malformed probe response from %v: %v", n.Remote.Ident, err)
 	}
@@ -85,7 +87,7 @@ func (n *Node) Serve(ctx context.Context, p *ranje.Placement) error {
 		return err
 	}
 
-	s := RemoteStateFromProto(res.State)
+	s := state.RemoteStateFromProto(res.State)
 
 	// Update the state in the range info cache.
 	func() {
@@ -122,7 +124,7 @@ func (n *Node) Take(ctx context.Context, p *ranje.Placement) error {
 		return err
 	}
 
-	s := RemoteStateFromProto(res.State)
+	s := state.RemoteStateFromProto(res.State)
 
 	// Update the state in the range info cache.
 	func() {
@@ -159,9 +161,9 @@ func (n *Node) Drop(ctx context.Context, p *ranje.Placement) error {
 		return err
 	}
 
-	s := RemoteStateFromProto(res.State)
+	s := state.RemoteStateFromProto(res.State)
 
-	if s == NsNotFound {
+	if s == state.NsNotFound {
 		// Drop the range from the info cache.
 		func() {
 			n.muRanges.Lock()

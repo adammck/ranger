@@ -6,7 +6,7 @@ type Constraint struct {
 	NodeID string
 }
 
-func (c *Constraint) String() string {
+func (c Constraint) String() string {
 	if c.NodeID != "" {
 		return fmt.Sprintf("nID=%s", c.NodeID)
 	}

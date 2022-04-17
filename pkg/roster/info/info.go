@@ -1,4 +1,4 @@
-package roster
+package info
 
 import (
 	"fmt"
@@ -6,6 +6,7 @@ import (
 
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
+	"github.com/adammck/ranger/pkg/roster/state"
 )
 
 // TODO: Make node ID a proper type like range ID.
@@ -24,7 +25,7 @@ type NodeInfo struct {
 // time. These are emitted and cached by the Roster to anyone who cares.
 type RangeInfo struct {
 	Meta  ranje.Meta
-	State RemoteState
+	State state.RemoteState
 	// TODO: LoadInfo goes here!!
 }
 
@@ -48,7 +49,7 @@ func RangeInfoFromProto(r *pb.RangeInfo) (RangeInfo, error) {
 	// TODO: Update the map rather than overwriting it every time.
 	return RangeInfo{
 		Meta:  *m,
-		State: RemoteStateFromProto(r.State),
+		State: state.RemoteStateFromProto(r.State),
 		// TODO: LoadInfo
 	}, nil
 }

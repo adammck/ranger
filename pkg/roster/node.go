@@ -12,6 +12,7 @@ import (
 	"github.com/adammck/ranger/pkg/discovery"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
+	"github.com/adammck/ranger/pkg/roster/info"
 	"google.golang.org/grpc"
 )
 
@@ -35,7 +36,7 @@ type Node struct {
 
 	// Populated by probeOne
 	wantDrain bool
-	ranges    map[ranje.Ident]*RangeInfo
+	ranges    map[ranje.Ident]*info.RangeInfo
 	muRanges  sync.RWMutex
 
 	// Only for tests: if non-null, nodes should send an RpcRecord every time
@@ -56,7 +57,7 @@ func NewNode(remote discovery.Remote, conn *grpc.ClientConn) *Node {
 		whenLastSeen: time.Time{}, // never
 		conn:         conn,
 		Client:       pb.NewNodeClient(conn),
-		ranges:       make(map[ranje.Ident]*RangeInfo),
+		ranges:       make(map[ranje.Ident]*info.RangeInfo),
 	}
 }
 
@@ -84,14 +85,14 @@ func (n *Node) TestString() string {
 	return fmt.Sprintf("{%s [%s]}", n.Remote.Ident, strings.Join(s, ", "))
 }
 
-func (n *Node) Get(rangeID ranje.Ident) (RangeInfo, bool) {
+func (n *Node) Get(rangeID ranje.Ident) (info.RangeInfo, bool) {
 	n.muConn.RLock()
 	defer n.muConn.RUnlock()
 
 	ri, ok := n.ranges[rangeID]
 	if !ok {
-		return RangeInfo{}, false
-		// return RangeInfo{
+		return info.RangeInfo{}, false
+		// return info.RangeInfo{
 		// 	Meta:  ranje.Meta{}, // not good
 		// 	State: NsNotFound,
 		// }, false

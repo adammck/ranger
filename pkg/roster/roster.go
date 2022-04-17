@@ -13,6 +13,7 @@ import (
 	"github.com/adammck/ranger/pkg/discovery"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
+	"github.com/adammck/ranger/pkg/roster/info"
 	"google.golang.org/grpc"
 )
 
@@ -36,7 +37,7 @@ type Roster struct {
 
 	// info receives NodeInfo updated whenever we receive a probe response from
 	// a node, or when we expire a node.
-	info chan NodeInfo
+	info chan info.NodeInfo
 
 	// To be stubbed when testing.
 	NodeConnFactory func(ctx context.Context, remote discovery.Remote) (*grpc.ClientConn, error)
@@ -45,7 +46,7 @@ type Roster struct {
 	RpcSpy chan RpcRecord
 }
 
-func New(cfg config.Config, disc discovery.Discoverable, add, remove func(rem *discovery.Remote), info chan NodeInfo) *Roster {
+func New(cfg config.Config, disc discovery.Discoverable, add, remove func(rem *discovery.Remote), info chan info.NodeInfo) *Roster {
 	return &Roster{
 		cfg:    cfg,
 		Nodes:  make(map[string]*Node),
@@ -159,7 +160,7 @@ func (ros *Roster) discover() {
 			ros.Nodes[r.Ident] = n
 			log.Printf("added node: %v", n.Ident())
 
-			// TODO: Should we also send a blank NodeInfo to introduce the node?
+			// TODO: Should we also send a blank info.NodeInfo to introduce the node?
 			//       We haven't probed it yet, so don't know what's assigned.
 
 			// TODO: Do this outside of the lock!!
@@ -184,7 +185,7 @@ func (ros *Roster) expire() {
 			// Send a special loadinfo to the reconciler, to tell it that we've
 			// lost the node.
 			if ros.info != nil {
-				ros.info <- NodeInfo{
+				ros.info <- info.NodeInfo{
 					Time:    time.Now(),
 					NodeID:  n.Ident(),
 					Expired: true,
@@ -241,7 +242,7 @@ func (ros *Roster) probe() {
 func (ros *Roster) probeOne(ctx context.Context, n *Node) error {
 	// TODO: Abort if probe in progress.
 
-	ranges := make(map[ranje.Ident]*RangeInfo)
+	ranges := make(map[ranje.Ident]*info.RangeInfo)
 
 	// TODO: This is an InfoRequest now, but we also have RangesRequest which is
 	// sufficient for the proxy. Maybe make which one is sent configurable?
@@ -251,14 +252,14 @@ func (ros *Roster) probeOne(ctx context.Context, n *Node) error {
 		return err
 	}
 
-	ni := NodeInfo{
+	ni := info.NodeInfo{
 		Time:   time.Now(),
 		NodeID: n.Ident(),
 	}
 
 	for _, r := range res.Ranges {
 
-		info, err := RangeInfoFromProto(r)
+		info, err := info.RangeInfoFromProto(r)
 		if err != nil {
 			log.Printf("malformed probe response from %v: %v", n.Remote.Ident, err)
 			continue
@@ -326,6 +327,17 @@ func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (string, error)
 	// Build a list of indices of candidate nodes.
 	candidates := []int{}
 
+	// Filter the list of nodes by name
+	// (We still might exclude it below though)
+	if c.NodeID != "" {
+		for i := range nodes {
+			if nodes[i].Ident() == c.NodeID {
+				nodes = []*Node{nodes[i]}
+				break
+			}
+		}
+	}
+
 	// Exclude a node if:
 	//
 	// 1. It already has this range.
@@ -356,7 +368,7 @@ func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (string, error)
 	}
 
 	if len(candidates) == 0 {
-		return "", fmt.Errorf("no non-excluded nodes available for range: %v", rng)
+		return "", fmt.Errorf("no candidates available (rID=%v, c=%v)", rng.Meta.Ident, c)
 	}
 
 	// Pick the node with lowest utilization.
