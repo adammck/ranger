@@ -116,12 +116,7 @@ func nodeServer(ctx context.Context, node *fake_node.TestNode) (*grpc.ClientConn
 
 	conn, _ := grpc.DialContext(ctx, "", grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 		return listener.Dial()
-	}), grpc.WithInsecure())
+	}), grpc.WithInsecure(), grpc.WithBlock())
 
-	closer := func() {
-		listener.Close()
-		s.Stop()
-	}
-
-	return conn, closer
+	return conn, s.Stop
 }
