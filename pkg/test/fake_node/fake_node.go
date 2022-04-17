@@ -3,6 +3,7 @@ package fake_node
 import (
 	"context"
 	"log"
+	"sync"
 
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
@@ -23,11 +24,12 @@ type TestNode struct {
 	// TODO: Move this to an outer object, with srv and ranges. We're currently
 	//       using the nodeServer for both, which is pretty weird.
 	TestRanges map[ranje.Ident]*testRange
+	sync.RWMutex
 }
 
 func NewTestNode(rangeInfos map[ranje.Ident]*info.RangeInfo) *TestNode {
 	ranges := map[ranje.Ident]*testRange{}
-	//if rangeInfos != nil
+
 	for rID, ri := range rangeInfos {
 		ranges[rID] = &testRange{Info: ri}
 	}
@@ -47,15 +49,19 @@ func (n *TestNode) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveRespo
 
 	var ri *info.RangeInfo
 
-	r, ok := n.TestRanges[meta.Ident]
+	r, ok := n.getRange(meta.Ident)
 	if !ok {
 		ri = &info.RangeInfo{
 			Meta:  *meta,
 			State: state.NsPreparing,
 		}
-		n.TestRanges[ri.Meta.Ident] = &testRange{
-			Info: ri,
-		}
+		func() {
+			n.Lock()
+			defer n.Unlock()
+			n.TestRanges[ri.Meta.Ident] = &testRange{
+				Info: ri,
+			}
+		}()
 	} else {
 		switch r.Info.State {
 		case state.NsPreparing, state.NsPreparingError, state.NsPrepared:
@@ -82,7 +88,7 @@ func (n *TestNode) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.ServeRe
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	r, ok := n.TestRanges[rID]
+	r, ok := n.getRange(rID)
 	if !ok {
 		return nil, status.Errorf(codes.InvalidArgument, "can't Serve unknown range: %v", rID)
 	}
@@ -112,7 +118,7 @@ func (n *TestNode) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeRespo
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	r, ok := n.TestRanges[rID]
+	r, ok := n.getRange(rID)
 	if !ok {
 		return nil, status.Errorf(codes.InvalidArgument, "can't Take unknown range: %v", rID)
 	}
@@ -142,7 +148,7 @@ func (n *TestNode) Drop(ctx context.Context, req *pb.DropRequest) (*pb.DropRespo
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	r, ok := n.TestRanges[rID]
+	r, ok := n.getRange(rID)
 	if !ok {
 		log.Printf("got redundant Drop (no such range; maybe drop complete)")
 
@@ -188,4 +194,11 @@ func (n *TestNode) Info(ctx context.Context, req *pb.InfoRequest) (*pb.InfoRespo
 
 func (n *TestNode) Ranges(ctx context.Context, req *pb.RangesRequest) (*pb.RangesResponse, error) {
 	panic("not imlemented!")
+}
+
+func (n *TestNode) getRange(rID ranje.Ident) (*testRange, bool) {
+	n.RLock()
+	defer n.RUnlock()
+	tr, ok := n.TestRanges[rID]
+	return tr, ok
 }
