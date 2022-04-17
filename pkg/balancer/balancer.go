@@ -20,6 +20,7 @@ type OpMove struct {
 	Range ranje.Ident
 	Src   string
 	Dest  string
+	Err   chan error
 }
 
 type OpSplit struct {
@@ -168,26 +169,18 @@ func (b *Balancer) tickRange(r *ranje.Range) {
 
 		}
 
-		// Range wants move
-		var opMove *OpMove
-		func() {
-			b.opMovesMu.RLock()
-			defer b.opMovesMu.RUnlock()
-
-			// TODO: Incredibly dumb to iterate this list for every range. Do it
-			//       once in the parent method!
-			for i := range b.opMoves {
-				if b.opMoves[i].Range == r.Meta.Ident {
-					opMove = &b.opMoves[i]
-					b.opMoves = append(b.opMoves[:i], b.opMoves[i+1:]...)
-					break
-				}
-			}
-		}()
-		if opMove != nil {
+		if opMove, ok := b.moveOp(r.Meta.Ident); ok {
 			err := b.doMove(r, opMove)
 			if err != nil {
 				log.Printf("error initiating move: %v", err)
+
+				// If the move was initiated by an operator, also forward the
+				// error back to them.
+				if opMove.Err != nil {
+					opMove.Err <- err
+					close(opMove.Err)
+				}
+
 				return
 			}
 		}
@@ -242,7 +235,24 @@ func (b *Balancer) tickRange(r *ranje.Range) {
 	}
 }
 
-func (b *Balancer) doMove(r *ranje.Range, opMove *OpMove) error {
+func (b *Balancer) moveOp(rID ranje.Ident) (OpMove, bool) {
+	b.opMovesMu.RLock()
+	defer b.opMovesMu.RUnlock()
+
+	// TODO: Incredibly dumb to iterate this list for every range. Do it once at
+	//       the start of the Tick and stitch them back together or something!
+	for i := range b.opMoves {
+		if b.opMoves[i].Range == rID {
+			tmp := b.opMoves[i]
+			b.opMoves = append(b.opMoves[:i], b.opMoves[i+1:]...)
+			return tmp, true
+		}
+	}
+
+	return OpMove{}, false
+}
+
+func (b *Balancer) doMove(r *ranje.Range, opMove OpMove) error {
 	var src *ranje.Placement
 	if opMove.Src != "" {
 
@@ -286,8 +296,17 @@ func (b *Balancer) doMove(r *ranje.Range, opMove *OpMove) error {
 		return err
 	}
 
-	p := ranje.NewPlacement(r, destNodeID)
-	p.IsReplacing = src.NodeID
+	// If the move was initiated by an operator (via RPC), then it will have an
+	// error channel. When the move is complete, close to channel to unblock the
+	// RPC handler.
+	var cb func()
+	if opMove.Err != nil {
+		cb = func() {
+			close(opMove.Err)
+		}
+	}
+
+	p := ranje.NewReplacement(r, destNodeID, src.NodeID, cb)
 	r.Placements = append(r.Placements, p)
 
 	return nil
@@ -322,7 +341,7 @@ func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 		}
 
 		if !found {
-			p.IsReplacing = ""
+			p.DoneReplacing()
 		}
 	}
 

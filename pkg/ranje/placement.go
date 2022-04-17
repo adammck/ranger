@@ -22,6 +22,9 @@ type Placement struct {
 	// TODO: Change this to some kind of uuid.
 	IsReplacing string // NodeID
 
+	// Not persisted.
+	replaceDone func()
+
 	// Guards everything.
 	// TODO: What is "everything" ??
 	// TODO: Change into an RWLock, check callers.
@@ -37,8 +40,30 @@ func NewPlacement(r *Range, nodeID string) *Placement {
 	}
 }
 
+// Special constructor for placements replacing some other placement.
+func NewReplacement(r *Range, destNodeID, srcNodeID string, done func()) *Placement {
+	return &Placement{
+		rang:        r,
+		NodeID:      destNodeID,
+		State:       PsPending,
+		IsReplacing: srcNodeID,
+		replaceDone: done,
+	}
+}
+
 func (p *Placement) Range() *Range {
 	return p.rang
+}
+
+func (p *Placement) DoneReplacing() {
+	p.IsReplacing = ""
+
+	// Callback to unblock operator Move RPCs.
+	// TODO: This is kind of dumb. Would be better to store the callbacks
+	//       somewhere else, and look them up when calling this method.
+	if p.replaceDone != nil {
+		p.replaceDone()
+	}
 }
 
 func (p *Placement) LogString() string {

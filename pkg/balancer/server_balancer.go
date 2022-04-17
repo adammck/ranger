@@ -3,6 +3,7 @@ package balancer
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
@@ -31,35 +32,40 @@ func (bs *balancerServer) Move(ctx context.Context, req *pb.MoveRequest) (*pb.Mo
 		return nil, status.Error(codes.InvalidArgument, "missing: node")
 	}
 
-	// wg := sync.WaitGroup{}
-	// wg.Add(1)
+	errCh := make(chan error)
 
 	// cb := func(e error) {
 	// 	err = e
 	// 	wg.Done()
 	// }
 
-	bs.bal.opMovesMu.Lock()
-	defer bs.bal.opMovesMu.Unlock()
+	func() {
+		bs.bal.opMovesMu.Lock()
+		defer bs.bal.opMovesMu.Unlock()
 
-	// TODO: Probably add a method to do this.
-	bs.bal.opMoves = append(bs.bal.opMoves, OpMove{
-		Range: rID,
-		Dest:  nID,
-	})
+		// TODO: Probably add a method to do this.
+		bs.bal.opMoves = append(bs.bal.opMoves, OpMove{
+			Range: rID,
+			Dest:  nID,
+			Err:   errCh,
+		})
+	}()
 
-	// bs.bal.Operation(&move.MoveOp{
-	// 	Keyspace: bs.bal.ks,
-	// 	Roster:   bs.bal.rost,
-	// 	Done:     cb,
-	// 	Range:    id,
-	// 	Node:     nid,
-	// })
+	errs := []string{}
 
-	//wg.Wait()
+	for {
+		err, ok := <-errCh
+		if !ok { // closed
+			break
+		}
+		errs = append(errs, err.Error())
+	}
 
-	if err != nil {
-		return nil, status.Error(codes.Aborted, fmt.Sprintf("move operation failed: %v", err))
+	// There's probably only one error. But who knows.
+	if len(errs) > 0 {
+		return nil, status.Error(
+			codes.Aborted,
+			fmt.Sprintf("move operation failed: %v", strings.Join(errs, "; ")))
 	}
 
 	return &pb.MoveResponse{}, nil
