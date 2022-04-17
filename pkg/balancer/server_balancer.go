@@ -43,10 +43,10 @@ func (bs *balancerServer) Move(ctx context.Context, req *pb.MoveRequest) (*pb.Mo
 	defer bs.bal.opMovesMu.Unlock()
 
 	// TODO: Probably add a method to do this.
-	bs.bal.opMoves[rID] = OpMove{
+	bs.bal.opMoves = append(bs.bal.opMoves, OpMove{
 		Range: rID,
-		Node:  nID,
-	}
+		Dest:  nID,
+	})
 
 	// bs.bal.Operation(&move.MoveOp{
 	// 	Keyspace: bs.bal.ks,

@@ -18,7 +18,7 @@ import (
 // TODO: Split this into Add, Remove
 type OpMove struct {
 	Range ranje.Ident
-	Node  string
+	Src   string
 	Dest  string
 }
 
@@ -244,18 +244,18 @@ func (b *Balancer) tickRange(r *ranje.Range) {
 
 func (b *Balancer) doMove(r *ranje.Range, opMove *OpMove) error {
 	var src *ranje.Placement
-	if opMove.Node != "" {
+	if opMove.Src != "" {
 
 		// Source node was given, so take placement from that.
 		for _, p := range r.Placements {
-			if p.NodeID == opMove.Node {
+			if p.NodeID == opMove.Src {
 				src = p
 				break
 			}
 		}
 
 		if src == nil {
-			return fmt.Errorf("no placement found (rID=%v, nID=%v)", r.Meta.Ident, opMove.Node)
+			return fmt.Errorf("src placement not found (rID=%v, nID=%v)", r.Meta.Ident, opMove.Src)
 		}
 
 	} else {
@@ -270,6 +270,14 @@ func (b *Balancer) doMove(r *ranje.Range, opMove *OpMove) error {
 
 		if src == nil {
 			return fmt.Errorf("no ready placement found (rID=%v)", r.Meta.Ident)
+		}
+	}
+
+	// If the source placement is already being replaced by some other
+	// placement, reject the move.
+	for _, p := range r.Placements {
+		if p.IsReplacing == src.NodeID {
+			return fmt.Errorf("placement already being replaced (src=%v, dest=%v)", src, p.NodeID)
 		}
 	}
 
@@ -335,7 +343,7 @@ func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 			// TODO: Probably add a method to do this.
 			b.opMoves = append(b.opMoves, OpMove{
 				Range: p.Range().Meta.Ident,
-				Node:  n.Ident(),
+				Src:   n.Ident(),
 			})
 		}()
 
