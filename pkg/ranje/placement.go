@@ -20,7 +20,7 @@ type Placement struct {
 	// replace the placement of the same range on some other node. Should be
 	// cleared once the placement becomes ready.
 	// TODO: Change this to some kind of uuid.
-	IsReplacing string // NodeID
+	IsReplacing string `json:",omitempty"` // NodeID
 
 	// Not persisted.
 	replaceDone func()
