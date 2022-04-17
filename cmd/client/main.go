@@ -152,7 +152,7 @@ func main() {
 		}
 
 		rIDs := [2]uint64{}
-		for i, s := range []string{flag.Arg(2), flag.Arg(3)} {
+		for i, s := range []string{flag.Arg(1), flag.Arg(2)} {
 			rID, err := strconv.ParseUint(s, 10, 64)
 			if err != nil {
 				fmt.Fprintf(w, "Invalid rangeID: %v\n", err)
