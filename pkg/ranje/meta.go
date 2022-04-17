@@ -14,6 +14,7 @@ type Meta struct {
 	End   Key // exclusive
 }
 
+// String returns a string like: 1234 (aaa, bbb]
 func (m Meta) String() string {
 	var s, e string
 

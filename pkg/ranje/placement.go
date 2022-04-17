@@ -51,6 +51,11 @@ func NewReplacement(r *Range, destNodeID, srcNodeID string, done func()) *Placem
 	}
 }
 
+// TODO: Rename this to just String?
+func (p *Placement) LogString() string {
+	return fmt.Sprintf("{%s %s:%s}", p.rang.Meta, p.NodeID, p.State)
+}
+
 func (p *Placement) Range() *Range {
 	return p.rang
 }
@@ -64,10 +69,6 @@ func (p *Placement) DoneReplacing() {
 	if p.replaceDone != nil {
 		p.replaceDone()
 	}
-}
-
-func (p *Placement) LogString() string {
-	return fmt.Sprintf("{%s %s:%s}", p.rang.Meta.String(), p.NodeID, p.State)
 }
 
 func (p *Placement) toState(new PlacementState) error {
@@ -88,6 +89,7 @@ func (p *Placement) toState(new PlacementState) error {
 	p.State = new
 	p.rang.dirty = true
 
+	// TODO: Make this less weird
 	log.Printf("R%d P %s -> %s", p.rang.Meta.Ident, old, new)
 
 	return nil

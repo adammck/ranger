@@ -97,7 +97,6 @@ func (ts *BalancerSuite) TestJunk() {
 	ts.Init(nil)
 
 	// TODO: Remove
-	ts.Equal(1, ts.ks.Len())
 	ts.Equal("{1 [-inf, +inf] RsActive}", ts.ks.LogString())
 	// End
 

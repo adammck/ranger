@@ -61,6 +61,7 @@ func New(cfg config.Config, disc discovery.Discoverable, add, remove func(rem *d
 	}
 }
 
+// TODO: This is only used by tests. Maybe move it there?
 func (ros *Roster) TestString() string {
 	ros.RLock()
 	defer ros.RUnlock()
@@ -85,7 +86,6 @@ func nodeConnFactory(ctx context.Context, remote discovery.Remote) (*grpc.Client
 	return grpc.DialContext(ctx, remote.Addr(), grpc.WithInsecure())
 }
 
-//func (ros *Roster) NodeBy(opts... NodeByOpts)
 // TODO: Return an error from this func, to avoid duplicating it in callers.
 func (ros *Roster) NodeByIdent(nodeIdent string) *Node {
 	ros.RLock()
@@ -100,13 +100,8 @@ func (ros *Roster) NodeByIdent(nodeIdent string) *Node {
 	return nil
 }
 
-// NodeExists returns true if a node with the given ident exists. This is just
-// to satisfy the NodeChecker interface.
-func (ros *Roster) NodeExists(nodeIdent string) bool {
-	return ros.NodeByIdent(nodeIdent) != nil
-}
-
-// Locate returns the list of node IDs that the given key can be found on, in any state.
+// Locate returns the list of node IDs that the given key can be found on, in
+// any state.
 // TODO: Allow the Map to be filtered by state.
 func (ros *Roster) Locate(k ranje.Key) []string {
 	nodes := []string{}
@@ -160,8 +155,8 @@ func (ros *Roster) discover() {
 			ros.Nodes[r.Ident] = n
 			log.Printf("added node: %v", n.Ident())
 
-			// TODO: Should we also send a blank info.NodeInfo to introduce the node?
-			//       We haven't probed it yet, so don't know what's assigned.
+			// TODO: Should we also send a blank info.NodeInfo to introduce the
+			//       node? We haven't probed yet, so don't know what's assigned.
 
 			// TODO: Do this outside of the lock!!
 			if ros.add != nil {
@@ -247,7 +242,9 @@ func (ros *Roster) probeOne(ctx context.Context, n *Node) error {
 	// TODO: This is an InfoRequest now, but we also have RangesRequest which is
 	// sufficient for the proxy. Maybe make which one is sent configurable?
 
-	res, err := n.Client.Info(ctx, &pb.InfoRequest{})
+	// TODO: Move this into Node, so the Client can be private.
+
+	res, err := n.client.Info(ctx, &pb.InfoRequest{})
 	if err != nil {
 		return err
 	}
@@ -300,7 +297,8 @@ func (r *Roster) Tick() {
 	r.expire()
 }
 
-// TODO: Need some way to gracefully stop! Have to close the info channel to stop the reconciler.
+// TODO: Need some way to gracefully stop! Have to close the info channel to
+//       stop the reconciler.
 func (r *Roster) Run(t *time.Ticker) {
 	for ; true; <-t.C {
 		r.Tick()
@@ -308,7 +306,6 @@ func (r *Roster) Run(t *time.Ticker) {
 }
 
 // Candidate returns the NodeIdent of a node which could accept the given range.
-// TODO: Implement range constraints. Currently it's ignored.
 func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (string, error) {
 	r.RLock()
 	defer r.RUnlock()

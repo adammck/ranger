@@ -84,25 +84,6 @@ func New(cfg config.Config, ks *ranje.Keyspace, rost *roster.Roster, srv *grpc.S
 	return b
 }
 
-func (b *Balancer) RangesOnNodesWantingDrain() []*ranje.Range {
-	out := []*ranje.Range{}
-
-	// TODO: Have the roster keep a list of nodes wanting drain rather than iterating.
-	for _, n := range b.rost.Nodes {
-		if n.WantDrain() {
-			for _, pbnid := range b.ks.PlacementsByNodeID(n.Ident()) {
-
-				// TODO: If the placement is next (i.e. currently moving onto this node), cancel the op.
-				if pbnid.Position == 0 {
-					out = append(out, pbnid.Range)
-				}
-			}
-		}
-	}
-
-	return out
-}
-
 func (b *Balancer) Tick() {
 
 	// Hold the keyspace lock for the entire tick.

@@ -1,7 +1,6 @@
 package roster
 
 import (
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -31,7 +30,7 @@ type Node struct {
 	whenLastProbed time.Time
 
 	conn   *grpc.ClientConn
-	Client pb.NodeClient
+	client pb.NodeClient
 	muConn sync.RWMutex
 
 	// Populated by probeOne
@@ -42,12 +41,6 @@ type Node struct {
 	// Only for tests: if non-null, nodes should send an RpcRecord every time
 	// they send an RPC.
 	RpcSpy chan RpcRecord
-
-	// to be cancelled
-	// rpcs map[ranje.Ident]context.Context
-
-	// TODO: Figure out what to do with these. They shouldn't exist, and indicate a state bug. But ignoring them probably isn't right.
-	//unexpectedRanges map[Ident]*pb.RangeMeta
 }
 
 func NewNode(remote discovery.Remote, conn *grpc.ClientConn) *Node {
@@ -56,11 +49,12 @@ func NewNode(remote discovery.Remote, conn *grpc.ClientConn) *Node {
 		init:         time.Now(),
 		whenLastSeen: time.Time{}, // never
 		conn:         conn,
-		Client:       pb.NewNodeClient(conn),
+		client:       pb.NewNodeClient(conn),
 		ranges:       make(map[ranje.Ident]*info.RangeInfo),
 	}
 }
 
+// TODO: This is only used by tests. Maybe move it there?
 func (n *Node) TestString() string {
 	n.muRanges.RLock()
 	defer n.muRanges.RUnlock()
@@ -92,10 +86,6 @@ func (n *Node) Get(rangeID ranje.Ident) (info.RangeInfo, bool) {
 	ri, ok := n.ranges[rangeID]
 	if !ok {
 		return info.RangeInfo{}, false
-		// return info.RangeInfo{
-		// 	Meta:  ranje.Meta{}, // not good
-		// 	State: NsNotFound,
-		// }, false
 	}
 
 	return *ri, true
@@ -150,13 +140,4 @@ func (n *Node) HasRange(rID ranje.Ident) bool {
 	defer n.muRanges.RUnlock()
 	_, ok := n.ranges[rID]
 	return ok
-}
-
-func (n *Node) Conn() (grpc.ClientConnInterface, error) {
-	n.muConn.RLock()
-	defer n.muConn.RUnlock()
-	if n.conn == nil {
-		return nil, errors.New("tried to read nil connection")
-	}
-	return n.conn, nil
 }

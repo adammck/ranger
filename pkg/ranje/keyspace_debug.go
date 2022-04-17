@@ -8,11 +8,3 @@ package ranje
 type keyspaceDebug struct {
 	*Keyspace
 }
-
-// Ranges returns all of the ranges which aren't Obsolete in no particular
-// order.
-func (ks *keyspaceDebug) Ranges() []*Range {
-	ks.mu.Lock()
-	defer ks.mu.Unlock()
-	return ks.ranges
-}

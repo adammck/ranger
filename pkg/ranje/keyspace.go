@@ -80,6 +80,18 @@ func New(cfg config.Config, persister Persister) *Keyspace {
 	return ks
 }
 
+// LogString is only used by tests.
+// TODO: Move it to the tests!
+func (ks *Keyspace) LogString() string {
+	s := make([]string, len(ks.ranges))
+
+	for i, r := range ks.ranges {
+		s[i] = r.LogString()
+	}
+
+	return strings.Join(s, " ")
+}
+
 // SanityCheck returns an error if the curernt range state isn't sane. It does
 // nothing to try to rectify the situaton. This method mostly compensates for
 // the fact that I'm storing all these ranges in a single flat slice.
@@ -437,74 +449,9 @@ func (ks *Keyspace) Children(r *Range) []*Range {
 	return children
 }
 
-//
-//
-//
-//
-///
-// ---- old stuff below ----
-//
-//
-//
-//
-//
-
 // DangerousDebuggingMethods returns a keyspaceDebug. Handle with care!
 func (ks *Keyspace) DangerousDebuggingMethods() *keyspaceDebug {
 	return &keyspaceDebug{ks}
-}
-
-// NewWithSplits is just for testing.
-// TODO: Move this to the tests, why is it here?
-func NewWithSplits(persister Persister, splits []string) *Keyspace {
-	ks := &Keyspace{
-		pers: persister,
-	}
-	rs := make([]*Range, len(splits)+1)
-
-	// TODO: Should we sort the splits here? Or panic? We currently assume they're sorted.
-
-	for i := range rs {
-		var s, e Key
-
-		if i > 0 {
-			s = rs[i-1].Meta.End
-		} else {
-			s = ZeroKey
-		}
-
-		if i < len(splits) {
-			e = Key(splits[i])
-		} else {
-			e = ZeroKey
-		}
-
-		// TODO: Move start/end into params of Range? No sense without them.
-		// Note: Not persisting the new range, because tests.
-		r := ks.Range()
-		r.Meta.Start = s
-		r.Meta.End = e
-		rs[i] = r
-	}
-
-	ks.ranges = rs
-	return ks
-}
-
-func (ks *Keyspace) LogRanges() {
-	ks.mu.Lock()
-	defer ks.mu.Unlock()
-
-	var sb strings.Builder
-	for i, r := range ks.ranges {
-		sb.WriteString(r.LogString())
-
-		if i < len(ks.ranges)-1 {
-			sb.WriteString(", ")
-		}
-	}
-
-	log.Printf("Keyspace: {%s}", sb.String())
 }
 
 // Range returns a new range with the next available ident. This is the only
@@ -532,42 +479,22 @@ func (ks *Keyspace) Range() *Range {
 	return r
 }
 
-func (ks *Keyspace) RangesByState(s RangeState) []*Range {
-	out := []*Range{}
-
-	for _, r := range ks.ranges {
-		if r.State == s {
-			out = append(out, r)
-		}
-	}
-
-	return out
-}
+//
+//
+//
+//
+///
+// ---- old stuff below ----
+//
+//
+//
+//
+//
 
 type PBNID struct {
 	Range     *Range
 	Placement *Placement
 	Position  uint8
-}
-
-// NodeChecker only exists to pass a Roster to RangesOnNonExistentNodes without
-// importing the whole thing.
-type NodeChecker interface {
-	NodeExists(nodeIdent string) bool
-}
-
-func (ks *Keyspace) RangesOnNonExistentNodes(nc NodeChecker) []PBNID {
-	out := []PBNID{}
-
-	for _, r := range ks.ranges {
-		for i, p := range r.Placements {
-			if p != nil && !nc.NodeExists(p.NodeID) {
-				out = append(out, PBNID{r, p, uint8(i)})
-			}
-		}
-	}
-
-	return out
 }
 
 // PlacementsByNodeID returns a list of (range, placement, position) tuples for
@@ -598,29 +525,12 @@ func (ks *Keyspace) PlacementsByNodeID(nID string) []PBNID {
 	return out
 }
 
-func (ks *Keyspace) LogString() string {
-	s := make([]string, len(ks.ranges))
-
-	for i, r := range ks.ranges {
-		s[i] = r.LogString()
-	}
-
-	return strings.Join(s, " ")
-}
-
-// Len returns the number of ranges.
-// This is mostly for testing, maybe remove it.
-func (ks *Keyspace) Len() int {
-	return len(ks.ranges)
-}
-
 // RangeToState tries to move the given range into the given state.
-// TODO: Can we drop this and let range state transitions happen via Placement?
+// TODO: This is currently only used to move ranges into Obsolete after they
+//       have been subsumed. Can we replace this with *ObsoleteRange*?
 func (ks *Keyspace) RangeToState(rng *Range, state RangeState) error {
 	// Balancer already has lock.
-	// TODO: Verify this somehow?l
-	//ks.mu.Lock()
-	//defer ks.mu.Unlock()
+	// TODO: Verify this somehow?
 
 	err := rng.toState(state, ks)
 	if err != nil {
@@ -630,26 +540,24 @@ func (ks *Keyspace) RangeToState(rng *Range, state RangeState) error {
 	return ks.mustPersistDirtyRanges()
 }
 
-// Clear the current placement and mark the range as Obsolete. This should be
-// called when a range is dropped after a split or join.
-func (ks *Keyspace) DropPlacement(r *Range) error {
-	panic("not implemented; see 839595a")
-}
-
+// Callers don't bother checking the error we return, so we panic instead.
+// TODO: Update balancer to check the error!
 func (ks *Keyspace) PlacementToState(p *Placement, state PlacementState) error {
-	//ks.mu.Lock()
-	//defer ks.mu.Unlock()
-
 	err := p.toState(state)
 	if err != nil {
-		panic(fmt.Sprintf("PlacementToState: %v", err))
-		//return err
+		panic(fmt.Sprintf("toState: %v", err))
 	}
 
 	//p.rang.placementStateChanged(ks)
-	return ks.mustPersistDirtyRanges()
+	err = ks.mustPersistDirtyRanges()
+	if err != nil {
+		panic(fmt.Sprintf("mustPersistDirtyRanges: %v", err))
+	}
+
+	return nil
 }
 
+// TODO: Return an error instead of panicking, and rename.
 func (ks *Keyspace) mustPersistDirtyRanges() error {
 	ranges := []*Range{}
 	for _, r := range ks.ranges {
@@ -669,9 +577,6 @@ func (ks *Keyspace) mustPersistDirtyRanges() error {
 
 // Caller must hold the keyspace lock.
 func (ks *Keyspace) JoinTwo(one *Range, two *Range) (*Range, error) {
-	//ks.mu.Lock()
-	//defer ks.mu.Unlock()
-
 	for _, r := range []*Range{one, two} {
 		if r.State != RsActive {
 			return nil, errors.New("can't join non-ready ranges")
@@ -711,48 +616,4 @@ func (ks *Keyspace) JoinTwo(one *Range, two *Range) (*Range, error) {
 	ks.mustPersistDirtyRanges()
 
 	return three, nil
-}
-
-// index returns the index (in ks.ranges) of the given range.
-// This should only be called while mu is held.
-func (ks *Keyspace) index(r *Range) (int, error) {
-	for i, rr := range ks.ranges {
-		if r == rr {
-			return i, nil
-		}
-	}
-
-	return 0, fmt.Errorf("range %s not in keyspace", r)
-}
-
-// Discard removes a range from the keyspace. This is only allowed if the full
-// range is covered by other ranges. As such this is called after a Split or a
-// Merge to clean up.
-func (ks *Keyspace) Discard(r *Range) error {
-	ks.mu.Lock()
-	defer ks.mu.Unlock()
-
-	log.Printf("discarding: %s", r.String())
-
-	// if r.State != Obsolete {
-	// 	return errors.New("can't discard non-obsolete range")
-	// }
-
-	// TODO: Is this necessary? Ranges are generally discarded after split/join, but so what?
-	if len(r.Children) == 0 {
-		return fmt.Errorf("range %s has no children", r)
-	}
-
-	i, err := ks.index(r)
-	if err != nil {
-		return err
-	}
-
-	// remove the range
-	// https://github.com/golang/go/wiki/SliceTricks
-	copy(ks.ranges[i:], ks.ranges[i+1:])
-	ks.ranges[len(ks.ranges)-1] = nil
-	ks.ranges = ks.ranges[:len(ks.ranges)-1]
-
-	return nil
 }

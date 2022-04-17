@@ -39,7 +39,7 @@ func (n *Node) Give(ctx context.Context, p *ranje.Placement) error {
 	defer cancel()
 
 	// TODO: Retry a few times before giving up.
-	res, err := n.Client.Give(ctx, req)
+	res, err := n.client.Give(ctx, req)
 	if err != nil {
 		log.Printf("error giving %s to %s: %v", p.LogString(), n.Ident(), err)
 		return err
@@ -81,7 +81,7 @@ func (n *Node) Serve(ctx context.Context, p *ranje.Placement) error {
 	defer cancel()
 
 	// TODO: Retry a few times before giving up.
-	res, err := n.Client.Serve(ctx, req)
+	res, err := n.client.Serve(ctx, req)
 	if err != nil {
 		log.Printf("error serving %s to %s: %v", p.LogString(), n.Ident(), err)
 		return err
@@ -118,7 +118,7 @@ func (n *Node) Take(ctx context.Context, p *ranje.Placement) error {
 	defer cancel()
 
 	// TODO: Retry a few times before giving up.
-	res, err := n.Client.Take(ctx, req)
+	res, err := n.client.Take(ctx, req)
 	if err != nil {
 		log.Printf("error taking %s from %s: %v", p.LogString(), n.Ident(), err)
 		return err
@@ -155,7 +155,7 @@ func (n *Node) Drop(ctx context.Context, p *ranje.Placement) error {
 	defer cancel()
 
 	// TODO: Retry a few times before giving up.
-	res, err := n.Client.Drop(ctx, req)
+	res, err := n.client.Drop(ctx, req)
 	if err != nil {
 		log.Printf("error dropping %s from %s: %v", p.LogString(), n.Ident(), err)
 		return err

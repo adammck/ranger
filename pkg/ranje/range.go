@@ -29,6 +29,8 @@ type Range struct {
 	dirty bool
 }
 
+// TODO: This is only used by Keyspace.LogString, which is only used by tests!
+//       So move it to the tests or use it elsewhere.
 func (r *Range) LogString() string {
 	ps := ""
 
@@ -44,10 +46,12 @@ func (r *Range) LogString() string {
 	return fmt.Sprintf("{%s %s%s}", r.Meta, r.State, ps)
 }
 
+// TODO: Make this less weird.
 func (r *Range) String() string {
-	return fmt.Sprintf("R{%s %s}", r.Meta.String(), r.State)
+	return fmt.Sprintf("R{%s %s}", r.Meta, r.State)
 }
 
+// ???
 func (r *Range) MinReady() int {
 	return 1
 }
@@ -73,6 +77,7 @@ func (r *Range) toState(new RangeState, rg RangeGetter) error {
 	r.State = new
 	r.dirty = true
 
+	// TODO: What is this?
 	log.Printf("%s %s -> %s", r, old, new)
 
 	return nil
