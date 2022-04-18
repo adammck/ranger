@@ -109,7 +109,7 @@ func (d *Discovery) Stop() error {
 }
 
 func (d *Discovery) Get(name string) ([]discovery.Remote, error) {
-	res, _, err := d.consul.Catalog().Service("node", "", &api.QueryOptions{})
+	res, _, err := d.consul.Catalog().Service(name, "", &api.QueryOptions{})
 	if err != nil {
 		return []discovery.Remote{}, err
 	}

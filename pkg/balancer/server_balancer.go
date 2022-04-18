@@ -3,11 +3,8 @@ package balancer
 import (
 	"context"
 	"fmt"
-	"sync"
+	"strings"
 
-	"github.com/adammck/ranger/pkg/operations/join"
-	"github.com/adammck/ranger/pkg/operations/move"
-	"github.com/adammck/ranger/pkg/operations/split"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"google.golang.org/grpc/codes"
@@ -20,48 +17,52 @@ type balancerServer struct {
 }
 
 func (bs *balancerServer) Move(ctx context.Context, req *pb.MoveRequest) (*pb.MoveResponse, error) {
-	r := req.Range
-	if r == 0 {
-		return nil, status.Error(codes.InvalidArgument, "missing: range")
-	}
-
-	id, err := ranje.IdentFromProto(r)
+	rID, err := getRange(bs, req.Range, "range")
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, err
 	}
 
-	nid := req.Node
-	if nid == "" {
+	nID := req.Node
+	if nID == "" {
 		return nil, status.Error(codes.InvalidArgument, "missing: node")
 	}
 
-	wg := sync.WaitGroup{}
-	wg.Add(1)
+	errCh := make(chan error)
 
-	cb := func(e error) {
-		err = e
-		wg.Done()
+	func() {
+		bs.bal.opMovesMu.Lock()
+		defer bs.bal.opMovesMu.Unlock()
+
+		// TODO: Probably add a method to do this.
+		bs.bal.opMoves = append(bs.bal.opMoves, OpMove{
+			Range: rID,
+			Dest:  nID,
+			Err:   errCh,
+		})
+	}()
+
+	errs := []string{}
+
+	for {
+		err, ok := <-errCh
+		if !ok { // closed
+			break
+		}
+		errs = append(errs, err.Error())
 	}
 
-	bs.bal.Operation(&move.MoveOp{
-		Keyspace: bs.bal.ks,
-		Roster:   bs.bal.rost,
-		Done:     cb,
-		Range:    id,
-		Node:     nid,
-	})
-
-	wg.Wait()
-
-	if err != nil {
-		return nil, status.Error(codes.Aborted, fmt.Sprintf("move operation failed: %v", err))
+	// There's probably only one error. But who knows.
+	if len(errs) > 0 {
+		return nil, status.Error(
+			codes.Aborted,
+			fmt.Sprintf("move operation failed: %v", strings.Join(errs, "; ")))
 	}
 
 	return &pb.MoveResponse{}, nil
 }
 
 func (bs *balancerServer) Split(ctx context.Context, req *pb.SplitRequest) (*pb.SplitResponse, error) {
-	id, err := getRange(bs, req.Range, "range")
+	rID, err := getRange(bs, req.Range, "range")
 	if err != nil {
 		return nil, err
 	}
@@ -71,35 +72,17 @@ func (bs *balancerServer) Split(ctx context.Context, req *pb.SplitRequest) (*pb.
 		return nil, status.Error(codes.InvalidArgument, "missing: boundary")
 	}
 
-	left := req.NodeLeft
-	if left == "" {
-		return nil, status.Error(codes.InvalidArgument, "missing: node_left")
-	}
+	// TODO: Allow destination node(s) to be specified.
+	// TODO: Block until split is complete, like move does.
 
-	right := req.NodeRight
-	if right == "" {
-		return nil, status.Error(codes.InvalidArgument, "missing: node_right")
-	}
-
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-
-	cb := func(e error) {
-		err = e
-		wg.Done()
-	}
-
-	bs.bal.Operation(&split.SplitOp{
-		Keyspace:  bs.bal.ks,
-		Roster:    bs.bal.rost,
-		Done:      cb,
-		Range:     id,
-		Boundary:  boundary,
-		NodeLeft:  left,
-		NodeRight: right,
-	})
-
-	wg.Wait()
+	func() {
+		bs.bal.opSplitsMu.Lock()
+		defer bs.bal.opSplitsMu.Unlock()
+		bs.bal.opSplits[rID] = OpSplit{
+			Range: rID,
+			Key:   boundary,
+		}
+	}()
 
 	if err != nil {
 		return nil, status.Error(codes.Aborted, fmt.Sprintf("split operation failed: %v", err))
@@ -119,29 +102,19 @@ func (bs *balancerServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.Jo
 		return nil, err
 	}
 
-	node := req.Node
-	if node == "" {
-		return nil, status.Error(codes.InvalidArgument, "missing: node")
-	}
+	// TODO: Allow destination node(s) to be specified.
+	// TODO: Block until join is complete, like move does.
 
-	wg := sync.WaitGroup{}
-	wg.Add(1)
+	func() {
+		bs.bal.opJoinsMu.Lock()
+		defer bs.bal.opJoinsMu.Unlock()
 
-	cb := func(e error) {
-		err = e
-		wg.Done()
-	}
-
-	bs.bal.Operation(&join.JoinOp{
-		Keyspace:   bs.bal.ks,
-		Roster:     bs.bal.rost,
-		Done:       cb,
-		RangeLeft:  left,
-		RangeRight: right,
-		Node:       node,
-	})
-
-	wg.Wait()
+		// TODO: Probably add a method to do this.
+		bs.bal.opJoins = append(bs.bal.opJoins, OpJoin{
+			Left:  left,
+			Right: right,
+		})
+	}()
 
 	if err != nil {
 		return nil, status.Error(codes.Aborted, fmt.Sprintf("join operation failed: %v", err))

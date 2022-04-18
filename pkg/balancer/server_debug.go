@@ -24,18 +24,11 @@ func rangeResponse(r *ranje.Range) *pb.RangeResponse {
 		State: r.State.ToProto(),
 	}
 
-	if p := r.CurrentPlacement; p != nil {
-		res.CurrentPlacement = &pb.PlacementTwo{
+	for _, p := range r.Placements {
+		res.Placements = append(res.Placements, &pb.PlacementTwo{
 			Node:  p.NodeID,
 			State: p.State.ToProto(),
-		}
-	}
-
-	if p := r.NextPlacement; p != nil {
-		res.NextPlacement = &pb.PlacementTwo{
-			Node:  p.NodeID,
-			State: p.State.ToProto(),
-		}
+		})
 	}
 
 	return res
@@ -44,28 +37,16 @@ func rangeResponse(r *ranje.Range) *pb.RangeResponse {
 func nodeResponse(ks *ranje.Keyspace, n *roster.Node) *pb.NodeResponse {
 	res := &pb.NodeResponse{
 		Node: &pb.NodeMeta{
-			Ident:   n.Ident(),
-			Address: n.Addr(),
+			Ident:     n.Ident(),
+			Address:   n.Addr(),
+			WantDrain: n.WantDrain(),
 		},
 	}
 
 	for _, pl := range ks.PlacementsByNodeID(n.Ident()) {
-
-		// TODO: Move this somewhere.
-		var pos pb.PlacementPosition
-		switch pl.Position {
-		case 0:
-			pos = pb.PlacementPosition_PP_CURRENT
-		case 1:
-			pos = pb.PlacementPosition_PP_CURRENT
-		default:
-			pos = pb.PlacementPosition_PP_UNKNOWN
-		}
-
 		res.Ranges = append(res.Ranges, &pb.NodeRange{
-			Meta:     pl.Range.Meta.ToProto(),
-			State:    pl.Placement.State.ToProto(),
-			Position: pos,
+			Meta:  pl.Range.Meta.ToProto(),
+			State: pl.Placement.State.ToProto(),
 		})
 	}
 
@@ -76,10 +57,13 @@ func (srv *debugServer) RangesList(ctx context.Context, req *pb.RangesListReques
 	ks := srv.bal.ks.DangerousDebuggingMethods()
 	res := &pb.RangesListResponse{}
 
-	for _, r := range ks.NonObsoleteRanges() {
+	ranges, unlocker := ks.Ranges()
+	defer unlocker()
+
+	for _, r := range ranges {
 		r.Mutex.Lock()
-		defer r.Mutex.Unlock()
 		res.Ranges = append(res.Ranges, rangeResponse(r))
+		r.Mutex.Unlock()
 	}
 
 	return res, nil

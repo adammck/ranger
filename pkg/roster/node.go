@@ -1,10 +1,9 @@
 package roster
 
 import (
-	"context"
-	"errors"
 	"fmt"
-	"log"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/adammck/ranger/pkg/discovery"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
+	"github.com/adammck/ranger/pkg/roster/info"
 	"google.golang.org/grpc"
 )
 
@@ -30,50 +30,61 @@ type Node struct {
 	whenLastProbed time.Time
 
 	conn   *grpc.ClientConn
-	Client pb.NodeClient
+	client pb.NodeClient
 	muConn sync.RWMutex
 
 	// Populated by probeOne
 	wantDrain bool
-	ranges    map[ranje.Ident]RangeInfo
+	ranges    map[ranje.Ident]*info.RangeInfo
 	muRanges  sync.RWMutex
-
-	// TODO: Figure out what to do with these. They shouldn't exist, and indicate a state bug. But ignoring them probably isn't right.
-	//unexpectedRanges map[Ident]*pb.RangeMeta
 }
 
-func NewNode(remote discovery.Remote) *Node {
-	n := Node{
+func NewNode(remote discovery.Remote, conn *grpc.ClientConn) *Node {
+	return &Node{
 		Remote:       remote,
 		init:         time.Now(),
 		whenLastSeen: time.Time{}, // never
-		ranges:       make(map[ranje.Ident]RangeInfo),
+		conn:         conn,
+		client:       pb.NewNodeClient(conn),
+		ranges:       make(map[ranje.Ident]*info.RangeInfo),
 	}
-
-	// start dialling in background
-	// todo: inherit context to allow global cancellation
-	conn, err := grpc.DialContext(context.Background(), n.Remote.Addr(), grpc.WithInsecure())
-	if err != nil {
-		log.Printf("error while dialing: %v", err)
-	}
-
-	n.muConn.Lock()
-	n.conn = conn
-	n.Client = pb.NewNodeClient(n.conn)
-	n.muConn.Unlock()
-
-	return &n
 }
 
-func (n *Node) Get(rangeID ranje.Ident) State {
-	info, ok := n.ranges[rangeID]
+// TODO: This is only used by tests. Maybe move it there?
+func (n *Node) TestString() string {
+	n.muRanges.RLock()
+	defer n.muRanges.RUnlock()
 
-	if !ok {
-		// TODO: Add a new state to represent this.
-		return StateUnknown
+	rIDs := []ranje.Ident{}
+	for rID := range n.ranges {
+		rIDs = append(rIDs, rID)
 	}
 
-	return info.State
+	// Sort by (numeric) range ID to make output stable.
+	// (Unstable sort is fine, because range IDs are unique.)
+	sort.Slice(rIDs, func(i, j int) bool {
+		return uint64(rIDs[i]) < uint64(rIDs[j])
+	})
+
+	s := make([]string, len(rIDs))
+	for i, rID := range rIDs {
+		ri := n.ranges[rID]
+		s[i] = fmt.Sprintf("%s:%s", ri.Meta.Ident, ri.State)
+	}
+
+	return fmt.Sprintf("{%s [%s]}", n.Remote.Ident, strings.Join(s, ", "))
+}
+
+func (n *Node) Get(rangeID ranje.Ident) (info.RangeInfo, bool) {
+	n.muConn.RLock()
+	defer n.muConn.RUnlock()
+
+	ri, ok := n.ranges[rangeID]
+	if !ok {
+		return info.RangeInfo{}, false
+	}
+
+	return *ri, true
 }
 
 func (n *Node) Ident() string {
@@ -101,20 +112,28 @@ func (n *Node) IsMissing(cfg config.Config, now time.Time) bool {
 // Utilization returns a uint in [0, 255], indicating how busy this node is.
 // Ranges should generally be placed on nodes with lower utilization.
 func (n *Node) Utilization() uint8 {
-	return 255 // lol
+	n.muRanges.RLock()
+	defer n.muRanges.RUnlock()
+
+	l := len(n.ranges)
+	if l > 255 {
+		return 255
+	}
+
+	return uint8(l) // lol
 }
 
 func (n *Node) WantDrain() bool {
+	// TODO: Use a differet lock for this!
 	n.muRanges.RLock()
 	defer n.muRanges.RUnlock()
 	return n.wantDrain
 }
 
-func (n *Node) Conn() (grpc.ClientConnInterface, error) {
-	n.muConn.RLock()
-	defer n.muConn.RUnlock()
-	if n.conn == nil {
-		return nil, errors.New("tried to read nil connection")
-	}
-	return n.conn, nil
+// HasRange returns whether we think this node has the given range.
+func (n *Node) HasRange(rID ranje.Ident) bool {
+	n.muRanges.RLock()
+	defer n.muRanges.RUnlock()
+	_, ok := n.ranges[rID]
+	return ok
 }

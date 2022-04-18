@@ -30,59 +30,64 @@ $ examples/kv/bin/gen-proto.sh
 
 ```graphviz
 digraph G {
-    graph [fontname="Sedgwick Ave" fontsize=20 color=grey];
-    node [fontname="Handlee"];
-    edge [fontname="Handlee"];
-
+    edge [fontcolor=grey, fontsize=8];
+    
     subgraph cluster_0 {
-        label=RANGE;
+        label=Range;
         
-        Pending;
-        Placing;
-        PlaceError;
-        Quarantine;
-        Ready [penwidth=2];
-        Moving;
-        Splitting;
-        Joining;
-        Obsolete;
+        rActive [label=Active];
+        rSubsuming [label=Subsuming];
+        rObsolete [label=Obsolete];
         
-        Pending -> Placing;
-        Placing -> Ready;
-        Placing -> PlaceError;
-        PlaceError -> Placing;
-        PlaceError -> Quarantine;
-        Quarantine -> Placing;
-        Ready -> Moving;
-        Ready -> Splitting;
-        Ready -> Joining;
-
-        Moving -> Ready;
-
-        Splitting -> Obsolete;
-        Joining -> Obsolete;
+        rActive -> rSubsuming;
+        rSubsuming -> rActive;
+        rSubsuming -> rObsolete;
     }
 
-    subgraph cluster_1 {
-      label=PLACEMENT;
+    subgraph cluster_2 {
+      label=Placement;
 
-      xPending [label=Pending];
-      xFetching [label=Fetching];
-      xFetched [label=Fetched];
-      xFetchFailed [label=FetchFailed];
-      xReady [label=Ready penwidth=2];
-      xTaken [label=Taken];
-      xDropped [label=Dropped];
+        pPending
+        [label=<Pending<br/><font point-size="8" color="#aaaaaa">Send <u>Give</u><br/><i>prepare_add_shard</i></font>>];
+        
+        pPreparing
+        [label=<Preparing<br/><font point-size="8" color="#aaaaaa">If (something):<br/>Send <u>Serve</u><i><br/>add_shard</i></font>>];
+        
+        pGiveUp
+        [label=<GiveUp> color=red];
 
-      xPending -> xReady [label=give];
-      xPending -> xFetching [label=give];
-      xFetching -> xFetched;
-      xFetching -> xFetchFailed;
-      xFetched -> xReady  [label=serve];
-      xFetchFailed -> xPending;
-      xReady -> xTaken [label=take];
-      xTaken -> xDropped [label=drop];
-      xTaken -> xReady [label=untake];
+        pReady
+        [penwidth=2 label=<Ready<br/><font point-size="8" color="#aaaaaa">If (something):<br/>Send <u>Take</u><i><br/>prepare_remove_shard</i></font>>];
+        
+        pTaken
+        [label=<Taken<br/><font point-size="8" color="#aaaaaa">If (something):<br/>Send <u>Take</u><i><br/>remove_shard</i></font>>];
+
+        pDropped;
+        
+        pPending -> pPreparing
+        [label="remote state is:\nPsPreparing"];
+        
+        pPreparing -> pReady
+        [label="remote state is:\nPsReady"];
+        
+        pReady -> pTaken
+        [label="remote state is:\nPsTaken"];
+        
+        pTaken -> pDropped
+        [label="remote state is:\nPsDropped"];
+
+        # Most states can move to GiveUp on failure. Some other placement will
+        # hopefully pick up the workload.
+        pPending -> pGiveUp;
+        pPreparing -> pGiveUp;
+        pReady -> pGiveUp;
+        pTaken -> pGiveUp;
+    
+        pGiveUp -> pDropped;
+        
+        # Shortcuts for systems which don't need prepare steps.
+        #pPending -> pReady [color="grey"];
+        #pReady -> pDropped [color="grey"];
     }
 }
 ```
@@ -103,13 +108,6 @@ keyspace
     - id
     - node_id # <- where it is _expected_ to be
     - state # needed? can maybe be inferred
-  - operations # only one in progress a time!
-    - move
-      - state
-      - src_node_id
-      - dest_node_id
-    - join
-    - split    
 ```
 
 ### volatile

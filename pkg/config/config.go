@@ -16,4 +16,11 @@ type Config struct {
 	// How long should the controller wait for a node to respond to a probe
 	// before expiring it?
 	NodeExpireDuration time.Duration
+
+	// How many Ready placements should each range have?
+	// TODO: This should be configurable for each range.
+	Replication int
+
+	//SkipPrepareState
+	//SkipTakenState
 }

@@ -30,42 +30,35 @@ message PlacementTwo {
 // Keep synced with RangeState (in node.go for now)
 enum RangeNodeState {
   UNKNOWN = 0;
-  FETCHING = 1;
-  FETCHED = 2;
-  FETCH_FAILED = 3;
-  READY = 4;
-  TAKEN = 5;
+  PREPARING = 1;
+	PREPARING_ERROR = 2;
+	PREPARED = 3;
+	READYING = 4;
+	READY = 5;
+	TAKING = 6;
+	TAKEN = 7;
+	DROPPING = 8;
+  // Special case: See roster.RemoteState
+	NOT_FOUND = 9;
 }
 
 // This is only for debugging purposes, for now.
-// Keep synced with ranje.StatePlacement (in pkg/ranje/state_local.go)
+// Keep synced with ranje.RangeState (in pkg/ranje/state_range.go)
 enum RangeState {
   RS_UNKNOWN = 0;
-  RS_PENDING = 1;
-  RS_PLACING = 2;
-  RS_READY = 3;
-  RS_MOVING = 4;
-  RS_SPLITTING = 5;
-  RS_JOINING = 6;
-  RS_OBSOLETE = 7;
+  RS_ACTIVE = 1;
+  RS_SUBSUMING = 2;
+  RS_OBSOLETE = 3;
 }
 
 // This is only for debugging purposes, for now.
-// Keep synced with ranje.StatePlacement (in pkg/ranje/state_placement.go)
+// Keep synced with ranje.PlacementState (in pkg/ranje/state_placement.go)
 enum PlacementState {
   PS_UNKNOWN = 0;
-  PS_PENDING = 1;
-  PS_FETCHING = 2;
-  PS_FETCHED = 3;
-  PS_FETCH_FAILED = 4;
-  PS_READY = 5;
-  PS_TAKEN = 6;
-  PS_DROPPED = 7;
-  PS_GONE = 8;
-}
-
-enum PlacementPosition {
-  PP_UNKNOWN = 0;
-  PP_CURRENT = 1;
-  PP_NEXT = 2;
+	PS_PENDING = 1;
+	PS_PREPARED = 2;
+	PS_READY = 3;
+	PS_TAKEN = 4;
+	PS_GIVE_UP = 5;
+	PS_DROPPED = 6;
 }

@@ -22,6 +22,4 @@ type Discoverable interface {
 	Start() error
 	Stop() error
 	Get(string) ([]Remote, error)
-
-	// Watch(func())
 }

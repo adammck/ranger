@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +13,8 @@ import (
 	"github.com/adammck/ranger/pkg/discovery"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
+	"github.com/adammck/ranger/pkg/roster/info"
+	"google.golang.org/grpc"
 )
 
 const (
@@ -34,10 +37,13 @@ type Roster struct {
 
 	// info receives NodeInfo updated whenever we receive a probe response from
 	// a node, or when we expire a node.
-	info chan NodeInfo
+	info chan info.NodeInfo
+
+	// To be stubbed when testing.
+	NodeConnFactory func(ctx context.Context, remote discovery.Remote) (*grpc.ClientConn, error)
 }
 
-func New(cfg config.Config, disc discovery.Discoverable, add, remove func(rem *discovery.Remote), info chan NodeInfo) *Roster {
+func New(cfg config.Config, disc discovery.Discoverable, add, remove func(rem *discovery.Remote), info chan info.NodeInfo) *Roster {
 	return &Roster{
 		cfg:    cfg,
 		Nodes:  make(map[string]*Node),
@@ -45,10 +51,38 @@ func New(cfg config.Config, disc discovery.Discoverable, add, remove func(rem *d
 		add:    add,
 		remove: remove,
 		info:   info, // currently never closed
+
+		// Defaults to production implementation.
+		// Patch it after construction for tests.
+		NodeConnFactory: nodeConnFactory,
 	}
 }
 
-//func (ros *Roster) NodeBy(opts... NodeByOpts)
+// TODO: This is only used by tests. Maybe move it there?
+func (ros *Roster) TestString() string {
+	ros.RLock()
+	defer ros.RUnlock()
+
+	keys := []string{}
+	for nID := range ros.Nodes {
+		keys = append(keys, nID)
+	}
+
+	sort.Strings(keys)
+
+	s := make([]string, len(ros.Nodes))
+	for i, nID := range keys {
+		s[i] = ros.Nodes[nID].TestString()
+	}
+
+	return strings.Join(s, " ")
+}
+
+// nodeFactory returns a new node connected via a real gRPC connection.
+func nodeConnFactory(ctx context.Context, remote discovery.Remote) (*grpc.ClientConn, error) {
+	return grpc.DialContext(ctx, remote.Addr(), grpc.WithInsecure())
+}
+
 // TODO: Return an error from this func, to avoid duplicating it in callers.
 func (ros *Roster) NodeByIdent(nodeIdent string) *Node {
 	ros.RLock()
@@ -63,13 +97,8 @@ func (ros *Roster) NodeByIdent(nodeIdent string) *Node {
 	return nil
 }
 
-// NodeExists returns true if a node with the given ident exists. This is just
-// to satisfy the NodeChecker interface.
-func (ros *Roster) NodeExists(nodeIdent string) bool {
-	return ros.NodeByIdent(nodeIdent) != nil
-}
-
-// Locate returns the list of node IDs that the given key can be found on, in any state.
+// Locate returns the list of node IDs that the given key can be found on, in
+// any state.
 // TODO: Allow the Map to be filtered by state.
 func (ros *Roster) Locate(k ranje.Key) []string {
 	nodes := []string{}
@@ -106,12 +135,19 @@ func (ros *Roster) discover() {
 
 		// New Node?
 		if !ok {
-			n = NewNode(r)
+			// TODO: Propagate context from somewhere.
+			conn, err := ros.NodeConnFactory(context.Background(), r)
+			if err != nil {
+				log.Printf("error creating node connection: %v", err)
+				continue
+			}
+
+			n = NewNode(r, conn)
 			ros.Nodes[r.Ident] = n
 			log.Printf("added node: %v", n.Ident())
 
-			// TODO: Should we also send a blank NodeInfo to introduce the node?
-			//       We haven't probed it yet, so don't know what's assigned.
+			// TODO: Should we also send a blank info.NodeInfo to introduce the
+			//       node? We haven't probed yet, so don't know what's assigned.
 
 			// TODO: Do this outside of the lock!!
 			if ros.add != nil {
@@ -135,7 +171,7 @@ func (ros *Roster) expire() {
 			// Send a special loadinfo to the reconciler, to tell it that we've
 			// lost the node.
 			if ros.info != nil {
-				ros.info <- NodeInfo{
+				ros.info <- info.NodeInfo{
 					Time:    time.Now(),
 					NodeID:  n.Ident(),
 					Expired: true,
@@ -192,44 +228,33 @@ func (ros *Roster) probe() {
 func (ros *Roster) probeOne(ctx context.Context, n *Node) error {
 	// TODO: Abort if probe in progress.
 
-	ranges := make(map[ranje.Ident]RangeInfo)
+	ranges := make(map[ranje.Ident]*info.RangeInfo)
 
 	// TODO: This is an InfoRequest now, but we also have RangesRequest which is
 	// sufficient for the proxy. Maybe make which one is sent configurable?
 
-	res, err := n.Client.Info(ctx, &pb.InfoRequest{})
+	// TODO: Move this into Node, so the Client can be private.
+
+	res, err := n.client.Info(ctx, &pb.InfoRequest{})
 	if err != nil {
 		return err
 	}
 
-	ni := NodeInfo{
+	ni := info.NodeInfo{
 		Time:   time.Now(),
 		NodeID: n.Ident(),
 	}
 
 	for _, r := range res.Ranges {
-		if r.Meta == nil {
-			log.Printf("malformed probe response from %v: Meta is nil", n.Remote.Ident)
-			continue
-		}
 
-		m, err := ranje.MetaFromProto(r.Meta)
-		if r.Meta == nil {
+		info, err := info.RangeInfoFromProto(r)
+		if err != nil {
 			log.Printf("malformed probe response from %v: %v", n.Remote.Ident, err)
 			continue
 		}
 
-		rID := m.Ident
-
-		// TODO: Update the map rather than overwriting it every time.
-		info := RangeInfo{
-			Meta:  *m,
-			State: RemoteStateFromProto(r.State),
-			// TODO: LoadInfo
-		}
-
 		ni.Ranges = append(ni.Ranges, info)
-		ranges[rID] = info
+		ranges[info.Meta.Ident] = &info
 	}
 
 	// TODO: Should this (nil info) even be allowed?
@@ -263,7 +288,8 @@ func (r *Roster) Tick() {
 	r.expire()
 }
 
-// TODO: Need some way to gracefully stop! Have to close the info channel to stop the reconciler.
+// TODO: Need some way to gracefully stop! Have to close the info channel to
+//       stop the reconciler.
 func (r *Roster) Run(t *time.Ticker) {
 	for ; true; <-t.C {
 		r.Tick()
@@ -271,7 +297,7 @@ func (r *Roster) Run(t *time.Ticker) {
 }
 
 // Candidate returns the NodeIdent of a node which could accept the given range.
-func (r *Roster) Candidate(rng *ranje.Range) (string, error) {
+func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (string, error) {
 	r.RLock()
 	defer r.RUnlock()
 
@@ -289,16 +315,40 @@ func (r *Roster) Candidate(rng *ranje.Range) (string, error) {
 	// Build a list of indices of candidate nodes.
 	candidates := []int{}
 
+	// Filter the list of nodes by name
+	// (We still might exclude it below though)
+	if c.NodeID != "" {
+		for i := range nodes {
+			if nodes[i].Ident() == c.NodeID {
+				nodes = []*Node{nodes[i]}
+				break
+			}
+		}
+	}
+
 	// Exclude a node if:
 	//
-	// 1. It's drained, i.e. it doesn't want any more ranges. It's probably
+	// 1. It already has this range.
+	//
+	// 2. It's drained, i.e. it doesn't want any more ranges. It's probably
 	//    shutting down.
 	//
-	// 2. It's missing, i.e. hasn't responded to our probes in a while. It might
+	// 3. It's missing, i.e. hasn't responded to our probes in a while. It might
 	//    still come back, but let's avoid it anyway.
 	//
 	for i := range nodes {
-		if nodes[i].WantDrain() || nodes[i].IsMissing(r.cfg, time.Now()) {
+		if nodes[i].HasRange(rng.Meta.Ident) {
+			log.Printf("node already has range (nID=%v)", nodes[i].Ident())
+			continue
+		}
+
+		if nodes[i].WantDrain() {
+			log.Printf("node wants drain (nID=%v)", nodes[i].Ident())
+			continue
+		}
+
+		if nodes[i].IsMissing(r.cfg, time.Now()) {
+			log.Printf("node is missing (nID=%v)", nodes[i].Ident())
 			continue
 		}
 
@@ -306,7 +356,7 @@ func (r *Roster) Candidate(rng *ranje.Range) (string, error) {
 	}
 
 	if len(candidates) == 0 {
-		return "", fmt.Errorf("no non-excluded nodes available for range: %v", rng)
+		return "", fmt.Errorf("no candidates available (rID=%v, c=%v)", rng.Meta.Ident, c)
 	}
 
 	// Pick the node with lowest utilization.
@@ -314,7 +364,7 @@ func (r *Roster) Candidate(rng *ranje.Range) (string, error) {
 	//       node, and is generally totally insufficient.
 
 	sort.Slice(candidates, func(i, j int) bool {
-		return nodes[i].Utilization() < nodes[j].Utilization()
+		return nodes[candidates[i]].Utilization() < nodes[candidates[j]].Utilization()
 	})
 
 	return nodes[candidates[0]].Ident(), nil

@@ -2,55 +2,73 @@ package ranje
 
 import pb "github.com/adammck/ranger/pkg/proto/gen"
 
-type StatePlacement uint8
+type PlacementState uint8
 
 const (
 	// Should never be in this state. Indicates an deserializing error.
-	SpUnknown StatePlacement = iota
+	PsUnknown PlacementState = iota
 
-	// Initial state. The placement exists, but we haven't done anything with it
-	// yet.
-	SpPending
-
-	SpFetching
-	SpFetched
-	SpFetchFailed
-	SpReady
-	SpTaken
-	SpDropped
-
-	// The controller expected the placement to be on some node in some other
-	// state, but when probed, the node didn't know about it. That's bad news!
-	// Placements entering this state are immediately discarded, so we should
-	// never see this state in durable storage.
-	SpGone
+	PsPending
+	PsPrepared
+	PsReady
+	PsTaken
+	PsGiveUp
+	PsDropped
 )
 
-//go:generate stringer -type=StatePlacement -output=zzz_state_placement_string.go
+type PlacementStateTransition struct {
+	from PlacementState
+	to   PlacementState
+}
 
-func (s StatePlacement) ToProto() pb.PlacementState {
+var PlacementStateTransitions []PlacementStateTransition
+
+func init() {
+	PlacementStateTransitions = []PlacementStateTransition{
+		// Happy Path
+		{PsPending, PsPrepared},
+		{PsPrepared, PsReady},
+		{PsReady, PsTaken},
+		{PsTaken, PsDropped},
+
+		// Error paths
+		{PsPending, PsGiveUp},
+		{PsPrepared, PsGiveUp},
+		{PsReady, PsGiveUp},
+		{PsTaken, PsGiveUp},
+
+		// Recovery?
+		{PsGiveUp, PsDropped},
+	}
+}
+
+//go:generate stringer -type=PlacementState -output=zzz_state_placement_string.go
+
+func (s PlacementState) ToProto() pb.PlacementState {
 	switch s {
-	case SpUnknown:
+	case PsUnknown:
 		return pb.PlacementState_PS_UNKNOWN
-	case SpPending:
+
+	case PsPending:
 		return pb.PlacementState_PS_PENDING
-	case SpFetching:
-		return pb.PlacementState_PS_FETCHING
-	case SpFetched:
-		return pb.PlacementState_PS_FETCHED
-	case SpFetchFailed:
-		return pb.PlacementState_PS_FETCH_FAILED
-	case SpReady:
+
+	case PsPrepared:
+		return pb.PlacementState_PS_PREPARED
+
+	case PsReady:
 		return pb.PlacementState_PS_READY
-	case SpTaken:
+
+	case PsTaken:
 		return pb.PlacementState_PS_TAKEN
-	case SpDropped:
+
+	case PsGiveUp:
+		return pb.PlacementState_PS_GIVE_UP
+
+	case PsDropped:
 		return pb.PlacementState_PS_DROPPED
-	case SpGone:
-		// Should never actually appear in proto.
-		return pb.PlacementState_PS_GONE
+
 	}
 
 	// Probably a state was added but this method wasn't updated.
-	panic("unknown StatePlacement value!")
+	panic("unknown PlacementState value!")
 }

@@ -7,7 +7,6 @@ import (
 
 // Ident is the unique identity of a range. It's just a uint64.
 
-// See: ranger/pkg/proto/models.Ident
 type Ident uint64
 
 var ZeroRange Ident
