@@ -3,20 +3,17 @@ package fake_nodes
 import (
 	"fmt"
 	"log"
-	"net"
 	"testing"
 
 	"context"
 
 	"github.com/adammck/ranger/pkg/discovery"
 	mockdisc "github.com/adammck/ranger/pkg/discovery/mock"
-	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster/info"
 	"github.com/adammck/ranger/pkg/roster/state"
 	"github.com/adammck/ranger/pkg/test/fake_node"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/test/bufconn"
 )
 
 type TestNodes struct {
@@ -43,6 +40,7 @@ func (tn *TestNodes) Close() {
 }
 
 func (tn *TestNodes) Add(ctx context.Context, remote discovery.Remote, rangeInfos map[ranje.Ident]*info.RangeInfo) {
+
 	n := fake_node.NewTestNode(rangeInfos)
 	tn.nodes[remote.Ident] = n
 
@@ -124,22 +122,4 @@ func (tn *TestNodes) NodeConnFactory(ctx context.Context, remote discovery.Remot
 
 func (tn *TestNodes) Discovery() *mockdisc.MockDiscovery {
 	return tn.disc
-}
-
-func nodeServer(ctx context.Context, node *fake_node.TestNode) (*grpc.ClientConn, func()) {
-	listener := bufconn.Listen(1024 * 1024)
-
-	s := grpc.NewServer()
-	pb.RegisterNodeServer(s, node)
-	go func() {
-		if err := s.Serve(listener); err != nil {
-			panic(err)
-		}
-	}()
-
-	conn, _ := grpc.DialContext(ctx, "", grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
-		return listener.Dial()
-	}), grpc.WithInsecure(), grpc.WithBlock())
-
-	return conn, s.Stop
 }

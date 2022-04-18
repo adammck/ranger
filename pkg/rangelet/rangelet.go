@@ -9,6 +9,7 @@ import (
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster/info"
 	"github.com/adammck/ranger/pkg/roster/state"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -17,18 +18,25 @@ type Rangelet struct {
 	info map[ranje.Ident]*info.RangeInfo
 	sync.RWMutex
 
+	s Storage
+
 	xWantDrain uint32
 
 	srv *NodeServer
 }
 
-func NewRangelet() *Rangelet {
+func NewRangelet(sr grpc.ServiceRegistrar, s Storage) *Rangelet {
 	r := &Rangelet{
 		info: map[ranje.Ident]*info.RangeInfo{},
+		s:    s,
 	}
 
-	// TODO: Serve this when?
+	for _, ri := range s.Read() {
+		r.info[ri.Meta.Ident] = ri
+	}
+
 	r.srv = NewNodeServer(r)
+	r.srv.Register(sr)
 
 	return r
 }

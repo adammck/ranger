@@ -3,202 +3,217 @@ package fake_node
 import (
 	"context"
 	"fmt"
-	"log"
+	"net"
 	"sort"
-	"sync"
 
 	pb "github.com/adammck/ranger/pkg/proto/gen"
+	"github.com/adammck/ranger/pkg/rangelet"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster/info"
-	"github.com/adammck/ranger/pkg/roster/state"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/test/bufconn"
 )
 
-type testRange struct {
-	Info *info.RangeInfo
-}
-
-// TODO: Most of this should be moved into a client library. Rangelet?
 type TestNode struct {
-	pb.UnimplementedNodeServer
-
-	// TODO: Move this to an outer object, with srv and ranges. We're currently
-	//       using the nodeServer for both, which is pretty weird.
-	TestRanges map[ranje.Ident]*testRange
-	sync.RWMutex
-
+	rglt *rangelet.Rangelet
 	rpcs []interface{}
 }
 
-func NewTestNode(rangeInfos map[ranje.Ident]*info.RangeInfo) *TestNode {
-	ranges := map[ranje.Ident]*testRange{}
+type Storage struct {
+	infos []*info.RangeInfo
+}
 
-	for rID, ri := range rangeInfos {
-		ranges[rID] = &testRange{Info: ri}
+func (s *Storage) Read() []*info.RangeInfo {
+	return s.infos
+}
+
+func NewTestNode(rangeInfos map[ranje.Ident]*info.RangeInfo) *TestNode {
+	s := grpc.NewServer()
+
+	infos := []*info.RangeInfo{}
+	for _, ri := range rangeInfos {
+		infos = append(infos, ri)
 	}
+
+	stor := Storage{infos: infos}
 
 	return &TestNode{
-		TestRanges: ranges,
+		rglt: rangelet.NewRangelet(s, &stor),
 	}
 }
 
-func (n *TestNode) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveResponse, error) {
-	log.Printf("TestNode.Give")
-	n.rpcs = append(n.rpcs, req)
+func nodeServer(ctx context.Context, s *grpc.Server, node *fake_node.TestNode) (*grpc.ClientConn, func()) {
+	listener := bufconn.Listen(1024 * 1024)
 
-	meta, err := ranje.MetaFromProto(req.Range)
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "error parsing range meta: %v", err)
-	}
-
-	var ri *info.RangeInfo
-
-	r, ok := n.getRange(meta.Ident)
-	if !ok {
-		ri = &info.RangeInfo{
-			Meta:  *meta,
-			State: state.NsPreparing,
+	go func() {
+		if err := s.Serve(listener); err != nil {
+			panic(err)
 		}
-		func() {
-			n.Lock()
-			defer n.Unlock()
-			n.TestRanges[ri.Meta.Ident] = &testRange{
-				Info: ri,
-			}
-		}()
-	} else {
-		switch r.Info.State {
-		case state.NsPreparing, state.NsPreparingError, state.NsPrepared:
-			// We already know about this range, and it's in one of the states
-			// that indicate a previous Give. This is a duplicate. Don't change
-			// any state, just return the RangeInfo to let the controller know
-			// how we're doing.
-			ri = r.Info
-		default:
-			return nil, status.Errorf(codes.InvalidArgument, "invalid state for redundant Give: %v", r.Info.State)
-		}
-	}
+	}()
 
-	return &pb.GiveResponse{
-		RangeInfo: ri.ToProto(),
-	}, nil
+	conn, _ := grpc.DialContext(ctx, "", grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+		return listener.Dial()
+	}), grpc.WithInsecure(), grpc.WithBlock())
+
+	return conn, s.Stop
 }
 
-func (n *TestNode) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.ServeResponse, error) {
-	log.Printf("TestNode.Serve")
-	n.rpcs = append(n.rpcs, req)
+// func (n *TestNode) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveResponse, error) {
+// 	log.Printf("TestNode.Give")
+// 	n.rpcs = append(n.rpcs, req)
 
-	rID, err := ranje.IdentFromProto(req.Range)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
+// 	meta, err := ranje.MetaFromProto(req.Range)
+// 	if err != nil {
+// 		return nil, status.Errorf(codes.InvalidArgument, "error parsing range meta: %v", err)
+// 	}
 
-	r, ok := n.getRange(rID)
-	if !ok {
-		return nil, status.Errorf(codes.InvalidArgument, "can't Serve unknown range: %v", rID)
-	}
+// 	var ri *info.RangeInfo
 
-	switch r.Info.State {
-	case state.NsPrepared:
-		// Actual state transition.
-		r.Info.State = state.NsReadying
+// 	r, ok := n.getRange(meta.Ident)
+// 	if !ok {
+// 		ri = &info.RangeInfo{
+// 			Meta:  *meta,
+// 			State: state.NsPreparing,
+// 		}
+// 		func() {
+// 			n.Lock()
+// 			defer n.Unlock()
+// 			n.TestRanges[ri.Meta.Ident] = &testRange{
+// 				Info: ri,
+// 			}
+// 		}()
+// 	} else {
+// 		switch r.Info.State {
+// 		case state.NsPreparing, state.NsPreparingError, state.NsPrepared:
+// 			// We already know about this range, and it's in one of the states
+// 			// that indicate a previous Give. This is a duplicate. Don't change
+// 			// any state, just return the RangeInfo to let the controller know
+// 			// how we're doing.
+// 			ri = r.Info
+// 		default:
+// 			return nil, status.Errorf(codes.InvalidArgument, "invalid state for redundant Give: %v", r.Info.State)
+// 		}
+// 	}
 
-	case state.NsReadying, state.NsReady:
-		log.Printf("got redundant Serve")
+// 	return &pb.GiveResponse{
+// 		RangeInfo: ri.ToProto(),
+// 	}, nil
+// }
 
-	default:
-		return nil, status.Errorf(codes.InvalidArgument, "invalid state for Serve: %v", r.Info.State)
-	}
+// func (n *TestNode) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.ServeResponse, error) {
+// 	log.Printf("TestNode.Serve")
+// 	n.rpcs = append(n.rpcs, req)
 
-	return &pb.ServeResponse{
-		State: r.Info.State.ToProto(),
-	}, nil
-}
+// 	rID, err := ranje.IdentFromProto(req.Range)
+// 	if err != nil {
+// 		return nil, status.Error(codes.InvalidArgument, err.Error())
+// 	}
 
-func (n *TestNode) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeResponse, error) {
-	log.Printf("TestNode.Take")
-	n.rpcs = append(n.rpcs, req)
+// 	r, ok := n.getRange(rID)
+// 	if !ok {
+// 		return nil, status.Errorf(codes.InvalidArgument, "can't Serve unknown range: %v", rID)
+// 	}
 
-	rID, err := ranje.IdentFromProto(req.Range)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
+// 	switch r.Info.State {
+// 	case state.NsPrepared:
+// 		// Actual state transition.
+// 		r.Info.State = state.NsReadying
 
-	r, ok := n.getRange(rID)
-	if !ok {
-		return nil, status.Errorf(codes.InvalidArgument, "can't Take unknown range: %v", rID)
-	}
+// 	case state.NsReadying, state.NsReady:
+// 		log.Printf("got redundant Serve")
 
-	switch r.Info.State {
-	case state.NsReady:
-		// Actual state transition.
-		r.Info.State = state.NsTaking
+// 	default:
+// 		return nil, status.Errorf(codes.InvalidArgument, "invalid state for Serve: %v", r.Info.State)
+// 	}
 
-	case state.NsTaking, state.NsTaken:
-		log.Printf("got redundant Take")
+// 	return &pb.ServeResponse{
+// 		State: r.Info.State.ToProto(),
+// 	}, nil
+// }
 
-	default:
-		return nil, status.Errorf(codes.InvalidArgument, "invalid state for Take: %v", r.Info.State)
-	}
+// func (n *TestNode) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeResponse, error) {
+// 	log.Printf("TestNode.Take")
+// 	n.rpcs = append(n.rpcs, req)
 
-	return &pb.TakeResponse{
-		State: r.Info.State.ToProto(),
-	}, nil
-}
+// 	rID, err := ranje.IdentFromProto(req.Range)
+// 	if err != nil {
+// 		return nil, status.Error(codes.InvalidArgument, err.Error())
+// 	}
 
-func (n *TestNode) Drop(ctx context.Context, req *pb.DropRequest) (*pb.DropResponse, error) {
-	log.Printf("TestNode.Drop")
-	n.rpcs = append(n.rpcs, req)
+// 	r, ok := n.getRange(rID)
+// 	if !ok {
+// 		return nil, status.Errorf(codes.InvalidArgument, "can't Take unknown range: %v", rID)
+// 	}
 
-	rID, err := ranje.IdentFromProto(req.Range)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
+// 	switch r.Info.State {
+// 	case state.NsReady:
+// 		// Actual state transition.
+// 		r.Info.State = state.NsTaking
 
-	r, ok := n.getRange(rID)
-	if !ok {
-		log.Printf("got redundant Drop (no such range; maybe drop complete)")
+// 	case state.NsTaking, state.NsTaken:
+// 		log.Printf("got redundant Take")
 
-		// This is NOT a failure.
-		return &pb.DropResponse{
-			State: state.NsNotFound.ToProto(),
-		}, nil
-	}
+// 	default:
+// 		return nil, status.Errorf(codes.InvalidArgument, "invalid state for Take: %v", r.Info.State)
+// 	}
 
-	switch r.Info.State {
-	case state.NsTaken:
-		// Actual state transition. We don't actually drop anything here, only
-		// claim that we are doing so, to simulate a slow client. Test must call
-		// FinishDrop to move to NsDropped.
-		r.Info.State = state.NsDropping
+// 	return &pb.TakeResponse{
+// 		State: r.Info.State.ToProto(),
+// 	}, nil
+// }
 
-	case state.NsDropping:
-		log.Printf("got redundant Drop (drop in progress)")
+// func (n *TestNode) Drop(ctx context.Context, req *pb.DropRequest) (*pb.DropResponse, error) {
+// 	log.Printf("TestNode.Drop")
+// 	n.rpcs = append(n.rpcs, req)
 
-	default:
-		return nil, status.Errorf(codes.InvalidArgument, "invalid state for Drop: %v", r.Info.State)
-	}
+// 	rID, err := ranje.IdentFromProto(req.Range)
+// 	if err != nil {
+// 		return nil, status.Error(codes.InvalidArgument, err.Error())
+// 	}
 
-	return &pb.DropResponse{
-		State: r.Info.State.ToProto(),
-	}, nil
-}
+// 	r, ok := n.getRange(rID)
+// 	if !ok {
+// 		log.Printf("got redundant Drop (no such range; maybe drop complete)")
 
-func (n *TestNode) Info(ctx context.Context, req *pb.InfoRequest) (*pb.InfoResponse, error) {
-	log.Printf("TestNode.Info")
+// 		// This is NOT a failure.
+// 		return &pb.DropResponse{
+// 			State: state.NsNotFound.ToProto(),
+// 		}, nil
+// 	}
 
-	res := &pb.InfoResponse{
-		WantDrain: false,
-	}
+// 	switch r.Info.State {
+// 	case state.NsTaken:
+// 		// Actual state transition. We don't actually drop anything here, only
+// 		// claim that we are doing so, to simulate a slow client. Test must call
+// 		// FinishDrop to move to NsDropped.
+// 		r.Info.State = state.NsDropping
 
-	for _, r := range n.TestRanges {
-		res.Ranges = append(res.Ranges, r.Info.ToProto())
-	}
+// 	case state.NsDropping:
+// 		log.Printf("got redundant Drop (drop in progress)")
 
-	log.Printf("res: %v", res)
-	return res, nil
-}
+// 	default:
+// 		return nil, status.Errorf(codes.InvalidArgument, "invalid state for Drop: %v", r.Info.State)
+// 	}
+
+// 	return &pb.DropResponse{
+// 		State: r.Info.State.ToProto(),
+// 	}, nil
+// }
+
+// func (n *TestNode) Info(ctx context.Context, req *pb.InfoRequest) (*pb.InfoResponse, error) {
+// 	log.Printf("TestNode.Info")
+
+// 	res := &pb.InfoResponse{
+// 		WantDrain: false,
+// 	}
+
+// 	for _, r := range n.TestRanges {
+// 		res.Ranges = append(res.Ranges, r.Info.ToProto())
+// 	}
+
+// 	log.Printf("res: %v", res)
+// 	return res, nil
+// }
 
 func (n *TestNode) Ranges(ctx context.Context, req *pb.RangesRequest) (*pb.RangesResponse, error) {
 	panic("not imlemented!")

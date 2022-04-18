@@ -19,11 +19,11 @@ type NodeServer struct {
 
 func NewNodeServer(rangelet *Rangelet) *NodeServer {
 	ns := &NodeServer{r: rangelet}
-
-	s := grpc.NewServer()
-	pb.RegisterNodeServer(s, ns)
-
 	return ns
+}
+
+func (ns *NodeServer) Register(sr grpc.ServiceRegistrar) {
+	pb.RegisterNodeServer(sr, ns)
 }
 
 func (ns *NodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveResponse, error) {
