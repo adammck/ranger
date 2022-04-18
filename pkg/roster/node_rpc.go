@@ -14,17 +14,8 @@ import (
 
 const rpcTimeout = 1 * time.Second
 
-func (n *Node) spy(rpcType RpcType, rID ranje.Ident) {
-	if n.RpcSpy == nil {
-		return
-	}
-
-	n.RpcSpy <- RpcRecord{rpcType, n.Ident(), rID}
-}
-
 func (n *Node) Give(ctx context.Context, p *ranje.Placement, parents []*pb.Placement) error {
 	log.Printf("giving %s to %s...", p.LogString(), n.Ident())
-	n.spy(Give, p.Range().Meta.Ident)
 
 	// TODO: Do something sensible when this is called while a previous Give is
 	//       still in flight. Probably cancel the previous one first.
@@ -69,7 +60,6 @@ func (n *Node) Give(ctx context.Context, p *ranje.Placement, parents []*pb.Place
 func (n *Node) Serve(ctx context.Context, p *ranje.Placement) error {
 	log.Printf("serving %s to %s...", p.LogString(), n.Ident())
 	rID := p.Range().Meta.Ident
-	n.spy(Serve, rID)
 
 	// TODO: Include range parents
 	req := &pb.ServeRequest{
@@ -106,7 +96,6 @@ func (n *Node) Serve(ctx context.Context, p *ranje.Placement) error {
 func (n *Node) Take(ctx context.Context, p *ranje.Placement) error {
 	log.Printf("taking %s from %s...", p.LogString(), n.Ident())
 	rID := p.Range().Meta.Ident
-	n.spy(Take, rID)
 
 	// TODO: Include range parents
 	req := &pb.TakeRequest{
@@ -143,7 +132,6 @@ func (n *Node) Take(ctx context.Context, p *ranje.Placement) error {
 func (n *Node) Drop(ctx context.Context, p *ranje.Placement) error {
 	log.Printf("dropping %s from %s...", p.LogString(), n.Ident())
 	rID := p.Range().Meta.Ident
-	n.spy(Drop, rID)
 
 	// TODO: Include range parents
 	req := &pb.DropRequest{

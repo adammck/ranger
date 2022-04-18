@@ -62,6 +62,20 @@ func (tn *TestNodes) Get(nID string) *fake_node.TestNode {
 	return n
 }
 
+// RPCs returns a map of NodeID to the (protos) requests which have been
+// received by any node since the last time this method was called.
+func (tn *TestNodes) RPCs() map[string][]interface{} {
+	ret := map[string][]interface{}{}
+
+	for nID, n := range tn.nodes {
+		if rpcs := n.RPCs(); len(rpcs) > 0 {
+			ret[nID] = rpcs
+		}
+	}
+
+	return ret
+}
+
 func (tn *TestNodes) RangeState(nID string, rID ranje.Ident, state state.RemoteState) {
 	n, ok := tn.nodes[nID]
 	if !ok {

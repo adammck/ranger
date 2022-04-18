@@ -41,9 +41,6 @@ type Roster struct {
 
 	// To be stubbed when testing.
 	NodeConnFactory func(ctx context.Context, remote discovery.Remote) (*grpc.ClientConn, error)
-
-	// Also for testing: see Node.RpcSpy
-	RpcSpy chan RpcRecord
 }
 
 func New(cfg config.Config, disc discovery.Discoverable, add, remove func(rem *discovery.Remote), info chan info.NodeInfo) *Roster {
@@ -146,12 +143,6 @@ func (ros *Roster) discover() {
 			}
 
 			n = NewNode(r, conn)
-
-			// TODO: Maybe there is a cleaner way of doing this...
-			if ros.RpcSpy != nil {
-				n.RpcSpy = ros.RpcSpy
-			}
-
 			ros.Nodes[r.Ident] = n
 			log.Printf("added node: %v", n.Ident())
 
