@@ -388,7 +388,7 @@ func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 		// TODO: Keep track of how many times we've tried this and for how long.
 		//       We'll want to give up if it takes too long to prepare.
 		b.RPC(func() {
-			err := n.Give(context.Background(), p)
+			err := n.Give(context.Background(), p, getParents(b.ks, b.rost, p.Range()))
 			if err != nil {
 				log.Printf("error giving %v to %s: %v", p.LogString(), n.Ident(), err)
 			}
@@ -568,4 +568,60 @@ func (b *Balancer) RPC(f func()) {
 		f()
 		b.rpcWG.Done()
 	}()
+}
+
+func getParents(ks *ranje.Keyspace, rost *roster.Roster, rang *ranje.Range) []*pb.Placement {
+	parents := []*pb.Placement{}
+	seen := map[ranje.Ident]struct{}{}
+	addParents(ks, rost, rang, &parents, seen)
+	return parents
+}
+
+func addParents(ks *ranje.Keyspace, rost *roster.Roster, rang *ranje.Range, parents *[]*pb.Placement, seen map[ranje.Ident]struct{}) {
+
+	// Don't bother serializing the same placement many times. (The range tree
+	// won't have cycles, but is also not a DAG.)
+	_, ok := seen[rang.Meta.Ident]
+	if ok {
+		return
+	}
+
+	*parents = append(*parents, pbPlacement(rost, rang))
+	seen[rang.Meta.Ident] = struct{}{}
+
+	for _, rID := range rang.Parents {
+		r, err := ks.Get(rID)
+		if err != nil {
+			// TODO: Think about how to recover from this. It's bad.
+			panic(fmt.Sprintf("getting range with ident %v: %v", rID, err))
+		}
+
+		addParents(ks, rost, r, parents, seen)
+	}
+}
+
+func pbPlacement(rost *roster.Roster, r *ranje.Range) *pb.Placement {
+
+	// Include the address of the node where the range is currently placed, if
+	// it's in a state where it can be fetched.
+	//
+	// TODO: The kv example doesn't care about range history, because it has no
+	//       external write log, so can only fetch from nodes. So we can skip
+	//       sending them at all. Maybe add a controller feature flag?
+	//
+	node := ""
+	for _, p := range r.Placements {
+		if p.State == ranje.PsReady || p.State == ranje.PsTaken {
+			n := rost.NodeByIdent(p.NodeID)
+			if n != nil {
+				node = n.Addr()
+				break
+			}
+		}
+	}
+
+	return &pb.Placement{
+		Range: r.Meta.ToProto(),
+		Node:  node,
+	}
 }

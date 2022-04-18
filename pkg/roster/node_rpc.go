@@ -22,16 +22,16 @@ func (n *Node) spy(rpcType RpcType, rID ranje.Ident) {
 	n.RpcSpy <- RpcRecord{rpcType, n.Ident(), rID}
 }
 
-func (n *Node) Give(ctx context.Context, p *ranje.Placement) error {
+func (n *Node) Give(ctx context.Context, p *ranje.Placement, parents []*pb.Placement) error {
 	log.Printf("giving %s to %s...", p.LogString(), n.Ident())
 	n.spy(Give, p.Range().Meta.Ident)
 
 	// TODO: Do something sensible when this is called while a previous Give is
 	//       still in flight. Probably cancel the previous one first.
 
-	// TODO: Include range parents
 	req := &pb.GiveRequest{
-		Range: p.Range().Meta.ToProto(),
+		Range:   p.Range().Meta.ToProto(),
+		Parents: parents,
 	}
 
 	// TODO: Move outside this func?

@@ -53,6 +53,15 @@ func (tn *TestNodes) Add(ctx context.Context, remote discovery.Remote, rangeInfo
 	tn.disc.Add("node", remote)
 }
 
+func (tn *TestNodes) Get(nID string) *fake_node.TestNode {
+	n, ok := tn.nodes[nID]
+	if !ok {
+		panic(fmt.Sprintf("no such node: %s", nID))
+	}
+
+	return n
+}
+
 func (tn *TestNodes) RangeState(nID string, rID ranje.Ident, state state.RemoteState) {
 	n, ok := tn.nodes[nID]
 	if !ok {

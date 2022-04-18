@@ -2,7 +2,9 @@ package fake_node
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"sort"
 	"sync"
 
 	pb "github.com/adammck/ranger/pkg/proto/gen"
@@ -25,6 +27,8 @@ type TestNode struct {
 	//       using the nodeServer for both, which is pretty weird.
 	TestRanges map[ranje.Ident]*testRange
 	sync.RWMutex
+
+	rpcs []interface{}
 }
 
 func NewTestNode(rangeInfos map[ranje.Ident]*info.RangeInfo) *TestNode {
@@ -41,6 +45,7 @@ func NewTestNode(rangeInfos map[ranje.Ident]*info.RangeInfo) *TestNode {
 
 func (n *TestNode) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveResponse, error) {
 	log.Printf("TestNode.Give")
+	n.rpcs = append(n.rpcs, req)
 
 	meta, err := ranje.MetaFromProto(req.Range)
 	if err != nil {
@@ -82,6 +87,7 @@ func (n *TestNode) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveRespo
 
 func (n *TestNode) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.ServeResponse, error) {
 	log.Printf("TestNode.Serve")
+	n.rpcs = append(n.rpcs, req)
 
 	rID, err := ranje.IdentFromProto(req.Range)
 	if err != nil {
@@ -112,6 +118,7 @@ func (n *TestNode) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.ServeRe
 
 func (n *TestNode) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeResponse, error) {
 	log.Printf("TestNode.Take")
+	n.rpcs = append(n.rpcs, req)
 
 	rID, err := ranje.IdentFromProto(req.Range)
 	if err != nil {
@@ -142,6 +149,7 @@ func (n *TestNode) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeRespo
 
 func (n *TestNode) Drop(ctx context.Context, req *pb.DropRequest) (*pb.DropResponse, error) {
 	log.Printf("TestNode.Drop")
+	n.rpcs = append(n.rpcs, req)
 
 	rID, err := ranje.IdentFromProto(req.Range)
 	if err != nil {
@@ -201,4 +209,40 @@ func (n *TestNode) getRange(rID ranje.Ident) (*testRange, bool) {
 	defer n.RUnlock()
 	tr, ok := n.TestRanges[rID]
 	return tr, ok
+}
+
+// RPCs returns a slice of the (proto) requests received by this node since the
+// last time that this method was called, in a deterministic-ish order. This is
+// an ugly hack because asserting that an unordered bunch of protos were all
+// sent is hard.
+func (n *TestNode) RPCs() []interface{} {
+	ret := n.rpcs
+	n.rpcs = nil
+
+	val := func(i int) int {
+
+		switch v := ret[i].(type) {
+		case *pb.GiveRequest:
+			return 100 + int(v.Range.Ident)
+
+		case *pb.ServeRequest:
+			return 200 + int(v.Range)
+
+		case *pb.TakeRequest:
+			return 300 + int(v.Range)
+
+		case *pb.DropRequest:
+			return 400 + int(v.Range)
+
+		default:
+			panic(fmt.Sprintf("unhandled type: %T\n", v))
+		}
+	}
+
+	// Sort by the Ident of the Range.
+	sort.Slice(ret, func(i, j int) bool {
+		return val(i) < val(j)
+	})
+
+	return ret
 }

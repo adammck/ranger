@@ -1,6 +1,7 @@
 package balancer
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -9,13 +10,16 @@ import (
 
 	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
+	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
 	"github.com/adammck/ranger/pkg/roster/info"
 	"github.com/adammck/ranger/pkg/roster/state"
 	"github.com/adammck/ranger/pkg/test/fake_nodes"
+	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/suite"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/testing/protocmp"
 )
 
 type BalancerSuite struct {
@@ -27,6 +31,13 @@ type BalancerSuite struct {
 	rost  *roster.Roster
 	spy   *RpcSpy
 	bal   *Balancer
+}
+
+// ProtoEqual is a helper to compare two slices of protobufs. It's not great.
+func (ts *BalancerSuite) ProtoEqual(expected, actual interface{}) {
+	if diff := cmp.Diff(expected, actual, protocmp.Transform()); diff != "" {
+		ts.Fail(fmt.Sprintf("Not equal (-want +got):\n%s\n", diff))
+	}
 }
 
 // GetRange returns a range from the test's keyspace or fails the test.
@@ -134,7 +145,28 @@ func (ts *BalancerSuite) TestPlacement() {
 	ts.Equal("{test-aaa []}", ts.rost.TestString())
 
 	ts.bal.Tick()
-	ts.Equal([]roster.RpcRecord{{Type: roster.Give, Node: "test-aaa", Range: 1}}, ts.spy.Get())
+	rpcs := ts.nodes.Get("test-aaa").RPCs()
+	if ts.Len(rpcs, 1) {
+		ts.ProtoEqual(&pb.GiveRequest{
+			Range: &pb.RangeMeta{
+				Ident: 1,
+				Start: []byte(ranje.ZeroKey),
+				End:   []byte(ranje.ZeroKey),
+			},
+			// TODO: It's weird and kind of useless for this to be in here.
+			Parents: []*pb.Placement{
+				{
+					Range: &pb.RangeMeta{
+						Ident: 1,
+						Start: []byte(ranje.ZeroKey),
+						End:   []byte(ranje.ZeroKey),
+					},
+					Node: "",
+				},
+			},
+		}, rpcs[0])
+	}
+	ts.spy.Get() // Just to clear it while we transition
 	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsPreparing]}", ts.rost.TestString())
 	// TODO: Assert that new placement was persisted
@@ -160,7 +192,7 @@ func (ts *BalancerSuite) TestPlacement() {
 	// TODO: Maybe the state update should immediately trigger another tick just
 	//       for that placement? Would save a tick, but risks infinite loops.
 	ts.bal.Tick()
-	ts.Equal(0, len(ts.spy.Get()))
+	ts.Len(ts.spy.Get(), 0)
 	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsPrepared}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsPrepared]}", ts.rost.TestString())
 
@@ -179,7 +211,7 @@ func (ts *BalancerSuite) TestPlacement() {
 	ts.Equal("{test-aaa [1:NsReady]}", ts.rost.TestString())
 
 	ts.bal.Tick()
-	ts.Equal(0, len(ts.spy.Get()))
+	ts.Len(ts.spy.Get(), 0)
 	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsReady]}", ts.rost.TestString())
 
@@ -322,7 +354,7 @@ func (ts *BalancerSuite) TestMove() {
 	// Just updates state from roster.
 	// TODO: As above, should maybe trigger the next tick automatically.
 	ts.bal.Tick()
-	ts.Equal(0, len(ts.spy.Get())) // TODO: Replace all these with: ts.Empty(ts.spy.Get())
+	ts.Len(ts.spy.Get(), 0) // TODO: Replace all these with: ts.Empty(ts.spy.Get())
 	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady p1=test-bbb:PsPrepared:replacing(test-aaa)}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsReady]} {test-bbb [1:NsPrepared]}", ts.rost.TestString())
 
@@ -361,7 +393,7 @@ func (ts *BalancerSuite) TestMove() {
 	ts.Equal("{test-aaa [1:NsTaken]} {test-bbb [1:NsReady]}", ts.rost.TestString())
 
 	ts.bal.Tick()
-	ts.Equal(0, len(ts.spy.Get()))
+	ts.Len(ts.spy.Get(), 0)
 	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken p1=test-bbb:PsReady:replacing(test-aaa)}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsTaken]} {test-bbb [1:NsReady]}", ts.rost.TestString())
 
@@ -378,19 +410,19 @@ func (ts *BalancerSuite) TestMove() {
 	ts.Equal("{test-aaa []} {test-bbb [1:NsReady]}", ts.rost.TestString())
 
 	ts.bal.Tick()
-	ts.Equal(0, len(ts.spy.Get()))
+	ts.Len(ts.spy.Get(), 0)
 	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsDropped p1=test-bbb:PsReady:replacing(test-aaa)}", ts.ks.LogString())
 	ts.Equal("{test-aaa []} {test-bbb [1:NsReady]}", ts.rost.TestString())
 
 	// test-aaa is gone!
 	ts.bal.Tick()
-	ts.Equal(0, len(ts.spy.Get()))
+	ts.Len(ts.spy.Get(), 0)
 	ts.Equal("{1 [-inf, +inf] RsActive p0=test-bbb:PsReady:replacing(test-aaa)}", ts.ks.LogString())
 	ts.Equal("{test-aaa []} {test-bbb [1:NsReady]}", ts.rost.TestString())
 
 	// IsReplacing annotation is gone.
 	ts.bal.Tick()
-	ts.Equal(0, len(ts.spy.Get()))
+	ts.Len(ts.spy.Get(), 0)
 	ts.Equal("{1 [-inf, +inf] RsActive p0=test-bbb:PsReady}", ts.ks.LogString())
 	ts.Equal("{test-aaa []} {test-bbb [1:NsReady]}", ts.rost.TestString())
 
@@ -435,7 +467,7 @@ func (ts *BalancerSuite) TestSplit() {
 	ts.Equal("{test-aaa [1:NsReady]}", ts.rost.TestString())
 
 	ts.bal.Tick()
-	ts.Equal(0, len(ts.spy.Get()))
+	ts.Len(ts.spy.Get(), 0)
 	ts.Require().Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}", ts.ks.LogString())
 
 	// -------------------------------------------------------------------------
@@ -453,17 +485,68 @@ func (ts *BalancerSuite) TestSplit() {
 	// 1. Split initiated by controller. Node hasn't heard about it yet.
 
 	ts.bal.Tick()
-	ts.Equal(0, len(ts.spy.Get()))
+	ts.Len(ts.spy.Get(), 0)
 	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsReady} {2 [-inf, ccc] RsActive} {3 (ccc, +inf] RsActive}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsReady]}", ts.rost.TestString())
 
 	// 2. Controller places new ranges on nodes.
 
 	ts.bal.Tick()
-	ts.ElementsMatch([]roster.RpcRecord{
-		{Type: roster.Give, Node: "test-aaa", Range: 2},
-		{Type: roster.Give, Node: "test-aaa", Range: 3},
-	}, ts.spy.Get())
+
+	rpcs := ts.nodes.Get("test-aaa").RPCs()
+	if ts.Len(rpcs, 2) {
+		ts.ProtoEqual(&pb.GiveRequest{
+			Range: &pb.RangeMeta{
+				Ident: 2,
+				Start: []byte(ranje.ZeroKey),
+				End:   []byte("ccc"),
+			},
+			Parents: []*pb.Placement{
+				{
+					Range: &pb.RangeMeta{
+						Ident: 2,
+						Start: []byte(ranje.ZeroKey),
+						End:   []byte("ccc"),
+					},
+					Node: "",
+				},
+				{
+					Range: &pb.RangeMeta{
+						Ident: 1,
+						Start: []byte(ranje.ZeroKey),
+						End:   []byte(ranje.ZeroKey),
+					},
+					Node: "host-aaa:1",
+				},
+			},
+		}, rpcs[0])
+		ts.ProtoEqual(&pb.GiveRequest{
+			Range: &pb.RangeMeta{
+				Ident: 3,
+				Start: []byte("ccc"),
+				End:   []byte(ranje.ZeroKey),
+			},
+			Parents: []*pb.Placement{
+				{
+					Range: &pb.RangeMeta{
+						Ident: 3,
+						Start: []byte("ccc"),
+						End:   []byte(ranje.ZeroKey),
+					},
+					Node: "",
+				},
+				{
+					Range: &pb.RangeMeta{
+						Ident: 1,
+						Start: []byte(ranje.ZeroKey),
+						End:   []byte(ranje.ZeroKey),
+					},
+					Node: "host-aaa:1",
+				},
+			},
+		}, rpcs[1])
+	}
+	ts.spy.Get() // Just to clear it while we transition
 	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsReady} {2 [-inf, ccc] RsActive p0=test-aaa:PsPending} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsReady, 2:NsPreparing, 3:NsPreparing]}", ts.rost.TestString())
 
@@ -492,7 +575,7 @@ func (ts *BalancerSuite) TestSplit() {
 	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsReady} {2 [-inf, ccc] RsActive p0=test-aaa:PsPrepared} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", ts.ks.LogString())
 
 	ts.bal.Tick()
-	ts.Equal(0, len(ts.spy.Get()))
+	ts.Len(ts.spy.Get(), 0)
 	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsReady} {2 [-inf, ccc] RsActive p0=test-aaa:PsPrepared} {3 (ccc, +inf] RsActive p0=test-aaa:PsPrepared}", ts.ks.LogString())
 
 	// 4. Controller takes placements in parent range.
