@@ -3,46 +3,109 @@ package fake_node
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"sort"
+	"testing"
+	"time"
 
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/rangelet"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster/info"
+	"github.com/adammck/ranger/pkg/roster/state"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/test/bufconn"
 )
 
+type rangeInState struct {
+	rID ranje.Ident
+	s   state.RemoteState
+}
+
 type TestNode struct {
-	rglt *rangelet.Rangelet
+	Addr string
+	srv  *grpc.Server // TODO: Do we need to keep this?
+	Conn *grpc.ClientConn
 	rpcs []interface{}
+
+	rglt *rangelet.Rangelet
+
+	// TODO: Locking.
+	transitions map[rangeInState]error
 }
 
-type Storage struct {
-	infos []*info.RangeInfo
-}
-
-func (s *Storage) Read() []*info.RangeInfo {
-	return s.infos
-}
-
-func NewTestNode(rangeInfos map[ranje.Ident]*info.RangeInfo) *TestNode {
-	s := grpc.NewServer()
-
+func NewTestNode(ctx context.Context, addr string, rangeInfos map[ranje.Ident]*info.RangeInfo) (*TestNode, func()) {
 	infos := []*info.RangeInfo{}
 	for _, ri := range rangeInfos {
 		infos = append(infos, ri)
 	}
 
-	stor := Storage{infos: infos}
+	srv := grpc.NewServer()
 
-	return &TestNode{
-		rglt: rangelet.NewRangelet(s, &stor),
+	tn := &TestNode{
+		Addr:        addr,
+		srv:         srv,
+		transitions: map[rangeInState]error{},
+	}
+
+	stor := Storage{infos: infos}
+	rglt := rangelet.NewRangelet(tn, srv, &stor)
+
+	// Rangelet has registered the NodeService by now.
+	conn, closer := tn.nodeServer(ctx, srv)
+	tn.Conn = conn
+
+	// TODO: Does the client actually need to talk back to the rangelet other
+	//       than via the callbacks? Probably for to update health of ranges?
+	//       but maybe that can just happen via the rangeinfos.
+	tn.rglt = rglt
+
+	return tn, closer
+}
+
+func (n *TestNode) waitUntil(rID ranje.Ident, src state.RemoteState) error {
+	ris := rangeInState{
+		rID: rID,
+		s:   src,
+	}
+
+	t := time.Now().Add(500 * time.Millisecond)
+
+	for {
+		if err, ok := n.transitions[ris]; ok {
+			log.Printf("advancing %v!\n", rID)
+			delete(n.transitions, ris)
+			return err
+		}
+
+		if time.Now().After(t) {
+			panic(fmt.Sprintf("test deadlocked waiting for %v to advance past %v on node %v", ris.rID, ris.s, n.Addr))
+		}
+
+		log.Println("zzz...")
+		time.Sleep(1 * time.Millisecond)
 	}
 }
 
-func nodeServer(ctx context.Context, s *grpc.Server, node *fake_node.TestNode) (*grpc.ClientConn, func()) {
+func (n *TestNode) PrepareAddShard(m ranje.Meta) error {
+	return n.waitUntil(m.Ident, state.NsPreparing)
+}
+
+func (n *TestNode) AddShard(rID ranje.Ident) error {
+	return n.waitUntil(rID, state.NsReadying)
+}
+
+func (n *TestNode) PrepareDropShard(rID ranje.Ident) error {
+	return n.waitUntil(rID, state.NsTaking)
+}
+
+func (n *TestNode) DropShard(rID ranje.Ident) error {
+	return n.waitUntil(rID, state.NsDropping)
+}
+
+// From: https://harrigan.xyz/blog/testing-go-grpc-server-using-an-in-memory-buffer-with-bufconn/
+func (n *TestNode) nodeServer(ctx context.Context, s *grpc.Server) (*grpc.ClientConn, func()) {
 	listener := bufconn.Listen(1024 * 1024)
 
 	go func() {
@@ -53,177 +116,118 @@ func nodeServer(ctx context.Context, s *grpc.Server, node *fake_node.TestNode) (
 
 	conn, _ := grpc.DialContext(ctx, "", grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 		return listener.Dial()
-	}), grpc.WithInsecure(), grpc.WithBlock())
+	}), grpc.WithInsecure(), grpc.WithBlock(), n.withSpyInterceptor())
 
 	return conn, s.Stop
 }
 
-// func (n *TestNode) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveResponse, error) {
-// 	log.Printf("TestNode.Give")
-// 	n.rpcs = append(n.rpcs, req)
+func (n *TestNode) spyInterceptor(
+	ctx context.Context,
+	method string,
+	req interface{},
+	res interface{},
+	cc *grpc.ClientConn,
+	invoker grpc.UnaryInvoker,
+	opts ...grpc.CallOption,
+) error {
 
-// 	meta, err := ranje.MetaFromProto(req.Range)
-// 	if err != nil {
-// 		return nil, status.Errorf(codes.InvalidArgument, "error parsing range meta: %v", err)
-// 	}
+	// TODO: Hack! Remove this! Update the tests to expect Info requests!
+	if method != "/ranger.Node/Info" {
+		n.rpcs = append(n.rpcs, req)
+	}
 
-// 	var ri *info.RangeInfo
+	err := invoker(ctx, method, req, res, cc, opts...)
+	log.Printf("RPC: method=%s; Error=%v", method, err)
+	return err
+}
 
-// 	r, ok := n.getRange(meta.Ident)
-// 	if !ok {
-// 		ri = &info.RangeInfo{
-// 			Meta:  *meta,
-// 			State: state.NsPreparing,
-// 		}
-// 		func() {
-// 			n.Lock()
-// 			defer n.Unlock()
-// 			n.TestRanges[ri.Meta.Ident] = &testRange{
-// 				Info: ri,
-// 			}
-// 		}()
-// 	} else {
-// 		switch r.Info.State {
-// 		case state.NsPreparing, state.NsPreparingError, state.NsPrepared:
-// 			// We already know about this range, and it's in one of the states
-// 			// that indicate a previous Give. This is a duplicate. Don't change
-// 			// any state, just return the RangeInfo to let the controller know
-// 			// how we're doing.
-// 			ri = r.Info
-// 		default:
-// 			return nil, status.Errorf(codes.InvalidArgument, "invalid state for redundant Give: %v", r.Info.State)
-// 		}
-// 	}
+func (n *TestNode) withSpyInterceptor() grpc.DialOption {
+	return grpc.WithUnaryInterceptor(n.spyInterceptor)
+}
 
-// 	return &pb.GiveResponse{
-// 		RangeInfo: ri.ToProto(),
-// 	}, nil
-// }
+func (n *TestNode) AdvanceTo(t *testing.T, rID ranje.Ident, new state.RemoteState, err error) {
+	var exp state.RemoteState
+	var wantErr bool
 
-// func (n *TestNode) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.ServeResponse, error) {
-// 	log.Printf("TestNode.Serve")
-// 	n.rpcs = append(n.rpcs, req)
+	switch new {
+	case state.NsPrepared:
+		exp = state.NsPreparing
+		wantErr = false
 
-// 	rID, err := ranje.IdentFromProto(req.Range)
-// 	if err != nil {
-// 		return nil, status.Error(codes.InvalidArgument, err.Error())
-// 	}
+	case state.NsPreparingError:
+		exp = state.NsPreparing
+		wantErr = true
 
-// 	r, ok := n.getRange(rID)
-// 	if !ok {
-// 		return nil, status.Errorf(codes.InvalidArgument, "can't Serve unknown range: %v", rID)
-// 	}
+	case state.NsReady:
+		exp = state.NsReadying
+		wantErr = false
 
-// 	switch r.Info.State {
-// 	case state.NsPrepared:
-// 		// Actual state transition.
-// 		r.Info.State = state.NsReadying
+	case state.NsReadyingError:
+		exp = state.NsReadying
+		wantErr = true
 
-// 	case state.NsReadying, state.NsReady:
-// 		log.Printf("got redundant Serve")
+	case state.NsTaken:
+		exp = state.NsTaking
+		wantErr = false
 
-// 	default:
-// 		return nil, status.Errorf(codes.InvalidArgument, "invalid state for Serve: %v", r.Info.State)
-// 	}
+	case state.NsTakingError:
+		exp = state.NsTaking
+		wantErr = true
 
-// 	return &pb.ServeResponse{
-// 		State: r.Info.State.ToProto(),
-// 	}, nil
-// }
+	case state.NsNotFound:
+		exp = state.NsDropping
+		wantErr = false
 
-// func (n *TestNode) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeResponse, error) {
-// 	log.Printf("TestNode.Take")
-// 	n.rpcs = append(n.rpcs, req)
+	case state.NsDroppingError:
+		exp = state.NsDropping
+		wantErr = true
 
-// 	rID, err := ranje.IdentFromProto(req.Range)
-// 	if err != nil {
-// 		return nil, status.Error(codes.InvalidArgument, err.Error())
-// 	}
+	default:
+		t.Fatalf("can't advance to state: %s", new)
+	}
 
-// 	r, ok := n.getRange(rID)
-// 	if !ok {
-// 		return nil, status.Errorf(codes.InvalidArgument, "can't Take unknown range: %v", rID)
-// 	}
+	// Check that current state matches expected state.
+	act := n.rglt.State(rID)
+	if act != exp {
+		t.Fatalf("can't advance to state %s when current state is %s (expected: %s)", new, act, exp)
+		return
+	}
 
-// 	switch r.Info.State {
-// 	case state.NsReady:
-// 		// Actual state transition.
-// 		r.Info.State = state.NsTaking
+	// Check that an error was given, if one was expected
+	if wantErr && err != nil {
+		t.Fatalf("need error to advance from %s to %s", exp, new)
+		return
 
-// 	case state.NsTaking, state.NsTaken:
-// 		log.Printf("got redundant Take")
+	} else if err != nil && !wantErr {
+		t.Fatalf("don't need and error to advance from %s to %s", exp, new)
+		return
+	}
 
-// 	default:
-// 		return nil, status.Errorf(codes.InvalidArgument, "invalid state for Take: %v", r.Info.State)
-// 	}
+	ris := rangeInState{
+		rID: rID,
+		s:   exp,
+	}
 
-// 	return &pb.TakeResponse{
-// 		State: r.Info.State.ToProto(),
-// 	}, nil
-// }
+	log.Printf("registering transition: (rID=%v, state=%s)\n", ris.rID, ris.s)
+	n.transitions[ris] = err
 
-// func (n *TestNode) Drop(ctx context.Context, req *pb.DropRequest) (*pb.DropResponse, error) {
-// 	log.Printf("TestNode.Drop")
-// 	n.rpcs = append(n.rpcs, req)
+	// Now wait until it's gone.
+	// This assumes that some other goroutine is sitting in waitUntil.
+	// TODO: Verify that before registering the transition. Fail the test if
+	//       we try to advance while nobody is waiting.
+	for {
+		if _, ok := n.transitions[ris]; !ok {
+			break
+		}
 
-// 	rID, err := ranje.IdentFromProto(req.Range)
-// 	if err != nil {
-// 		return nil, status.Error(codes.InvalidArgument, err.Error())
-// 	}
+		time.Sleep(1 * time.Millisecond)
+	}
 
-// 	r, ok := n.getRange(rID)
-// 	if !ok {
-// 		log.Printf("got redundant Drop (no such range; maybe drop complete)")
-
-// 		// This is NOT a failure.
-// 		return &pb.DropResponse{
-// 			State: state.NsNotFound.ToProto(),
-// 		}, nil
-// 	}
-
-// 	switch r.Info.State {
-// 	case state.NsTaken:
-// 		// Actual state transition. We don't actually drop anything here, only
-// 		// claim that we are doing so, to simulate a slow client. Test must call
-// 		// FinishDrop to move to NsDropped.
-// 		r.Info.State = state.NsDropping
-
-// 	case state.NsDropping:
-// 		log.Printf("got redundant Drop (drop in progress)")
-
-// 	default:
-// 		return nil, status.Errorf(codes.InvalidArgument, "invalid state for Drop: %v", r.Info.State)
-// 	}
-
-// 	return &pb.DropResponse{
-// 		State: r.Info.State.ToProto(),
-// 	}, nil
-// }
-
-// func (n *TestNode) Info(ctx context.Context, req *pb.InfoRequest) (*pb.InfoResponse, error) {
-// 	log.Printf("TestNode.Info")
-
-// 	res := &pb.InfoResponse{
-// 		WantDrain: false,
-// 	}
-
-// 	for _, r := range n.TestRanges {
-// 		res.Ranges = append(res.Ranges, r.Info.ToProto())
-// 	}
-
-// 	log.Printf("res: %v", res)
-// 	return res, nil
-// }
+	log.Println("advanced!")
+}
 
 func (n *TestNode) Ranges(ctx context.Context, req *pb.RangesRequest) (*pb.RangesResponse, error) {
 	panic("not imlemented!")
-}
-
-func (n *TestNode) getRange(rID ranje.Ident) (*testRange, bool) {
-	n.RLock()
-	defer n.RUnlock()
-	tr, ok := n.TestRanges[rID]
-	return tr, ok
 }
 
 // RPCs returns a slice of the (proto) requests received by this node since the
@@ -248,6 +252,9 @@ func (n *TestNode) RPCs() []interface{} {
 
 		case *pb.DropRequest:
 			return 400 + int(v.Range)
+
+		case *pb.InfoRequest:
+			return 500
 
 		default:
 			panic(fmt.Sprintf("unhandled type: %T\n", v))
