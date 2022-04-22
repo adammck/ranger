@@ -1,14 +1,12 @@
 package node
 
 import (
-	"bytes"
 	"context"
 	"log"
 	"net"
 	"sync"
 	"time"
 
-	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/reflection"
@@ -18,218 +16,128 @@ import (
 	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
 	consuldisc "github.com/adammck/ranger/pkg/discovery/consul"
-	pbr "github.com/adammck/ranger/pkg/proto/gen"
+	"github.com/adammck/ranger/pkg/rangelet"
 	"github.com/adammck/ranger/pkg/ranje"
-	"github.com/adammck/ranger/pkg/roster/state"
+	"github.com/adammck/ranger/pkg/roster/info"
 	consulapi "github.com/hashicorp/consul/api"
 )
 
-type key []byte
+// func (rd *RangeData) fetchMany(dest ranje.Meta, parents []*pbr.Placement) {
 
-// See also pb.RangeMeta.
-// TODO: Replace with ranje.Meta!
-type RangeMeta struct {
-	ident ranje.Ident
-	start []byte
-	end   []byte
-}
+// 	// Parse all the parents before spawning threads. This is fast and failure
+// 	// indicates a bug more than a transient problem.
+// 	rms := make([]*ranje.Meta, len(parents))
+// 	for i, p := range parents {
+// 		rms[i] = &rm
+// 	}
 
-func parseRangeMeta(r *pbr.RangeMeta) (RangeMeta, error) {
-	rID, err := ranje.IdentFromProto(r.Ident)
-	if err != nil {
-		return RangeMeta{}, err
-	}
+// 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+// 	defer cancel()
 
-	return RangeMeta{
-		ident: rID,
-		start: r.Start,
-		end:   r.End,
-	}, nil
-}
+// 	mu := sync.Mutex{}
 
-func (rm *RangeMeta) Contains(k key) bool {
-	return ((ranje.Key(rm.start) == ranje.ZeroKey || bytes.Compare(k, rm.start) >= 0) &&
-		(ranje.Key(rm.end) == ranje.ZeroKey || bytes.Compare(k, rm.end) < 0))
-}
+// 	// Fetch each source range in parallel.
+// 	g, ctx := errgroup.WithContext(ctx)
+// 	for i := range parents {
 
-// Doesn't have a mutex, since that probably happens outside, to synchronize with other structures.
-type Ranges struct {
-	ranges []RangeMeta
-}
+// 		// Ignore ranges which aren't currently assigned to any node. This kv
+// 		// example doesn't have an external write log, so if it isn't placed,
+// 		// there's nothing we can do with it.
+// 		//
+// 		// This includes ranges which are being placed for the first time, which
+// 		// includes new split/join ranges! That isn't an error. Their state is
+// 		// reassembled from their parents.
+// 		if parents[i].Node == "" {
+// 			//log.Printf("not fetching unplaced range: %s", rms[i].ident)
+// 			continue
+// 		}
 
-func NewRanges() Ranges {
-	return Ranges{ranges: make([]RangeMeta, 0)}
-}
+// 		// lol, golang
+// 		// https://golang.org/doc/faq#closures_and_goroutines
+// 		i := i
 
-func (rs *Ranges) Add(r RangeMeta) error {
-	rs.ranges = append(rs.ranges, r)
-	return nil
-}
+// 		g.Go(func() error {
+// 			return rd.fetchOne(ctx, &mu, dest, parents[i].Node, rms[i])
+// 		})
+// 	}
 
-func (rs *Ranges) Remove(ident ranje.Ident) {
-	idx := -1
+// 	if err := g.Wait(); err != nil {
+// 		return err
+// 		return
+// 	}
 
-	for i := range rs.ranges {
-		if rs.ranges[i].ident == ident {
-			idx = i
-			break
-		}
-	}
+// 	// Can't go straight into rsReady, because that allows writes. The source
+// 	// node(s) are still serving reads, and if we start writing, they'll be
+// 	// wrong. We can only serve reads until the assigner tells them to stop,
+// 	// which will redirect all reads to us. Then we can start writing.
+// 	rd.state = state.NsPrepared
+// }
 
-	// This REALLY SHOULD NOT happen, because the ident should have come
-	// straight of the range map, and we should still be under the same lock.
-	if idx == -1 {
-		panic("ident not found in range map")
-	}
+// func (rd *RangeData) fetchOne(ctx context.Context, mu *sync.Mutex, dest ranje.Meta, addr string, src *ranje.Meta) error {
+// 	if addr == "" {
+// 		log.Printf("FetchOne: %s with no addr", src.ident)
+// 		return nil
+// 	}
 
-	// jfc golang
-	// https://github.com/golang/go/wiki/SliceTricks#delete-without-preserving-order
-	rs.ranges[idx] = rs.ranges[len(rs.ranges)-1]
-	rs.ranges = rs.ranges[:len(rs.ranges)-1]
-}
+// 	log.Printf("FetchOne: %s from: %s", src.ident, addr)
 
-func (rs *Ranges) Find(k key) (ranje.Ident, bool) {
-	for _, rm := range rs.ranges {
-		if rm.Contains(k) {
-			return rm.ident, true
-		}
-	}
+// 	conn, err := grpc.DialContext(
+// 		ctx,
+// 		addr,
+// 		grpc.WithInsecure(),
+// 		grpc.WithBlock())
+// 	if err != nil {
+// 		// TODO: Probably a bit excessive
+// 		log.Fatalf("fail to dial: %v", err)
+// 	}
 
-	return ranje.ZeroRange, false
-}
+// 	client := pbkv.NewKVClient(conn)
 
-// Len returns the number of ranges this node has, in any state.
-func (rs *Ranges) Len() int {
-	return len(rs.ranges)
-}
+// 	res, err := client.Dump(ctx, &pbkv.DumpRequest{RangeIdent: uint64(src.ident)})
+// 	if err != nil {
+// 		log.Printf("FetchOne failed: %s from: %s: %s", src.ident, addr, err)
 
-// This is all specific to the kv example. Nothing generic in here.
-type RangeData struct {
-	data map[string][]byte
+// 		return err
+// 	}
 
-	// TODO: Move this to the rangemeta!!
-	state state.RemoteState // TODO: guard this
-}
+// 	// TODO: Optimize loading by including range start and end in the Dump response. If they match, can skip filtering.
 
-func (rd *RangeData) fetchMany(dest RangeMeta, parents []*pbr.Placement) {
+// 	c := 0
+// 	s := 0
+// 	mu.Lock()
+// 	for _, pair := range res.Pairs {
 
-	// Parse all the parents before spawning threads. This is fast and failure
-	// indicates a bug more than a transient problem.
-	rms := make([]*RangeMeta, len(parents))
-	for i, p := range parents {
-		rm, err := parseRangeMeta(p.Range)
-		if err != nil {
-			log.Printf("FetchMany failed fast: %s", err)
-			rd.state = state.NsPreparingError
-			return
-		}
-		rms[i] = &rm
-	}
+// 		// TODO: Untangle []byte vs string mess
+// 		if dest.Contains(pair.Key) {
+// 			rd.data[string(pair.Key)] = pair.Value
+// 			c += 1
+// 		} else {
+// 			s += 1
+// 		}
+// 	}
+// 	mu.Unlock()
+// 	log.Printf("Inserted %d keys from range %s via node %s (skipped %d)", c, src.ident, addr, s)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
+// 	return nil
+// }
 
-	mu := sync.Mutex{}
-
-	// Fetch each source range in parallel.
-	g, ctx := errgroup.WithContext(ctx)
-	for i := range parents {
-
-		// Ignore ranges which aren't currently assigned to any node. This kv
-		// example doesn't have an external write log, so if it isn't placed,
-		// there's nothing we can do with it.
-		//
-		// This includes ranges which are being placed for the first time, which
-		// includes new split/join ranges! That isn't an error. Their state is
-		// reassembled from their parents.
-		if parents[i].Node == "" {
-			//log.Printf("not fetching unplaced range: %s", rms[i].ident)
-			continue
-		}
-
-		// lol, golang
-		// https://golang.org/doc/faq#closures_and_goroutines
-		i := i
-
-		g.Go(func() error {
-			return rd.fetchOne(ctx, &mu, dest, parents[i].Node, rms[i])
-		})
-	}
-
-	if err := g.Wait(); err != nil {
-		rd.state = state.NsPreparingError
-		return
-	}
-
-	// Can't go straight into rsReady, because that allows writes. The source
-	// node(s) are still serving reads, and if we start writing, they'll be
-	// wrong. We can only serve reads until the assigner tells them to stop,
-	// which will redirect all reads to us. Then we can start writing.
-	rd.state = state.NsPrepared
-}
-
-func (rd *RangeData) fetchOne(ctx context.Context, mu *sync.Mutex, dest RangeMeta, addr string, src *RangeMeta) error {
-	if addr == "" {
-		log.Printf("FetchOne: %s with no addr", src.ident)
-		return nil
-	}
-
-	log.Printf("FetchOne: %s from: %s", src.ident, addr)
-
-	conn, err := grpc.DialContext(
-		ctx,
-		addr,
-		grpc.WithInsecure(),
-		grpc.WithBlock())
-	if err != nil {
-		// TODO: Probably a bit excessive
-		log.Fatalf("fail to dial: %v", err)
-	}
-
-	client := pbkv.NewKVClient(conn)
-
-	res, err := client.Dump(ctx, &pbkv.DumpRequest{RangeIdent: uint64(src.ident)})
-	if err != nil {
-		log.Printf("FetchOne failed: %s from: %s: %s", src.ident, addr, err)
-
-		return err
-	}
-
-	// TODO: Optimize loading by including range start and end in the Dump response. If they match, can skip filtering.
-
-	c := 0
-	s := 0
-	mu.Lock()
-	for _, pair := range res.Pairs {
-
-		// TODO: Untangle []byte vs string mess
-		if dest.Contains(pair.Key) {
-			rd.data[string(pair.Key)] = pair.Value
-			c += 1
-		} else {
-			s += 1
-		}
-	}
-	mu.Unlock()
-	log.Printf("Inserted %d keys from range %s via node %s (skipped %d)", c, src.ident, addr, s)
-
-	return nil
+type KeysVals struct {
+	data   map[string][]byte
+	writes bool
 }
 
 type Node struct {
 	cfg config.Config
 
-	data   map[ranje.Ident]*RangeData
-	ranges Ranges
-	mu     sync.RWMutex // guards data and ranges, todo: split into one for ranges, and one for each range in data
+	data map[ranje.Ident]*KeysVals
+	mu   sync.RWMutex // guards data
 
 	addrLis string
 	addrPub string
 	srv     *grpc.Server
 	disc    discovery.Discoverable
 
-	// Set by Node.DrainRanges.
-	wantDrain bool
+	rglt *rangelet.Rangelet
 
 	// Options
 	logReqs bool
@@ -237,248 +145,103 @@ type Node struct {
 
 // ---- control plane
 
-type nodeServer struct {
-	pbr.UnimplementedNodeServer
-	node *Node
-}
+func (n *Node) PrepareAddShard(rm ranje.Meta) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
 
-// TODO: most of this can be moved into the lib?
-func (n *nodeServer) Give(ctx context.Context, req *pbr.GiveRequest) (*pbr.GiveResponse, error) {
-	r := req.Range
-	if r == nil {
-		return nil, status.Error(codes.InvalidArgument, "missing: range")
-	}
-
-	rm, err := parseRangeMeta(r)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-
-	n.node.mu.Lock()
-	defer n.node.mu.Unlock()
-
-	// TODO: Look in Ranges instead here?
-	rd, ok := n.node.data[rm.ident]
+	_, ok := n.data[rm.Ident]
 	if ok {
 		// Special case: We already have this range, but gave up on fetching it.
 		// To keep things simple, delete it. it'll be added again (while still
 		// holding the lock) below.
-		if rd.state == state.NsPreparingError {
-			delete(n.node.data, rm.ident)
-			n.node.ranges.Remove(rm.ident)
+		// if rd.state == state.NsPreparingError {
+		// 	delete(n.node.data, rm.ident)
+		// 	n.node.ranges.Remove(rm.ident)
+		// }
 
-		} else {
-
-			log.Printf("Redundant Give: %s", rm.ident)
-			return &pbr.GiveResponse{
-				RangeInfo: &pbr.RangeInfo{
-					Meta:  r,
-					State: rd.state.ToProto(),
-				},
-			}, nil
-
-		}
+		panic("rangelet gave duplicate range!")
 	}
 
-	rd = &RangeData{
-		data:  make(map[string][]byte),
-		state: state.NsUnknown, // default
+	// TODO: How to get parents in here?
+	// if req.Parents != nil && len(req.Parents) > 0 {
+	// 	rd.fetchMany(rm, req.Parents)
+	// } else {
+	// 	// TODO: Restore support for this:
+	// 	// -- No current host nor parents. This is a brand new range. We're
+	// 	// -- probably initializing a new empty keyspace.
+	// 	// -- rd.state = state.NsReady
+	// 	rd.state = state.NsPrepared
+	// }
+
+	n.data[rm.Ident] = &KeysVals{
+		data:   map[string][]byte{},
+		writes: false,
 	}
 
-	if req.Parents != nil && len(req.Parents) > 0 {
-		rd.state = state.NsPreparing
-		rd.fetchMany(rm, req.Parents)
-
-	} else {
-
-		// TODO: Restore support for this:
-		// -- No current host nor parents. This is a brand new range. We're
-		// -- probably initializing a new empty keyspace.
-		// -- rd.state = state.NsReady
-
-		// Temporary
-		rd.state = state.NsPrepared
-
-	}
-
-	n.node.ranges.Add(rm)
-	n.node.data[rm.ident] = rd
-
-	log.Printf("Given: %s", rm.ident)
-	return &pbr.GiveResponse{
-		RangeInfo: &pbr.RangeInfo{
-			Meta:  r,
-			State: rd.state.ToProto(),
-		},
-	}, nil
+	log.Printf("Given: %s", rm.Ident)
+	return nil
 }
 
-func (s *nodeServer) Serve(ctx context.Context, req *pbr.ServeRequest) (*pbr.ServeResponse, error) {
+func (n *Node) AddShard(rID ranje.Ident) error {
 	// lol
-	s.node.mu.Lock()
-	defer s.node.mu.Unlock()
+	n.mu.Lock()
+	defer n.mu.Unlock()
 
-	ident, rd, err := s.getRangeData(req.Range)
-	if err != nil {
-		return nil, err
-	}
-
-	if rd.state != state.NsPrepared && !req.Force {
-		return nil, status.Error(codes.Aborted, "won't serve ranges not in the FETCHED state without FORCE")
-	}
-
-	rd.state = state.NsReady
-
-	log.Printf("Serving: %s", ident)
-	return &pbr.ServeResponse{}, nil
-}
-
-func (s *nodeServer) Take(ctx context.Context, req *pbr.TakeRequest) (*pbr.TakeResponse, error) {
-	// lol
-	s.node.mu.Lock()
-	defer s.node.mu.Unlock()
-
-	ident, rd, err := s.getRangeData(req.Range)
-	if err != nil {
-		return nil, err
-	}
-
-	if rd.state != state.NsReady {
-		return nil, status.Error(codes.FailedPrecondition, "can only take ranges in the READY state")
-	}
-
-	rd.state = state.NsTaken
-
-	log.Printf("Taken: %s", ident)
-	return &pbr.TakeResponse{}, nil
-}
-
-func (s *nodeServer) Untake(ctx context.Context, req *pbr.UntakeRequest) (*pbr.UntakeResponse, error) {
-	// lol
-	s.node.mu.Lock()
-	defer s.node.mu.Unlock()
-
-	ident, rd, err := s.getRangeData(req.Range)
-	if err != nil {
-		return nil, err
-	}
-
-	if rd.state != state.NsTaken {
-		return nil, status.Error(codes.FailedPrecondition, "can only untake ranges in the TAKEN state")
-	}
-
-	rd.state = state.NsReady
-
-	log.Printf("Untaken: %s", ident)
-	return &pbr.UntakeResponse{}, nil
-}
-
-func (s *nodeServer) Drop(ctx context.Context, req *pbr.DropRequest) (*pbr.DropResponse, error) {
-	// lol
-	s.node.mu.Lock()
-	defer s.node.mu.Unlock()
-
-	ident := ranje.Ident(req.Range)
-	if ident == 0 {
-		return nil, status.Error(codes.InvalidArgument, "missing: range")
-	}
-
-	rd, ok := s.node.data[ident]
+	kv, ok := n.data[rID]
 	if !ok {
-		log.Printf("got redundant Drop (no such range; maybe drop complete)")
-
-		// This is NOT a failure.
-		return &pbr.DropResponse{
-			State: state.NsNotFound.ToProto(),
-		}, nil
+		panic("rangelet tried to serve unknown range!")
 	}
 
-	// Skipping this for now; we'll need to cancel via a context in rd.
-	if rd.state == state.NsPreparing {
-		return nil, status.Error(codes.Unimplemented, "dropping ranges in the FETCHING state is not supported yet")
-	}
+	kv.writes = true
 
-	if rd.state != state.NsTaken && !req.Force {
-		return nil, status.Error(codes.Aborted, "won't drop ranges not in the TAKEN state without FORCE")
-	}
-
-	delete(s.node.data, ident)
-	s.node.ranges.Remove(ident)
-
-	log.Printf("Dropped: %s", ident)
-	return &pbr.DropResponse{
-		State: pbr.RangeNodeState_NOT_FOUND,
-	}, nil
+	log.Printf("Servng: %s", rID)
+	return nil
 }
 
-func (n *nodeServer) Info(ctx context.Context, req *pbr.InfoRequest) (*pbr.InfoResponse, error) {
-	res := &pbr.InfoResponse{
-		WantDrain: n.node.wantDrain,
-	}
+func (n *Node) PrepareDropShard(rID ranje.Ident) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
 
-	// lol
-	n.node.mu.Lock()
-	defer n.node.mu.Unlock()
-
-	// iterate range metadata
-	for _, r := range n.node.ranges.ranges {
-		d := n.node.data[r.ident]
-
-		res.Ranges = append(res.Ranges, &pbr.RangeInfo{
-			Meta: &pbr.RangeMeta{
-				Ident: uint64(r.ident),
-				Start: r.start,
-				End:   r.end,
-			},
-			State: d.state.ToProto(),
-			Keys:  uint64(len(d.data)),
-		})
-	}
-
-	return res, nil
-}
-
-func (n *nodeServer) Ranges(ctx context.Context, req *pbr.RangesRequest) (*pbr.RangesResponse, error) {
-	res := &pbr.RangesResponse{}
-
-	// lol
-	n.node.mu.Lock()
-	defer n.node.mu.Unlock()
-
-	// TODO: Filter out ranges based on req.Symbols (e.g. KV.Get)
-
-	for _, r := range n.node.ranges.ranges {
-		d := n.node.data[r.ident]
-
-		res.Ranges = append(res.Ranges, &pbr.RangeMetaState{
-			Meta: &pbr.RangeMeta{
-				Ident: uint64(r.ident),
-				// Empty when infinity
-				Start: r.start,
-				End:   r.end,
-			},
-
-			// TODO: This belongs in the RangeMeta.
-			State: d.state.ToProto(),
-		})
-	}
-
-	return res, nil
-}
-
-// Does not lock range map! You have do to that!
-func (s *nodeServer) getRangeData(pbi uint64) (ranje.Ident, *RangeData, error) {
-	ident := ranje.Ident(pbi)
-	if ident == 0 {
-		return ranje.ZeroRange, nil, status.Error(codes.InvalidArgument, "missing: range")
-	}
-
-	rd, ok := s.node.data[ident]
+	kv, ok := n.data[rID]
 	if !ok {
-		return ident, nil, status.Error(codes.InvalidArgument, "range not found")
+		panic("rangelet tried to serve unknown range!")
 	}
 
-	return ident, rd, nil
+	kv.writes = false
+
+	log.Printf("Taking: %s", rID)
+	return nil
+}
+
+// func (n *Node) Untake(ctx context.Context, req *pbr.UntakeRequest) (*pbr.UntakeResponse, error) {
+// 	// lol
+// 	s.node.mu.Lock()
+// 	defer s.node.mu.Unlock()
+
+// 	ident, rd, err := s.getRangeData(req.Range)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	if rd.state != state.NsTaken {
+// 		return nil, status.Error(codes.FailedPrecondition, "can only untake ranges in the TAKEN state")
+// 	}
+
+// 	rd.state = state.NsReady
+
+// 	log.Printf("Untaken: %s", ident)
+// 	return &pbr.UntakeResponse{}, nil
+// }
+
+func (n *Node) DropShard(rID ranje.Ident) error {
+	// lol
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	delete(n.data, rID)
+
+	log.Printf("Dropped: %s", rID)
+	return nil
 }
 
 // ---- data plane
@@ -503,8 +266,8 @@ func (s *kvServer) Dump(ctx context.Context, req *pbkv.DumpRequest) (*pbkv.DumpR
 		return nil, status.Error(codes.InvalidArgument, "range not found")
 	}
 
-	if rd.state != state.NsTaken {
-		return nil, status.Error(codes.FailedPrecondition, "can only dump ranges in the TAKEN state")
+	if rd.writes {
+		return nil, status.Error(codes.FailedPrecondition, "can only dump ranges while writes are disabled")
 	}
 
 	res := &pbkv.DumpResponse{}
@@ -525,7 +288,7 @@ func (s *kvServer) Get(ctx context.Context, req *pbkv.GetRequest) (*pbkv.GetResp
 	s.node.mu.Lock()
 	defer s.node.mu.Unlock()
 
-	ident, ok := s.node.ranges.Find(key(k))
+	ident, ok := s.node.rglt.Find(ranje.Key(k))
 	if !ok {
 		return nil, status.Error(codes.FailedPrecondition, "no valid range")
 	}
@@ -533,10 +296,6 @@ func (s *kvServer) Get(ctx context.Context, req *pbkv.GetRequest) (*pbkv.GetResp
 	rd, ok := s.node.data[ident]
 	if !ok {
 		panic("range found in map but no data?!")
-	}
-
-	if rd.state != state.NsReady && rd.state != state.NsPrepared && rd.state != state.NsTaken {
-		return nil, status.Error(codes.FailedPrecondition, "can only GET from ranges in the READY, FETCHED, and TAKEN states")
 	}
 
 	v, ok := rd.data[k]
@@ -562,7 +321,7 @@ func (s *kvServer) Put(ctx context.Context, req *pbkv.PutRequest) (*pbkv.PutResp
 	s.node.mu.Lock()
 	defer s.node.mu.Unlock()
 
-	ident, ok := s.node.ranges.Find(key(k))
+	ident, ok := s.node.rglt.Find(ranje.Key(k))
 	if !ok {
 		return nil, status.Error(codes.FailedPrecondition, "no valid range")
 	}
@@ -572,8 +331,8 @@ func (s *kvServer) Put(ctx context.Context, req *pbkv.PutRequest) (*pbkv.PutResp
 		panic("range found in map but no data?!")
 	}
 
-	if rd.state != state.NsReady {
-		return nil, status.Error(codes.FailedPrecondition, "can only PUT to ranges in the READY state")
+	if !rd.writes {
+		return nil, status.Error(codes.FailedPrecondition, "can only PUT to ranges unless writes are enabled")
 	}
 
 	if req.Value == nil {
@@ -591,13 +350,23 @@ func (s *kvServer) Put(ctx context.Context, req *pbkv.PutRequest) (*pbkv.PutResp
 
 func init() {
 	// Ensure that nodeServer implements the NodeServer interface
-	var ns *nodeServer = nil
-	var _ pbr.NodeServer = ns
+	var ns *Node = nil
+	var _ rangelet.Node = ns
 
 	// Ensure that kvServer implements the KVServer interface
 	var kvs *kvServer = nil
 	var _ pbkv.KVServer = kvs
 
+}
+
+type NopStorage struct {
+}
+
+func (s *NopStorage) Read() []*info.RangeInfo {
+	return nil
+}
+
+func (s *NopStorage) Write() {
 }
 
 func New(cfg config.Config, addrLis, addrPub string, logReqs bool) (*Node, error) {
@@ -614,10 +383,8 @@ func New(cfg config.Config, addrLis, addrPub string, logReqs bool) (*Node, error
 	}
 
 	n := &Node{
-		cfg:    cfg,
-		data:   make(map[ranje.Ident]*RangeData),
-		ranges: NewRanges(),
-
+		cfg:     cfg,
+		data:    map[ranje.Ident]*KeysVals{},
 		addrLis: addrLis,
 		addrPub: addrPub,
 		srv:     srv,
@@ -626,10 +393,10 @@ func New(cfg config.Config, addrLis, addrPub string, logReqs bool) (*Node, error
 		logReqs: logReqs,
 	}
 
-	ns := nodeServer{node: n}
-	kv := kvServer{node: n}
+	rglt := rangelet.NewRangelet(n, srv, &NopStorage{})
+	n.rglt = rglt
 
-	pbr.RegisterNodeServer(srv, &ns)
+	kv := kvServer{node: n}
 	pbkv.RegisterKVServer(srv, &kv)
 
 	return n, nil
@@ -693,13 +460,14 @@ func (n *Node) Run(ctx context.Context) error {
 	return nil
 }
 
+// TODO: Move this to rangelet?
 func (n *Node) DrainRanges() {
 	log.Printf("draining ranges...")
 
 	// This is included in probe responses. The next time the controller probes
 	// this node, it will notice that the node wants to drain (probably because
 	// it's shutting down), and start removing ranges.
-	n.wantDrain = true
+	n.rglt.SetWantDrain(true)
 
 	// Log the number of ranges remaining every five seconds while waiting.
 
@@ -712,10 +480,7 @@ func (n *Node) DrainRanges() {
 			case <-done:
 				return
 			case <-tick.C:
-				n.mu.RLock()
-				c := n.ranges.Len()
-				n.mu.RUnlock()
-
+				c := n.rglt.Len()
 				log.Printf("ranges remaining: %d", c)
 			}
 		}
@@ -724,11 +489,7 @@ func (n *Node) DrainRanges() {
 	// Block until the number of ranges hits zero.
 
 	for {
-		n.mu.RLock()
-		c := n.ranges.Len()
-		n.mu.RUnlock()
-
-		if c == 0 {
+		if c := n.rglt.Len(); c == 0 {
 			break
 		}
 

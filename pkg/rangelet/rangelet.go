@@ -201,6 +201,22 @@ func (r *Rangelet) drop(rID ranje.Ident) (*info.RangeInfo, error) {
 	return ri, nil
 }
 
+func (r *Rangelet) Find(k ranje.Key) (ranje.Ident, bool) {
+	for _, ri := range r.info {
+		if ri.Meta.Contains(k) {
+			return ri.Meta.Ident, true
+		}
+	}
+
+	return ranje.ZeroRange, false
+}
+
+func (r *Rangelet) Len() int {
+	r.RLock()
+	defer r.RUnlock()
+	return len(r.info)
+}
+
 func (r *Rangelet) walk(f func(*info.RangeInfo)) {
 	r.RLock()
 	defer r.RUnlock()
