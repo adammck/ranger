@@ -3,25 +3,18 @@ package node
 import (
 	"log"
 
+	"github.com/adammck/ranger/pkg/rangelet"
 	"github.com/adammck/ranger/pkg/ranje"
 )
 
 // ---- control plane
 
-func (n *Node) PrepareAddShard(rm ranje.Meta) error {
+func (n *Node) PrepareAddShard(rm ranje.Meta, parents []rangelet.Parent) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
 	_, ok := n.data[rm.Ident]
 	if ok {
-		// Special case: We already have this range, but gave up on fetching it.
-		// To keep things simple, delete it. it'll be added again (while still
-		// holding the lock) below.
-		// if rd.state == state.NsPreparingError {
-		// 	delete(n.node.data, rm.ident)
-		// 	n.node.ranges.Remove(rm.ident)
-		// }
-
 		panic("rangelet gave duplicate range!")
 	}
 

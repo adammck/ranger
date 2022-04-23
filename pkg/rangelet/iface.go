@@ -4,13 +4,24 @@ import (
 	"github.com/adammck/ranger/pkg/ranje"
 )
 
+type Placement struct {
+	Node  string
+	State ranje.PlacementState
+}
+
+type Parent struct {
+	Meta       ranje.Meta
+	Parents    []ranje.Ident
+	Placements []Placement
+}
+
 // These don't match the Prepare/Give/Take/Drop terminology used internally by
 // Ranger, but the Shard Manager paper uses these terms. Better to follow those
 // than invent our own.
 type Node interface {
 
 	// PrepareAddShard.
-	PrepareAddShard(m ranje.Meta) error
+	PrepareAddShard(m ranje.Meta, p []Parent) error
 
 	// AddShard
 	AddShard(rID ranje.Ident) error

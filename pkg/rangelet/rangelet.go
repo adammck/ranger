@@ -79,7 +79,7 @@ func (r *Rangelet) runThenUpdateState(rID ranje.Ident, success state.RemoteState
 	ri.State = s
 }
 
-func (r *Rangelet) give(rm ranje.Meta) (info.RangeInfo, error) {
+func (r *Rangelet) give(rm ranje.Meta, parents []Parent) (info.RangeInfo, error) {
 	rID := rm.Ident
 
 	// TODO: Release the lock while calling PrepareAddShard.
@@ -101,7 +101,7 @@ func (r *Rangelet) give(rm ranje.Meta) (info.RangeInfo, error) {
 		//       have to wait for the next Give to tell the controller they have
 		//       finished preparing.
 		go r.runThenUpdateState(rID, state.NsPrepared, state.NsPreparingError, func() error {
-			return r.n.PrepareAddShard(rm)
+			return r.n.PrepareAddShard(rm, parents)
 		})
 
 		return tmp, nil

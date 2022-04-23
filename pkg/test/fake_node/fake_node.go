@@ -88,7 +88,7 @@ func (n *TestNode) waitUntil(rID ranje.Ident, src state.RemoteState) error {
 	}
 }
 
-func (n *TestNode) PrepareAddShard(m ranje.Meta) error {
+func (n *TestNode) PrepareAddShard(m ranje.Meta, p []rangelet.Parent) error {
 	return n.waitUntil(m.Ident, state.NsPreparing)
 }
 

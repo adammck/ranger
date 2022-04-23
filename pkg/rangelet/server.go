@@ -26,13 +26,50 @@ func (ns *NodeServer) Register(sr grpc.ServiceRegistrar) {
 	pb.RegisterNodeServer(sr, ns)
 }
 
+func parentsFromProto(prot []*pb.Parent) ([]Parent, error) {
+	p := []Parent{}
+
+	for _, pp := range prot {
+		m, err := ranje.MetaFromProto(pp.Range)
+		if err != nil {
+			return p, err
+		}
+
+		parentIds := make([]ranje.Ident, len(pp.Parent))
+		for i := range pp.Parent {
+			parentIds[i] = ranje.Ident(pp.Parent[i])
+		}
+
+		placements := make([]Placement, len(pp.Placements))
+		for i := range pp.Placements {
+			placements[i] = Placement{
+				Node:  pp.Placements[i].Node,
+				State: ranje.PlacementStateFromProto(&pp.Placements[i].State),
+			}
+		}
+
+		p = append(p, Parent{
+			Meta:       *m,
+			Parents:    parentIds,
+			Placements: placements,
+		})
+	}
+
+	return p, nil
+}
+
 func (ns *NodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveResponse, error) {
 	meta, err := ranje.MetaFromProto(req.Range)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "error parsing range meta: %v", err)
 	}
 
-	ri, err := ns.r.give(*meta)
+	parents, err := parentsFromProto(req.Parents)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "error parsing parents: %v", err)
+	}
+
+	ri, err := ns.r.give(*meta, parents)
 	if err != nil {
 		return nil, err
 	}
