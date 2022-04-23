@@ -2,21 +2,20 @@ package rangelet
 
 import (
 	"github.com/adammck/ranger/pkg/ranje"
-	"github.com/adammck/ranger/pkg/roster/info"
 )
 
-type Storage interface {
-	Read() []*info.RangeInfo
-	Write()
-}
-
+// These don't match the Prepare/Give/Take/Drop terminology used internally by
+// Ranger, but the Shard Manager paper uses these terms. Better to follow those
+// than invent our own.
 type Node interface {
 
-	// These don't match the Prepare/Give/Take/Drop terminology used internally
-	// by Ranger, but the Shard Manager paper uses these terms, so might as well
-	// follow that.
+	// PrepareAddShard.
 	PrepareAddShard(m ranje.Meta) error
+
+	// AddShard
 	AddShard(rID ranje.Ident) error
+
+	// PrepareDropShard
 	PrepareDropShard(rID ranje.Ident) error
 
 	// DropShard
