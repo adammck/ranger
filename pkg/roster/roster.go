@@ -14,6 +14,7 @@ import (
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster/info"
+	"github.com/adammck/ranger/pkg/roster/state"
 	"google.golang.org/grpc"
 )
 
@@ -97,24 +98,51 @@ func (ros *Roster) NodeByIdent(nodeIdent string) *Node {
 	return nil
 }
 
-// Locate returns the list of node IDs that the given key can be found on, in
-// any state.
-// TODO: Allow the Map to be filtered by state.
-func (ros *Roster) Locate(k ranje.Key) []string {
-	nodes := []string{}
+// Location is returned by the Locate method. Don't use it for anything else.
+type Location struct {
+	Node string
+	Info info.RangeInfo
+}
+
+// Locate returns the list of node IDs that the given key can be found on, and
+// the state of the range containing the key.
+func (ros *Roster) Locate(k ranje.Key) []Location {
+	return ros.LocateInState(k, []state.RemoteState{})
+}
+
+func (ros *Roster) LocateInState(k ranje.Key, states []state.RemoteState) []Location {
+	nodes := []Location{}
 
 	ros.RLock()
 	defer ros.RUnlock()
 
 	// look i'm in a hurry here okay
-	for nid, n := range ros.Nodes {
+	for _, n := range ros.Nodes {
 		func() {
 			n.muRanges.RLock()
 			defer n.muRanges.RUnlock()
 
 			for _, info := range n.ranges {
 				if info.Meta.Contains(k) {
-					nodes = append(nodes, nid)
+
+					// Skip if not in one of given states.
+					if len(states) > 0 {
+						ok := false
+						for _, s := range states {
+							if info.State == s {
+								ok = true
+								break
+							}
+						}
+						if !ok {
+							continue
+						}
+					}
+
+					nodes = append(nodes, Location{
+						Node: n.Ident(),
+						Info: *info,
+					})
 				}
 			}
 		}()

@@ -125,8 +125,10 @@ func (p *Proxy) Run(ctx context.Context) error {
 		return err
 	}
 
-	// Start roster. Periodically asks all nodes for their ranges.
-	ticker := time.NewTicker(1005 * time.Millisecond)
+	// Start roster. Periodically asks all nodes for their ranges. Beware that
+	// during range moves, our range map will lag by at least this much, which
+	// will cause queries to block while they retry.
+	ticker := time.NewTicker(1000 * time.Millisecond)
 	go p.rost.Run(ticker)
 
 	// Block until context is cancelled, indicating that caller wants shutdown.

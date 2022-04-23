@@ -37,12 +37,12 @@ func (s *kvServer) Dump(ctx context.Context, req *pbkv.DumpRequest) (*pbkv.DumpR
 	}
 
 	if rd.writes {
-		return nil, status.Error(codes.FailedPrecondition, "can only dump ranges while writes are disabled")
+		return nil, status.Error(codes.FailedPrecondition, "can't dump wriable range")
 	}
 
 	res := &pbkv.DumpResponse{}
 	for k, v := range rd.data {
-		res.Pairs = append(res.Pairs, &pbkv.Pair{Key: []byte(k), Value: v})
+		res.Pairs = append(res.Pairs, &pbkv.Pair{Key: k, Value: v})
 	}
 
 	log.Printf("Dumped: %s", ident)
@@ -102,7 +102,7 @@ func (s *kvServer) Put(ctx context.Context, req *pbkv.PutRequest) (*pbkv.PutResp
 	}
 
 	if !rd.writes {
-		return nil, status.Error(codes.FailedPrecondition, "can only PUT to ranges unless writes are enabled")
+		return nil, status.Error(codes.FailedPrecondition, "can only PUT to read-only range")
 	}
 
 	if req.Value == nil {

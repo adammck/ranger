@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
@@ -159,7 +158,7 @@ type Group struct {
 	clients []pbkv.KVClient
 
 	// Must be the same number of both.
-	keys [][]byte
+	keys []string
 	vals []Value
 
 	// Only take this lock when adding new key+val pairs.
@@ -175,7 +174,7 @@ func RunGroup(ctx context.Context, clients []pbkv.KVClient, stats *Stats, wg *sy
 	g := Group{
 		config:  w,
 		clients: clients,
-		keys:    [][]byte{},
+		keys:    []string{},
 		vals:    []Value{},
 	}
 
@@ -295,13 +294,13 @@ func (g *Group) client() pbkv.KVClient {
 	return g.clients[rand.Intn(len(g.clients))]
 }
 
-func (g *Group) RandomKey() []byte {
-	prefix := []byte(g.config.Prefix)
-	suffix := randomLetters(8 - len(prefix))
-	return bytes.Join([][]byte{prefix, suffix}, []byte{})
+func (g *Group) RandomKey() string {
+	prefix := g.config.Prefix
+	suffix := string(randomLetters(8 - len(prefix)))
+	return strings.Join([]string{prefix, suffix}, "")
 }
 
-func getOnce(ctx context.Context, client pbkv.KVClient, key []byte, val []byte) {
+func getOnce(ctx context.Context, client pbkv.KVClient, key string, val []byte) {
 	req := &pbkv.GetRequest{
 		Key: key,
 	}
@@ -325,7 +324,7 @@ func getOnce(ctx context.Context, client pbkv.KVClient, key []byte, val []byte) 
 	}
 }
 
-func putOnce(ctx context.Context, client pbkv.KVClient, key []byte, val []byte) bool {
+func putOnce(ctx context.Context, client pbkv.KVClient, key string, val []byte) bool {
 	req := &pbkv.PutRequest{
 		Key:   key,
 		Value: val,

@@ -1,14 +1,14 @@
 package node
 
 import (
+	"fmt"
 	"log"
 
 	"github.com/adammck/ranger/pkg/rangelet"
 	"github.com/adammck/ranger/pkg/ranje"
 )
 
-// ---- control plane
-
+// PrepareAddShard: Create the range, but don't do anything with it yet.
 func (n *Node) PrepareAddShard(rm ranje.Meta, parents []rangelet.Parent) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -18,28 +18,21 @@ func (n *Node) PrepareAddShard(rm ranje.Meta, parents []rangelet.Parent) error {
 		panic("rangelet gave duplicate range!")
 	}
 
-	// TODO: How to get parents in here?
-	// if req.Parents != nil && len(req.Parents) > 0 {
-	// 	rd.fetchMany(rm, req.Parents)
-	// } else {
-	// 	// TODO: Restore support for this:
-	// 	// -- No current host nor parents. This is a brand new range. We're
-	// 	// -- probably initializing a new empty keyspace.
-	// 	// -- rd.state = state.NsReady
-	// 	rd.state = state.NsPrepared
-	// }
+	// TODO: Ideally we would perform most of the fetch here, and only exchange
+	//       the delta (keys which have changed since then) in AddShard.
 
 	n.data[rm.Ident] = &KeysVals{
-		data:   map[string][]byte{},
-		writes: false,
+		data:    map[string][]byte{},
+		fetcher: NewFetcher(rm, parents),
+		writes:  false,
 	}
 
-	log.Printf("Given: %s", rm.Ident)
+	log.Printf("Prepared to add range: %s", rm)
 	return nil
 }
 
+// AddShard:
 func (n *Node) AddShard(rID ranje.Ident) error {
-	// lol
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
@@ -48,54 +41,43 @@ func (n *Node) AddShard(rID ranje.Ident) error {
 		panic("rangelet tried to serve unknown range!")
 	}
 
+	err := kv.fetcher.Fetch(kv)
+	if err != nil {
+		return fmt.Errorf("error fetching range: %s", err)
+	}
+
+	kv.fetcher = nil
 	kv.writes = true
 
-	log.Printf("Servng: %s", rID)
+	log.Printf("Added range: %s", rID)
 	return nil
 }
 
+// PrepareDropShard: Disable writes to the range, because we're about to move
+// it and I don't have the time to implement something better today. In this
+// example, keys are writable on exactly one node. (Or zero, during failures!)
 func (n *Node) PrepareDropShard(rID ranje.Ident) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
 	kv, ok := n.data[rID]
 	if !ok {
-		panic("rangelet tried to serve unknown range!")
+		panic("rangelet tried to drop unknown range!")
 	}
 
 	kv.writes = false
 
-	log.Printf("Taking: %s", rID)
+	log.Printf("Prepared to drop range: %s", rID)
 	return nil
 }
 
-// func (n *Node) Untake(ctx context.Context, req *pbr.UntakeRequest) (*pbr.UntakeResponse, error) {
-// 	// lol
-// 	s.node.mu.Lock()
-// 	defer s.node.mu.Unlock()
-
-// 	ident, rd, err := s.getRangeData(req.Range)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	if rd.state != state.NsTaken {
-// 		return nil, status.Error(codes.FailedPrecondition, "can only untake ranges in the TAKEN state")
-// 	}
-
-// 	rd.state = state.NsReady
-
-// 	log.Printf("Untaken: %s", ident)
-// 	return &pbr.UntakeResponse{}, nil
-// }
-
 func (n *Node) DropShard(rID ranje.Ident) error {
-	// lol
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
+	// No big deal if the range doesn't exist.
 	delete(n.data, rID)
 
-	log.Printf("Dropped: %s", rID)
+	log.Printf("Dropped range: %s", rID)
 	return nil
 }

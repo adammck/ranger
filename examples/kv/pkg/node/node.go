@@ -21,15 +21,17 @@ import (
 )
 
 type KeysVals struct {
-	data   map[string][]byte
-	writes bool
+	data    map[string][]byte
+	mu      sync.RWMutex // guards data
+	fetcher *Fetcher
+	writes  bool
 }
 
 type Node struct {
 	cfg config.Config
 
 	data map[ranje.Ident]*KeysVals
-	mu   sync.RWMutex // guards data
+	mu   sync.RWMutex // guards ranges
 
 	addrLis string
 	addrPub string

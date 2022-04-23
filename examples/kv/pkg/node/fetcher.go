@@ -1,64 +1,88 @@
 package node
 
-/*
-func fetchMany(dest ranje.Meta, parents []*pbr.Placement) {
+import (
+	"context"
+	"fmt"
+	"log"
+	"time"
 
-	// Parse all the parents before spawning threads. This is fast and failure
-	// indicates a bug more than a transient problem.
-	rms := make([]*ranje.Meta, len(parents))
-	for i, p := range parents {
-		rms[i] = &rm
+	pbkv "github.com/adammck/ranger/examples/kv/proto/gen"
+	"github.com/adammck/ranger/pkg/rangelet"
+	"github.com/adammck/ranger/pkg/ranje"
+	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc"
+)
+
+type Src struct {
+	meta ranje.Meta
+	node string
+}
+
+type Fetcher struct {
+	meta ranje.Meta
+	srcs []Src
+}
+
+func NewFetcher(rm ranje.Meta, parents []rangelet.Parent) *Fetcher {
+	srcs := []Src{}
+
+	// If this is a range move, we can just fetch the whole thing from a single
+	// node. Writes to that node will be disabled (via PrepareDropShard) before
+	// the fetch occurs (via AddShard).
+
+	for _, par := range parents {
+		for _, plc := range par.Placements {
+			if plc.State == ranje.PsReady {
+				src := Src{meta: par.Meta, node: plc.Node}
+				srcs = append(srcs, src)
+			}
+		}
 	}
+
+	// TODO: Verify that the src ranges cover the entire dest range.
+
+	switch len(srcs) {
+	case 1:
+		log.Printf("looks like a range move: %s", rm.Ident)
+	case 2:
+		log.Printf("looks like a split or join: %s", rm.Ident)
+	default:
+		log.Printf("no idea what's going on: %s (n=%d)", rm.Ident, len(srcs))
+	}
+
+	return &Fetcher{
+		meta: rm,
+		srcs: srcs,
+	}
+}
+
+func (f *Fetcher) Fetch(dest *KeysVals) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	mu := sync.Mutex{}
-
 	// Fetch each source range in parallel.
 	g, ctx := errgroup.WithContext(ctx)
-	for i := range parents {
-
-		// Ignore ranges which aren't currently assigned to any node. This kv
-		// example doesn't have an external write log, so if it isn't placed,
-		// there's nothing we can do with it.
-		//
-		// This includes ranges which are being placed for the first time, which
-		// includes new split/join ranges! That isn't an error. Their state is
-		// reassembled from their parents.
-		if parents[i].Node == "" {
-			//log.Printf("not fetching unplaced range: %s", rms[i].ident)
-			continue
-		}
+	for i := range f.srcs {
 
 		// lol, golang
 		// https://golang.org/doc/faq#closures_and_goroutines
 		i := i
 
 		g.Go(func() error {
-			return rd.fetchOne(ctx, &mu, dest, parents[i].Node, rms[i])
+			return fetch(ctx, dest, f.meta, f.srcs[i].node, f.srcs[i].meta)
 		})
 	}
 
 	if err := g.Wait(); err != nil {
 		return err
-		return
 	}
 
-	// Can't go straight into rsReady, because that allows writes. The source
-	// node(s) are still serving reads, and if we start writing, they'll be
-	// wrong. We can only serve reads until the assigner tells them to stop,
-	// which will redirect all reads to us. Then we can start writing.
-	rd.state = state.NsPrepared
+	return nil
 }
 
-func (rd *RangeData) fetchOne(ctx context.Context, mu *sync.Mutex, dest ranje.Meta, addr string, src *ranje.Meta) error {
-	if addr == "" {
-		log.Printf("FetchOne: %s with no addr", src.ident)
-		return nil
-	}
-
-	log.Printf("FetchOne: %s from: %s", src.ident, addr)
+func fetch(ctx context.Context, dest *KeysVals, meta ranje.Meta, addr string, src ranje.Meta) error {
+	log.Printf("fetch: %s from: %s", src.Ident, addr)
 
 	conn, err := grpc.DialContext(
 		ctx,
@@ -67,36 +91,40 @@ func (rd *RangeData) fetchOne(ctx context.Context, mu *sync.Mutex, dest ranje.Me
 		grpc.WithBlock())
 	if err != nil {
 		// TODO: Probably a bit excessive
-		log.Fatalf("fail to dial: %v", err)
+		return fmt.Errorf("fetch failed: DialContext: %v", err)
 	}
 
+	defer conn.Close()
 	client := pbkv.NewKVClient(conn)
 
-	res, err := client.Dump(ctx, &pbkv.DumpRequest{RangeIdent: uint64(src.ident)})
+	res, err := client.Dump(ctx, &pbkv.DumpRequest{RangeIdent: uint64(src.Ident)})
 	if err != nil {
-		log.Printf("FetchOne failed: %s from: %s: %s", src.ident, addr, err)
-
+		log.Printf("fetch failed: Dump: %s (rID=%d, addr=%s)", err, src.Ident, addr)
 		return err
 	}
 
-	// TODO: Optimize loading by including range start and end in the Dump response. If they match, can skip filtering.
+	load := 0
+	skip := 0
 
-	c := 0
-	s := 0
-	mu.Lock()
-	for _, pair := range res.Pairs {
+	func() {
+		// Hold lock for duration rather than flapping.
+		dest.mu.Lock()
+		defer dest.mu.Unlock()
+		for _, pair := range res.Pairs {
 
-		// TODO: Untangle []byte vs string mess
-		if dest.Contains(pair.Key) {
-			rd.data[string(pair.Key)] = pair.Value
-			c += 1
-		} else {
-			s += 1
+			// Ignore any keys which are not in the destination range, since we
+			// might be reading from a dump of a superset (if this is a join).
+			if !meta.Contains(ranje.Key(pair.Key)) {
+				skip += 1
+				continue
+			}
+
+			dest.data[string(pair.Key)] = pair.Value
+			load += 1
 		}
-	}
-	mu.Unlock()
-	log.Printf("Inserted %d keys from range %s via node %s (skipped %d)", c, src.ident, addr, s)
+	}()
+
+	log.Printf("Inserted %d keys from range %s via node %s (skipped %d)", load, src.Ident, addr, skip)
 
 	return nil
 }
-*/

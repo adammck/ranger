@@ -120,6 +120,7 @@ func (c *Controller) Run(ctx context.Context) error {
 	} else {
 
 		// Start rebalancing loop.
+		// TODO: Make this MUCH faster once in-flight RPCs are skipped.
 		// TODO: This should probably be reactive rather than running in a loop. Could run after probes complete.
 		go c.bal.Run(time.NewTicker(1005 * time.Millisecond))
 	}

@@ -4,7 +4,7 @@ option go_package = "github.com/adammck/ranger/examples/kv/proto";
 package kv;
 
 message GetRequest {
-  bytes key = 1;
+  string key = 1;
 }
 
 message GetResponse {
@@ -12,7 +12,7 @@ message GetResponse {
 }
 
 message PutRequest {
-  bytes key = 1;
+  string key = 1;
   bytes value = 2;
 }
 
@@ -24,7 +24,7 @@ message DumpRequest {
 }
 
 message Pair {
-  bytes key = 1;
+  string key = 1;
   bytes value = 2;
 }
 

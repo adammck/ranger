@@ -2,62 +2,128 @@ package proxy
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"math"
+	"time"
 
 	pbkv "github.com/adammck/ranger/examples/kv/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
+	"github.com/adammck/ranger/pkg/roster"
+	"github.com/adammck/ranger/pkg/roster/state"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+const retries = 5
 
 type proxyServer struct {
 	pbkv.UnimplementedKVServer
 	proxy *Proxy
 }
 
-func (ps *proxyServer) getClient(k []byte) (pbkv.KVClient, error) {
-	nids := ps.proxy.rost.Locate(ranje.Key(k))
+func (ps *proxyServer) getClient(k string, write bool) (pbkv.KVClient, roster.Location, error) {
+	loc := roster.Location{}
 
-	if len(nids) == 0 {
-		if ps.proxy.logReqs {
-			log.Printf("%s -> ?", k)
-		}
-		return nil, status.Error(codes.Unimplemented, "no nodes have key")
+	states := []state.RemoteState{
+		state.NsReady,
 	}
 
-	if ps.proxy.logReqs {
-		for _, nid := range nids {
-			log.Printf("%s -> %s", k, nid)
-		}
+	if !write {
+		// Reads are okay while the range is being moved, too.
+		states = append(states, state.NsTaking, state.NsTaken, state.NsTakingError)
 	}
 
-	if len(nids) > 1 {
-		return nil, status.Error(codes.Unimplemented, "proxying when multiple nodes have range not implemented yet")
+	locations := ps.proxy.rost.LocateInState(ranje.Key(k), states)
+
+	if len(locations) == 0 {
+		return nil, loc, status.Error(codes.Unimplemented, "no nodes have key")
 	}
 
-	nid := nids[0]
-	client, ok := ps.proxy.clients[nid]
+	if len(locations) > 1 {
+		return nil, loc, status.Error(codes.Unimplemented, "proxying when multiple nodes have range not implemented yet")
+	}
+
+	loc = locations[0]
+
+	client, ok := ps.proxy.clients[loc.Node]
 	if !ok {
-		return nil, status.Errorf(codes.FailedPrecondition, "no client for node id %s?", nid)
+		return nil, loc, status.Errorf(codes.FailedPrecondition, "no client for node id %s?", loc)
 	}
 
-	return client, nil
+	return client, loc, nil
 }
 
 func (ps *proxyServer) Get(ctx context.Context, req *pbkv.GetRequest) (*pbkv.GetResponse, error) {
-	client, err := ps.getClient(req.Key)
-	if err != nil {
-		return nil, err
+	var res *pbkv.GetResponse
+	var loc roster.Location
+	var err error
+
+	err = ps.Run(ctx, req.Key, false, func(c pbkv.KVClient, l roster.Location) error {
+		res, err = c.Get(ctx, req)
+		loc = l
+		return err
+	})
+
+	if ps.proxy.logReqs {
+		log.Printf("Get: %s -> %s (%v)%s", req.Key, loc.Node, loc.Info.State, errStr(err))
 	}
 
-	return client.Get(ctx, req)
+	return res, err
 }
 
 func (ps *proxyServer) Put(ctx context.Context, req *pbkv.PutRequest) (*pbkv.PutResponse, error) {
-	client, err := ps.getClient(req.Key)
-	if err != nil {
-		return nil, err
+	var res *pbkv.PutResponse
+	var loc roster.Location
+	var err error
+
+	err = ps.Run(ctx, req.Key, false, func(c pbkv.KVClient, l roster.Location) error {
+		res, err = c.Put(ctx, req)
+		loc = l
+		return err
+	})
+
+	if ps.proxy.logReqs {
+		log.Printf("Put: %s -> %s (%v)%s", req.Key, loc.Node, loc.Info.State, errStr(err))
 	}
 
-	return client.Put(ctx, req)
+	return res, err
+}
+
+func (ps *proxyServer) Run(ctx context.Context, k string, w bool, f func(c pbkv.KVClient, loc roster.Location) error) error {
+	n := 0
+	ms := 10
+
+	for {
+		client, loc, err := ps.getClient(k, w)
+		if err == nil {
+			err = f(client, loc)
+			if err == nil {
+				return nil
+			}
+		}
+
+		if n >= retries {
+			return err
+		}
+
+		// TODO: Use a proper backoff lib here.
+		time.Sleep(time.Duration(ms) * time.Millisecond)
+
+		n += 1
+		ms = ms * powInt(n, 2)
+	}
+}
+
+// ugh golang
+func powInt(x, y int) int {
+	return int(math.Pow(float64(x), float64(y)))
+}
+
+func errStr(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	return fmt.Sprintf("; err=%v", err)
 }
