@@ -164,14 +164,20 @@ func (ts *BalancerSuite) TestPlacement() {
 					End:   []byte(ranje.ZeroKey),
 				},
 				// TODO: It's weird and kind of useless for this to be in here.
-				Parents: []*pb.Placement{
+				Parents: []*pb.Parent{
 					{
 						Range: &pb.RangeMeta{
 							Ident: 1,
 							Start: []byte(ranje.ZeroKey),
 							End:   []byte(ranje.ZeroKey),
 						},
-						Node: "",
+						Parent: []uint64{},
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-aaa:1",
+								State: pb.PlacementState_PS_PENDING,
+							},
+						},
 					},
 				},
 			}, aaa[0])
@@ -294,12 +300,17 @@ func (ts *BalancerSuite) TestMissingPlacement() {
 				Range: &pb.RangeMeta{
 					Ident: 1,
 				},
-				Parents: []*pb.Placement{
+				Parents: []*pb.Parent{
 					{
 						Range: &pb.RangeMeta{
 							Ident: 1,
 						},
-						Node: "",
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-aaa:1",
+								State: pb.PlacementState_PS_PENDING,
+							},
+						},
 					},
 				},
 			}, aaa[0])
@@ -376,14 +387,23 @@ func (ts *BalancerSuite) TestMove() {
 					Start: []byte(ranje.ZeroKey),
 					End:   []byte(ranje.ZeroKey),
 				},
-				Parents: []*pb.Placement{
+				Parents: []*pb.Parent{
 					{
 						Range: &pb.RangeMeta{
 							Ident: 1,
 							Start: []byte(ranje.ZeroKey),
 							End:   []byte(ranje.ZeroKey),
 						},
-						Node: "host-aaa:1",
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-aaa:1",
+								State: pb.PlacementState_PS_READY,
+							},
+							{
+								Node:  "host-bbb:1",
+								State: pb.PlacementState_PS_PENDING,
+							},
+						},
 					},
 				},
 			}, bbb[0])
@@ -564,20 +584,30 @@ func (ts *BalancerSuite) TestSplit() {
 					Start: []byte(ranje.ZeroKey),
 					End:   []byte("ccc"),
 				},
-				Parents: []*pb.Placement{
+				Parents: []*pb.Parent{
 					{
 						Range: &pb.RangeMeta{
 							Ident: 2,
 							Start: []byte(ranje.ZeroKey),
 							End:   []byte("ccc"),
 						},
-						Node: "",
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-aaa:1",
+								State: pb.PlacementState_PS_PENDING,
+							},
+						},
 					},
 					{
 						Range: &pb.RangeMeta{
 							Ident: 1,
 						},
-						Node: "host-aaa:1",
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-aaa:1",
+								State: pb.PlacementState_PS_READY,
+							},
+						},
 					},
 				},
 			}, aaa[0])
@@ -587,14 +617,19 @@ func (ts *BalancerSuite) TestSplit() {
 					Start: []byte("ccc"),
 					End:   []byte(ranje.ZeroKey),
 				},
-				Parents: []*pb.Placement{
+				Parents: []*pb.Parent{
 					{
 						Range: &pb.RangeMeta{
 							Ident: 3,
 							Start: []byte("ccc"),
 							End:   []byte(ranje.ZeroKey),
 						},
-						Node: "",
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-aaa:1",
+								State: pb.PlacementState_PS_PENDING,
+							},
+						},
 					},
 					{
 						Range: &pb.RangeMeta{
@@ -602,7 +637,12 @@ func (ts *BalancerSuite) TestSplit() {
 							Start: []byte(ranje.ZeroKey),
 							End:   []byte(ranje.ZeroKey),
 						},
-						Node: "host-aaa:1",
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-aaa:1",
+								State: pb.PlacementState_PS_READY,
+							},
+						},
 					},
 				},
 			}, aaa[1])
@@ -840,26 +880,41 @@ func (ts *BalancerSuite) TestJoin() {
 				Range: &pb.RangeMeta{
 					Ident: 3,
 				},
-				Parents: []*pb.Placement{
+				Parents: []*pb.Parent{
 					{
 						Range: &pb.RangeMeta{
 							Ident: 3,
 						},
-						Node: "",
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-ccc:1",
+								State: pb.PlacementState_PS_PENDING,
+							},
+						},
 					},
 					{
 						Range: &pb.RangeMeta{
 							Ident: 1,
 							End:   []byte("ggg"),
 						},
-						Node: "host-aaa:1",
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-aaa:1",
+								State: pb.PlacementState_PS_READY,
+							},
+						},
 					},
 					{
 						Range: &pb.RangeMeta{
 							Ident: 2,
 							Start: []byte("ggg"),
 						},
-						Node: "host-bbb:1",
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-bbb:1",
+								State: pb.PlacementState_PS_READY,
+							},
+						},
 					},
 				},
 			}, ccc[0])
