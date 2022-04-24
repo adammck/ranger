@@ -18,8 +18,6 @@ import (
 )
 
 type Proxy struct {
-	cfg config.Config
-
 	name    string
 	addrLis string
 	addrPub string // do we actually need this? maybe only discovery does.

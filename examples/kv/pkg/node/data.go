@@ -102,7 +102,7 @@ func (s *kvServer) Put(ctx context.Context, req *pbkv.PutRequest) (*pbkv.PutResp
 	}
 
 	if !rd.writes {
-		return nil, status.Error(codes.FailedPrecondition, "can only PUT to read-only range")
+		return nil, status.Error(codes.FailedPrecondition, "can't PUT to read-only range")
 	}
 
 	if req.Value == nil {
