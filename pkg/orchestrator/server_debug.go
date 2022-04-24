@@ -52,10 +52,9 @@ func nodeResponse(ks *ranje.Keyspace, n *roster.Node) *pb.NodeResponse {
 }
 
 func (srv *debugServer) RangesList(ctx context.Context, req *pb.RangesListRequest) (*pb.RangesListResponse, error) {
-	ks := srv.orch.ks.DangerousDebuggingMethods()
 	res := &pb.RangesListResponse{}
 
-	ranges, unlocker := ks.Ranges()
+	ranges, unlocker := srv.orch.ks.Ranges()
 	defer unlocker()
 
 	for _, r := range ranges {

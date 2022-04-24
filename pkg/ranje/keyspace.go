@@ -444,11 +444,6 @@ func (ks *Keyspace) Children(r *Range) []*Range {
 	return children
 }
 
-// DangerousDebuggingMethods returns a keyspaceDebug. Handle with care!
-func (ks *Keyspace) DangerousDebuggingMethods() *keyspaceDebug {
-	return &keyspaceDebug{ks}
-}
-
 // Range returns a new range with the next available ident. This is the only
 // way that a Range should be constructed. Callers must call Range.InitPersist
 // on the resulting range, maybe after mutating it once.
