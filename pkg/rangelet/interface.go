@@ -2,6 +2,7 @@ package rangelet
 
 import (
 	"github.com/adammck/ranger/pkg/ranje"
+	"github.com/adammck/ranger/pkg/roster/info"
 )
 
 type Placement struct {
@@ -15,9 +16,14 @@ type Parent struct {
 	Placements []Placement
 }
 
+type Storage interface {
+	Read() []*info.RangeInfo
+	Write()
+}
+
 // These don't match the Prepare/Give/Take/Drop terminology used internally by
-// Ranger, but the Shard Manager paper uses *roughly* these terms. Better to follow those
-// than invent our own.
+// Ranger, but Shard Manager uses roughly (s/Shard/Range/g) these terms. Better
+// to follow those than invent our own.
 type Node interface {
 
 	// PrepareAddRange.
