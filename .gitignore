@@ -1,7 +1,9 @@
 # binaries
 __debug_bin
 /cmd/client/client
+/cmd/rangerd/rangerd
 /examples/kv/kv
+/examples/kv/rangerd
 /examples/kv/tools/hammer/hammer
 
 # no need to lock development deps

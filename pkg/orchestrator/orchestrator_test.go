@@ -73,7 +73,13 @@ func (ts *OrchestratorSuite) GetRange(rID uint64) *ranje.Range {
 // world. Nothing will work until this method is called.
 func (ts *OrchestratorSuite) Init(ranges []*ranje.Range) {
 	pers := &FakePersister{ranges: ranges}
-	ts.ks = keyspace.New(ts.cfg, pers)
+
+	var err error
+	ts.ks, err = keyspace.New(ts.cfg, pers)
+	if err != nil {
+		ts.T().Fatalf("keyspace.New: %s", err)
+	}
+
 	srv := grpc.NewServer() // TODO: Allow this to be nil.
 	ts.orch = New(ts.cfg, ts.ks, ts.rost, srv)
 }
