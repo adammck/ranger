@@ -39,7 +39,7 @@ func init() {
 	}
 }
 
-//go:generate stringer -type=RangeState -output=zzz_state_range_string.go
+//go:generate stringer -type=RangeState -output=range_state_string.go
 
 // TODO: Rename!
 func FromProto(s *pb.RangeState) RangeState {

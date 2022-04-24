@@ -1,4 +1,4 @@
-package ranje
+package keyspace
 
 import (
 	"errors"
@@ -9,27 +9,23 @@ import (
 	"sync"
 
 	"github.com/adammck/ranger/pkg/config"
+	"github.com/adammck/ranger/pkg/persister"
+	"github.com/adammck/ranger/pkg/ranje"
 )
 
 // Keyspace is an overlapping set of ranges which cover all of the possible
 // values in the space. Any value is covered by either one or two ranges: one
 // range in the steady-state, where nothing is being moved around, and two
 // ranges while rebalancing is in progress.
-//
-// TODO: Move this out of 'ranje' package; it's stateful.
 type Keyspace struct {
 	cfg      config.Config
-	pers     Persister
-	ranges   []*Range // TODO: don't be dumb, use an interval tree
+	pers     persister.Persister
+	ranges   []*ranje.Range // TODO: don't be dumb, use an interval tree
 	mu       sync.RWMutex
-	maxIdent Ident
+	maxIdent ranje.Ident
 }
 
-type RangeGetter interface {
-	Get(id Ident) (*Range, error)
-}
-
-func New(cfg config.Config, persister Persister) *Keyspace {
+func New(cfg config.Config, persister persister.Persister) *Keyspace {
 	ks := &Keyspace{
 		cfg:  cfg,
 		pers: persister,
@@ -46,7 +42,7 @@ func New(cfg config.Config, persister Persister) *Keyspace {
 	// keyspace from scratch, so start with a singe range that covers all keys.
 	if len(ranges) == 0 {
 		r := ks.Range()
-		ks.ranges = []*Range{r}
+		ks.ranges = []*ranje.Range{r}
 		ks.pers.PutRanges(ks.ranges)
 		return ks
 	}
@@ -55,13 +51,11 @@ func New(cfg config.Config, persister Persister) *Keyspace {
 	for _, r := range ks.ranges {
 
 		// Repair the range.
-		r.pers = persister
+		// TODO: Anything left to do here?
 
 		// Repair the placements
 		for _, p := range r.Placements {
-			if p != nil {
-				p.rang = r
-			}
+			p.Repair(r)
 		}
 
 		// Repair the maxIdent cache.
@@ -99,7 +93,7 @@ func (ks *Keyspace) SanityCheck() error {
 
 	// Check for no duplicate range IDs.
 
-	seen := map[Ident]struct{}{}
+	seen := map[ranje.Ident]struct{}{}
 	for _, r := range ks.ranges {
 		if _, ok := seen[r.Meta.Ident]; ok {
 			return fmt.Errorf("duplicate range ID (i=%d)", r.Meta.Ident)
@@ -111,7 +105,7 @@ func (ks *Keyspace) SanityCheck() error {
 	// keyspace with no overlaps. This must always be the case; we only persist
 	// valid configurations, and do it transactionally.
 
-	leafs := []*Range{}
+	leafs := []*ranje.Range{}
 	for i := range ks.ranges {
 		if len(ks.ranges[i].Children) == 0 {
 			leafs = append(leafs, ks.ranges[i])
@@ -135,16 +129,16 @@ func (ks *Keyspace) SanityCheck() error {
 	})
 
 	for i, r := range leafs {
-		if r.State == RsSubsuming || r.State == RsObsolete {
+		if r.State == ranje.RsSubsuming || r.State == ranje.RsObsolete {
 			return fmt.Errorf("non-active leaf range with no children (rID=%v)", r.Meta.Ident)
 		}
 
 		if i == 0 { // first range
-			if r.Meta.Start != ZeroKey {
+			if r.Meta.Start != ranje.ZeroKey {
 				return fmt.Errorf("first leaf range did not start with zero key (rID=%d)", r.Meta.Ident)
 			}
 		} else { // not first range
-			if r.Meta.Start == ZeroKey {
+			if r.Meta.Start == ranje.ZeroKey {
 				return fmt.Errorf("non-first leaf range started with zero key (rID=%d)", r.Meta.Ident)
 			}
 			if r.Meta.Start != leafs[i-1].Meta.End {
@@ -152,11 +146,11 @@ func (ks *Keyspace) SanityCheck() error {
 			}
 		}
 		if i == len(leafs)-1 { // last range
-			if r.Meta.End != ZeroKey {
+			if r.Meta.End != ranje.ZeroKey {
 				return fmt.Errorf("last leaf range did not end with zero key (rID=%d)", r.Meta.Ident)
 			}
 		} else { // not last range
-			if r.Meta.End == ZeroKey {
+			if r.Meta.End == ranje.ZeroKey {
 				return fmt.Errorf("non-last leaf range ended with zero key (rID=%d)", r.Meta.Ident)
 			}
 		}
@@ -165,20 +159,20 @@ func (ks *Keyspace) SanityCheck() error {
 	return nil
 }
 
-func (ks *Keyspace) Ranges() ([]*Range, func()) {
+func (ks *Keyspace) Ranges() ([]*ranje.Range, func()) {
 	ks.mu.Lock()
 	return ks.ranges, ks.mu.Unlock
 }
 
 // PlacementMayBecomeReady returns whether the given placement is permitted to
-// advance from PsPrepared to PsReady.
+// advance from ranje.PsPrepared to ranje.PsReady.
 //
 // Returns error if called when the placement is in any state other than
-// PsPrepared.
-func (ks *Keyspace) PlacementMayBecomeReady(p *Placement) bool {
+// ranje.PsPrepared.
+func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) bool {
 
 	// Sanity check.
-	if p.State != PsPrepared {
+	if p.State != ranje.PsPrepared {
 		log.Printf("called PlacementMayBecomeReady in weird state: %s", p.State)
 		return false
 	}
@@ -187,7 +181,7 @@ func (ks *Keyspace) PlacementMayBecomeReady(p *Placement) bool {
 
 	// Gather the parent ranges
 	// TODO: Move this to a method on Keyspace
-	parents := make([]*Range, len(r.Parents))
+	parents := make([]*ranje.Range, len(r.Parents))
 	for i, rID := range r.Parents {
 		rp, err := ks.Get(rID)
 		if err != nil {
@@ -203,7 +197,7 @@ func (ks *Keyspace) PlacementMayBecomeReady(p *Placement) bool {
 	// available in both the parent and child.
 	for _, rp := range parents {
 		for _, pp := range rp.Placements {
-			if pp.State == PsReady {
+			if pp.State == ranje.PsReady {
 				return false
 			}
 		}
@@ -211,7 +205,7 @@ func (ks *Keyspace) PlacementMayBecomeReady(p *Placement) bool {
 
 	n := 0
 	for _, pp := range r.Placements {
-		if pp.State == PsReady {
+		if pp.State == ranje.PsReady {
 			n += 1
 		}
 	}
@@ -220,17 +214,17 @@ func (ks *Keyspace) PlacementMayBecomeReady(p *Placement) bool {
 }
 
 // MayBeTaken returns whether the given placement, which is assumed to be in
-// state PsReady, may advance to PsTaken. The only circumstance where this is
+// state ranje.PsReady, may advance to ranje.PsTaken. The only circumstance where this is
 // true is when the placement is being replaced by another replica (i.e. a move)
 // or when the entire range has been subsumed.
 //
 // TODO: Implement the latter, when (re-)implementing splits and joins. This
 //       probably needs to move to the keyspace, for that.
 //
-func (ks *Keyspace) PlacementMayBeTaken(p *Placement) bool {
+func (ks *Keyspace) PlacementMayBeTaken(p *ranje.Placement) bool {
 
 	// Sanity check.
-	if p.State != PsReady {
+	if p.State != ranje.PsReady {
 		log.Printf("called PlacementMayBeTaken in weird state: %s", p.State)
 		return false
 	}
@@ -238,8 +232,8 @@ func (ks *Keyspace) PlacementMayBeTaken(p *Placement) bool {
 	r := p.Range()
 
 	switch r.State {
-	case RsActive:
-		var replacement *Placement
+	case ranje.RsActive:
+		var replacement *ranje.Placement
 		for _, p2 := range r.Placements {
 			if p2.IsReplacing == p.NodeID {
 				replacement = p2
@@ -253,17 +247,17 @@ func (ks *Keyspace) PlacementMayBeTaken(p *Placement) bool {
 			return false
 		}
 
-		if replacement.State == PsPrepared {
+		if replacement.State == ranje.PsPrepared {
 			return true
 		}
-	case RsSubsuming:
+	case ranje.RsSubsuming:
 
 		// Exit early if any of the child ranges don't have enough replicas
-		// in PsPrepared.
+		// in ranje.PsPrepared.
 		for _, rc := range ks.Children(r) {
 			n := 0
 			for _, pc := range rc.Placements {
-				if pc.State == PsPrepared {
+				if pc.State == ranje.PsPrepared {
 					n += 1
 				}
 			}
@@ -282,19 +276,19 @@ func (ks *Keyspace) PlacementMayBeTaken(p *Placement) bool {
 	return false
 }
 
-func (ks *Keyspace) PlacementMayBeDropped(p *Placement) error {
+func (ks *Keyspace) PlacementMayBeDropped(p *ranje.Placement) error {
 
 	// Sanity check.
-	if p.State != PsTaken {
-		return fmt.Errorf("placment not in PsTaken")
+	if p.State != ranje.PsTaken {
+		return fmt.Errorf("placment not in ranje.PsTaken")
 	}
 
 	r := p.Range()
 	switch r.State {
-	case RsActive:
+	case ranje.RsActive:
 
 		// TODO: Move this (same in MayBeTaken) to r.ReplacementFor or something.
-		var replacement *Placement
+		var replacement *ranje.Placement
 		for _, p2 := range r.Placements {
 			if p2.IsReplacing == p.NodeID {
 				replacement = p2
@@ -309,16 +303,16 @@ func (ks *Keyspace) PlacementMayBeDropped(p *Placement) error {
 		//       method to return the next action, i.e. Drop or Untake?
 		//
 		if replacement == nil {
-			return fmt.Errorf("placement in PsTaken with no replacement")
+			return fmt.Errorf("placement in ranje.PsTaken with no replacement")
 		}
 
-		if replacement.State != PsReady {
-			return fmt.Errorf("replacement not PsReady; is %s", replacement.State)
+		if replacement.State != ranje.PsReady {
+			return fmt.Errorf("replacement not ranje.PsReady; is %s", replacement.State)
 		}
 
 		return nil
 
-	case RsSubsuming:
+	case ranje.RsSubsuming:
 
 		// Can't drop until all of the child ranges have enough placements in
 		// Ready state. They might still need the contents of this parent range
@@ -327,7 +321,7 @@ func (ks *Keyspace) PlacementMayBeDropped(p *Placement) error {
 		for _, cr := range ks.Children(r) {
 			ready := 0
 			for _, cp := range cr.Placements {
-				if cp.State == PsReady {
+				if cp.State == ranje.PsReady {
 					ready += 1
 				}
 			}
@@ -343,10 +337,10 @@ func (ks *Keyspace) PlacementMayBeDropped(p *Placement) error {
 	}
 }
 
-func (ks *Keyspace) RangeCanBeObsoleted(r *Range) error {
-	if r.State != RsSubsuming {
+func (ks *Keyspace) RangeCanBeObsoleted(r *ranje.Range) error {
+	if r.State != ranje.RsSubsuming {
 		// This should not be called in any other state.
-		return fmt.Errorf("range not in RsSubsuming")
+		return fmt.Errorf("range not in ranje.RsSubsuming")
 	}
 
 	if l := len(r.Placements); l > 0 {
@@ -356,17 +350,12 @@ func (ks *Keyspace) RangeCanBeObsoleted(r *Range) error {
 	return nil
 }
 
-func (ks *Keyspace) Split(r *Range, k Key) error {
-
-	// Balancer already holds the lock.
-	//ks.mu.Lock()
-	//defer ks.mu.Unlock()
-
-	if k == ZeroKey {
+func (ks *Keyspace) Split(r *ranje.Range, k ranje.Key) error {
+	if k == ranje.ZeroKey {
 		return fmt.Errorf("can't split on zero key")
 	}
 
-	if r.State != RsActive {
+	if r.State != ranje.RsActive {
 		return errors.New("can't split non-active range")
 	}
 
@@ -386,7 +375,7 @@ func (ks *Keyspace) Split(r *Range, k Key) error {
 	// Change the state of the splitting range directly via Range.toState rather
 	// than Keyspace.ToState as (usually!) recommended, because we don't want
 	// to persist the change until the two new ranges have been created, below.
-	err := r.toState(RsSubsuming, ks)
+	err := r.ToState(ranje.RsSubsuming)
 	if err != nil {
 		// The error is clear enough, no need to wrap it.
 		return err
@@ -395,19 +384,19 @@ func (ks *Keyspace) Split(r *Range, k Key) error {
 	one := ks.Range()
 	one.Meta.Start = r.Meta.Start
 	one.Meta.End = k
-	one.Parents = []Ident{r.Meta.Ident}
+	one.Parents = []ranje.Ident{r.Meta.Ident}
 
 	two := ks.Range()
 	two.Meta.Start = k
 	two.Meta.End = r.Meta.End
-	two.Parents = []Ident{r.Meta.Ident}
+	two.Parents = []ranje.Ident{r.Meta.Ident}
 
 	// append to the end of the ranges
 	// TODO: Insert the children after the parent, not at the end!
 	ks.ranges = append(ks.ranges, one)
 	ks.ranges = append(ks.ranges, two)
 
-	r.Children = []Ident{
+	r.Children = []ranje.Ident{
 		one.Meta.Ident,
 		two.Meta.Ident,
 	}
@@ -421,7 +410,7 @@ func (ks *Keyspace) Split(r *Range, k Key) error {
 // Get returns a range by its ident, or an error if no such range exists.
 // TODO: Allow getting by other things.
 // TODO: Should this lock ranges? Or the caller do it?
-func (ks *Keyspace) Get(id Ident) (*Range, error) {
+func (ks *Keyspace) Get(id ranje.Ident) (*ranje.Range, error) {
 	for _, r := range ks.ranges {
 		if r.Meta.Ident == id {
 			return r, nil
@@ -431,8 +420,8 @@ func (ks *Keyspace) Get(id Ident) (*Range, error) {
 	return nil, fmt.Errorf("no such range: %s", id.String())
 }
 
-func (ks *Keyspace) Children(r *Range) []*Range {
-	children := make([]*Range, len(r.Children))
+func (ks *Keyspace) Children(r *ranje.Range) []*ranje.Range {
+	children := make([]*ranje.Range, len(r.Children))
 
 	for i, rID := range r.Children {
 		rp, err := ks.Get(rID)
@@ -449,34 +438,12 @@ func (ks *Keyspace) Children(r *Range) []*Range {
 	return children
 }
 
-// DangerousDebuggingMethods returns a keyspaceDebug. Handle with care!
-func (ks *Keyspace) DangerousDebuggingMethods() *keyspaceDebug {
-	return &keyspaceDebug{ks}
-}
-
 // Range returns a new range with the next available ident. This is the only
-// way that a Range should be constructed. Callers must call Range.InitPersist
-// on the resulting range, maybe after mutating it once.
-func (ks *Keyspace) Range() *Range {
+// way that a Range should be constructed. Callers are responsible for calling
+// mustPersistDirtyRanges to persist the new range after mutating it.
+func (ks *Keyspace) Range() *ranje.Range {
 	ks.maxIdent += 1
-
-	r := &Range{
-		pers: ks.pers,
-		Meta: Meta{
-			Ident: ks.maxIdent,
-		},
-
-		// Born active, to be placed right away.
-		// TODO: Maybe we need a pending state first? Do the parent ranges need
-		//       to do anything else after this range is created but before it's
-		//       placed?
-		State: RsActive,
-
-		// Starts dirty, because it hasn't been persisted yet.
-		dirty: true,
-	}
-
-	return r
+	return ranje.NewRange(ks.maxIdent)
 }
 
 //
@@ -492,8 +459,8 @@ func (ks *Keyspace) Range() *Range {
 //
 
 type PBNID struct {
-	Range     *Range
-	Placement *Placement
+	Range     *ranje.Range
+	Placement *ranje.Placement
 	Position  uint8
 }
 
@@ -528,11 +495,11 @@ func (ks *Keyspace) PlacementsByNodeID(nID string) []PBNID {
 // RangeToState tries to move the given range into the given state.
 // TODO: This is currently only used to move ranges into Obsolete after they
 //       have been subsumed. Can we replace this with *ObsoleteRange*?
-func (ks *Keyspace) RangeToState(rng *Range, state RangeState) error {
-	// Balancer already has lock.
+func (ks *Keyspace) RangeToState(r *ranje.Range, state ranje.RangeState) error {
+	// Orchestrator already has lock.
 	// TODO: Verify this somehow?
 
-	err := rng.toState(state, ks)
+	err := r.ToState(state)
 	if err != nil {
 		return err
 	}
@@ -541,14 +508,13 @@ func (ks *Keyspace) RangeToState(rng *Range, state RangeState) error {
 }
 
 // Callers don't bother checking the error we return, so we panic instead.
-// TODO: Update balancer to check the error!
-func (ks *Keyspace) PlacementToState(p *Placement, state PlacementState) error {
-	err := p.toState(state)
+// TODO: Update callers to check the error!
+func (ks *Keyspace) PlacementToState(p *ranje.Placement, state ranje.PlacementState) error {
+	err := p.ToState(state)
 	if err != nil {
 		panic(fmt.Sprintf("toState: %v", err))
 	}
 
-	//p.rang.placementStateChanged(ks)
 	err = ks.mustPersistDirtyRanges()
 	if err != nil {
 		panic(fmt.Sprintf("mustPersistDirtyRanges: %v", err))
@@ -559,9 +525,9 @@ func (ks *Keyspace) PlacementToState(p *Placement, state PlacementState) error {
 
 // TODO: Return an error instead of panicking, and rename.
 func (ks *Keyspace) mustPersistDirtyRanges() error {
-	ranges := []*Range{}
+	ranges := []*ranje.Range{}
 	for _, r := range ks.ranges {
-		if r.dirty {
+		if r.Dirty() {
 			ranges = append(ranges, r)
 		}
 	}
@@ -576,9 +542,9 @@ func (ks *Keyspace) mustPersistDirtyRanges() error {
 }
 
 // Caller must hold the keyspace lock.
-func (ks *Keyspace) JoinTwo(one *Range, two *Range) (*Range, error) {
-	for _, r := range []*Range{one, two} {
-		if r.State != RsActive {
+func (ks *Keyspace) JoinTwo(one *ranje.Range, two *ranje.Range) (*ranje.Range, error) {
+	for _, r := range []*ranje.Range{one, two} {
+		if r.State != ranje.RsActive {
 			return nil, errors.New("can't join non-ready ranges")
 		}
 
@@ -593,8 +559,8 @@ func (ks *Keyspace) JoinTwo(one *Range, two *Range) (*Range, error) {
 		return nil, fmt.Errorf("not adjacent: %s, %s", one, two)
 	}
 
-	for _, r := range []*Range{one, two} {
-		err := r.toState(RsSubsuming, ks)
+	for _, r := range []*ranje.Range{one, two} {
+		err := r.ToState(ranje.RsSubsuming)
 		if err != nil {
 			// The error is clear enough, no need to wrap it.
 			return nil, err
@@ -604,13 +570,13 @@ func (ks *Keyspace) JoinTwo(one *Range, two *Range) (*Range, error) {
 	three := ks.Range()
 	three.Meta.Start = one.Meta.Start
 	three.Meta.End = two.Meta.End
-	three.Parents = []Ident{one.Meta.Ident, two.Meta.Ident}
+	three.Parents = []ranje.Ident{one.Meta.Ident, two.Meta.Ident}
 
 	// Insert new range at the end.
 	ks.ranges = append(ks.ranges, three)
 
-	one.Children = []Ident{three.Meta.Ident}
-	two.Children = []Ident{three.Meta.Ident}
+	one.Children = []ranje.Ident{three.Meta.Ident}
+	two.Children = []ranje.Ident{three.Meta.Ident}
 
 	// Persist all three ranges atomically.
 	ks.mustPersistDirtyRanges()

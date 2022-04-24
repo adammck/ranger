@@ -37,7 +37,7 @@ const (
 	NsNotFound
 )
 
-//go:generate stringer -type=RemoteState -output=state_string.go
+//go:generate stringer -type=RemoteState -output=remote_state_string.go
 
 func RemoteStateFromProto(s pb.RangeNodeState) RemoteState {
 	switch s {

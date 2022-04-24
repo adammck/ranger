@@ -9,7 +9,6 @@ import (
 // Range is a range of keys in the keyspace.
 // These should probably only be instantiated by Keyspace? No sanity checks, so be careful.
 type Range struct {
-	pers Persister
 	Meta Meta
 
 	State    RangeState
@@ -26,7 +25,25 @@ type Range struct {
 	// Indicates that this range needs persisting before the keyspace lock is
 	// released. We've made changes locally which will be lost if we crash.
 	// TODO: Also store the old state, so we can roll back instead of crash?
+	// TODO: Invert so that zero value is the default: needing pesisting.
 	dirty bool
+}
+
+func NewRange(rID Ident) *Range {
+	return &Range{
+		Meta: Meta{
+			Ident: rID,
+		},
+
+		// Born active, to be placed right away.
+		// TODO: Maybe we need a pending state first? Do the parent ranges need
+		//       to do anything else after this range is created but before it's
+		//       placed?
+		State: RsActive,
+
+		// Starts dirty, because it hasn't been persisted yet.
+		dirty: true,
+	}
 }
 
 // TODO: This is only used by Keyspace.LogString, which is only used by tests!
@@ -51,12 +68,18 @@ func (r *Range) String() string {
 	return fmt.Sprintf("R{%s %s}", r.Meta, r.State)
 }
 
+func (r *Range) Dirty() bool {
+	r.Lock()
+	defer r.Unlock()
+	return r.dirty
+}
+
 // ???
 func (r *Range) MinReady() int {
 	return 1
 }
 
-func (r *Range) toState(new RangeState, rg RangeGetter) error {
+func (r *Range) ToState(new RangeState) error {
 	r.Lock()
 	defer r.Unlock()
 

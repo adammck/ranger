@@ -6,7 +6,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/adammck/ranger/pkg/rangelet/storage"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster/info"
 	"github.com/adammck/ranger/pkg/roster/state"
@@ -20,14 +19,14 @@ type Rangelet struct {
 	sync.RWMutex
 
 	n Node
-	s storage.Storage
+	s Storage
 
 	xWantDrain uint32
 
 	srv *NodeServer
 }
 
-func NewRangelet(n Node, sr grpc.ServiceRegistrar, s storage.Storage) *Rangelet {
+func NewRangelet(n Node, sr grpc.ServiceRegistrar, s Storage) *Rangelet {
 	r := &Rangelet{
 		info: map[ranje.Ident]*info.RangeInfo{},
 		n:    n,

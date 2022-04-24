@@ -6,16 +6,17 @@ import (
 	"net"
 	"time"
 
-	"github.com/adammck/ranger/pkg/balancer"
 	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
-	consuldisc "github.com/adammck/ranger/pkg/discovery/consul"
-	"github.com/adammck/ranger/pkg/ranje"
-	consulpers "github.com/adammck/ranger/pkg/ranje/persisters/consul"
+	"github.com/adammck/ranger/pkg/keyspace"
+	"github.com/adammck/ranger/pkg/orchestrator"
 	"github.com/adammck/ranger/pkg/roster"
-	consulapi "github.com/hashicorp/consul/api"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
+
+	consuldisc "github.com/adammck/ranger/pkg/discovery/consul"
+	consulpers "github.com/adammck/ranger/pkg/persister/consul"
+	consulapi "github.com/hashicorp/consul/api"
 )
 
 type Controller struct {
@@ -28,9 +29,9 @@ type Controller struct {
 
 	srv  *grpc.Server
 	disc discovery.Discoverable
-	ks   *ranje.Keyspace
+	ks   *keyspace.Keyspace
 	rost *roster.Roster
-	bal  *balancer.Balancer
+	orch *orchestrator.Orchestrator
 }
 
 func New(cfg config.Config, addrLis, addrPub string, once bool) (*Controller, error) {
@@ -52,16 +53,13 @@ func New(cfg config.Config, addrLis, addrPub string, once bool) (*Controller, er
 		return nil, err
 	}
 
-	// Roster -> Balancer
-	//rangeInfoChan := make(chan roster.RangeInfo)
-
 	pers := consulpers.New(api)
-	ks := ranje.New(cfg, pers)
+	ks := keyspace.New(cfg, pers)
 
 	// TODO: Hook up the callbacks (or replace with channels)
 	rost := roster.New(cfg, disc, nil, nil, nil)
 
-	bal := balancer.New(cfg, ks, rost, srv)
+	orch := orchestrator.New(cfg, ks, rost, srv)
 
 	return &Controller{
 		cfg:     cfg,
@@ -73,7 +71,7 @@ func New(cfg config.Config, addrLis, addrPub string, once bool) (*Controller, er
 		disc:    disc,
 		ks:      ks,
 		rost:    rost,
-		bal:     bal,
+		orch:    orch,
 	}, nil
 }
 
@@ -115,14 +113,14 @@ func (c *Controller) Run(ctx context.Context) error {
 	}
 
 	if c.once {
-		c.bal.Tick()
+		c.orch.Tick()
 
 	} else {
 
 		// Start rebalancing loop.
 		// TODO: Make this MUCH faster once in-flight RPCs are skipped.
 		// TODO: This should probably be reactive rather than running in a loop. Could run after probes complete.
-		go c.bal.Run(time.NewTicker(1005 * time.Millisecond))
+		go c.orch.Run(time.NewTicker(1005 * time.Millisecond))
 	}
 
 	// If we're staying active (not --once), block until context is cancelled,

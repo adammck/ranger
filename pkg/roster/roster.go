@@ -25,7 +25,7 @@ const (
 type Roster struct {
 	cfg config.Config
 
-	// Public so Balancer can read the Nodes
+	// Public so Orchestrator can read the Nodes
 	// node ident (not ranje.Ident!!) -> Node
 	Nodes map[string]*Node
 	sync.RWMutex

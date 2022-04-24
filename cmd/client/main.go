@@ -112,7 +112,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		client := pb.NewBalancerClient(conn)
+		client := pb.NewOrchestratorClient(conn)
 		cmdMove(*printReq, client, ctx, rID, flag.Arg(2))
 
 	case "split", "s":
@@ -142,7 +142,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		client := pb.NewBalancerClient(conn)
+		client := pb.NewOrchestratorClient(conn)
 		cmdSplit(*printReq, client, ctx, rID, boundary, flag.Arg(3), flag.Arg(4))
 
 	case "join", "j":
@@ -161,7 +161,7 @@ func main() {
 			rIDs[i] = rID
 		}
 
-		client := pb.NewBalancerClient(conn)
+		client := pb.NewOrchestratorClient(conn)
 		cmdJoin(*printReq, client, ctx, rIDs[0], rIDs[1], flag.Arg(3))
 
 	default:
@@ -262,7 +262,7 @@ func cmdNode(printReq bool, client pb.DebugClient, ctx context.Context, nID stri
 	output(res)
 }
 
-func cmdMove(printReq bool, client pb.BalancerClient, ctx context.Context, rID uint64, nID string) {
+func cmdMove(printReq bool, client pb.OrchestratorClient, ctx context.Context, rID uint64, nID string) {
 	w := flag.CommandLine.Output()
 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -288,7 +288,7 @@ func cmdMove(printReq bool, client pb.BalancerClient, ctx context.Context, rID u
 	output(res)
 }
 
-func cmdSplit(printReq bool, client pb.BalancerClient, ctx context.Context, rID uint64, boundary []byte, nID1, nID2 string) {
+func cmdSplit(printReq bool, client pb.OrchestratorClient, ctx context.Context, rID uint64, boundary []byte, nID1, nID2 string) {
 	w := flag.CommandLine.Output()
 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -316,7 +316,7 @@ func cmdSplit(printReq bool, client pb.BalancerClient, ctx context.Context, rID 
 	output(res)
 }
 
-func cmdJoin(printReq bool, client pb.BalancerClient, ctx context.Context, rID1, rID2 uint64, nID string) {
+func cmdJoin(printReq bool, client pb.OrchestratorClient, ctx context.Context, rID1, rID2 uint64, nID string) {
 	w := flag.CommandLine.Output()
 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
