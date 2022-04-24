@@ -1,4 +1,4 @@
-package balancer
+package orchestrator
 
 import (
 	"github.com/adammck/ranger/pkg/ranje"

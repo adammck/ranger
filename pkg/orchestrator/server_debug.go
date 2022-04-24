@@ -1,6 +1,4 @@
-package balancer
-
-// TODO: This is not just a balancer any more. It's the God Object. Oh dear.
+package orchestrator
 
 import (
 	"context"
@@ -15,7 +13,7 @@ import (
 
 type debugServer struct {
 	pb.UnsafeDebugServer
-	bal *Balancer
+	orch *Orchestrator
 }
 
 func rangeResponse(r *ranje.Range) *pb.RangeResponse {
@@ -54,7 +52,7 @@ func nodeResponse(ks *ranje.Keyspace, n *roster.Node) *pb.NodeResponse {
 }
 
 func (srv *debugServer) RangesList(ctx context.Context, req *pb.RangesListRequest) (*pb.RangesListResponse, error) {
-	ks := srv.bal.ks.DangerousDebuggingMethods()
+	ks := srv.orch.ks.DangerousDebuggingMethods()
 	res := &pb.RangesListResponse{}
 
 	ranges, unlocker := ks.Ranges()
@@ -79,7 +77,7 @@ func (srv *debugServer) Range(ctx context.Context, req *pb.RangeRequest) (*pb.Ra
 		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("IdentFromProto failed: %v", err))
 	}
 
-	r, err := srv.bal.ks.Get(rID)
+	r, err := srv.orch.ks.Get(rID)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("GetByIdent failed: %v", err))
 	}
@@ -97,25 +95,25 @@ func (srv *debugServer) Node(ctx context.Context, req *pb.NodeRequest) (*pb.Node
 		return nil, status.Error(codes.InvalidArgument, "missing: node")
 	}
 
-	node := srv.bal.rost.NodeByIdent(nID)
+	node := srv.orch.rost.NodeByIdent(nID)
 	if node == nil {
 		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("No such node: %s", nID))
 	}
 
-	res := nodeResponse(srv.bal.ks, node)
+	res := nodeResponse(srv.orch.ks, node)
 
 	return res, nil
 }
 
 func (srv *debugServer) NodesList(ctx context.Context, req *pb.NodesListRequest) (*pb.NodesListResponse, error) {
-	rost := srv.bal.rost
+	rost := srv.orch.rost
 	rost.RLock()
 	defer rost.RUnlock()
 
 	res := &pb.NodesListResponse{}
 
 	for _, n := range rost.Nodes {
-		res.Nodes = append(res.Nodes, nodeResponse(srv.bal.ks, n))
+		res.Nodes = append(res.Nodes, nodeResponse(srv.orch.ks, n))
 	}
 
 	return res, nil

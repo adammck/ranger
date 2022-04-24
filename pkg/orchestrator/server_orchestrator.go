@@ -1,4 +1,4 @@
-package balancer
+package orchestrator
 
 import (
 	"context"
@@ -11,12 +11,12 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type balancerServer struct {
-	pb.UnsafeBalancerServer
-	bal *Balancer
+type orchestratorServer struct {
+	pb.UnsafeOrchestratorServer
+	orch *Orchestrator
 }
 
-func (bs *balancerServer) Move(ctx context.Context, req *pb.MoveRequest) (*pb.MoveResponse, error) {
+func (bs *orchestratorServer) Move(ctx context.Context, req *pb.MoveRequest) (*pb.MoveResponse, error) {
 	rID, err := getRange(bs, req.Range, "range")
 	if err != nil {
 		return nil, err
@@ -30,11 +30,11 @@ func (bs *balancerServer) Move(ctx context.Context, req *pb.MoveRequest) (*pb.Mo
 	errCh := make(chan error)
 
 	func() {
-		bs.bal.opMovesMu.Lock()
-		defer bs.bal.opMovesMu.Unlock()
+		bs.orch.opMovesMu.Lock()
+		defer bs.orch.opMovesMu.Unlock()
 
 		// TODO: Probably add a method to do this.
-		bs.bal.opMoves = append(bs.bal.opMoves, OpMove{
+		bs.orch.opMoves = append(bs.orch.opMoves, OpMove{
 			Range: rID,
 			Dest:  nID,
 			Err:   errCh,
@@ -61,7 +61,7 @@ func (bs *balancerServer) Move(ctx context.Context, req *pb.MoveRequest) (*pb.Mo
 	return &pb.MoveResponse{}, nil
 }
 
-func (bs *balancerServer) Split(ctx context.Context, req *pb.SplitRequest) (*pb.SplitResponse, error) {
+func (bs *orchestratorServer) Split(ctx context.Context, req *pb.SplitRequest) (*pb.SplitResponse, error) {
 	rID, err := getRange(bs, req.Range, "range")
 	if err != nil {
 		return nil, err
@@ -76,9 +76,9 @@ func (bs *balancerServer) Split(ctx context.Context, req *pb.SplitRequest) (*pb.
 	// TODO: Block until split is complete, like move does.
 
 	func() {
-		bs.bal.opSplitsMu.Lock()
-		defer bs.bal.opSplitsMu.Unlock()
-		bs.bal.opSplits[rID] = OpSplit{
+		bs.orch.opSplitsMu.Lock()
+		defer bs.orch.opSplitsMu.Unlock()
+		bs.orch.opSplits[rID] = OpSplit{
 			Range: rID,
 			Key:   boundary,
 		}
@@ -91,7 +91,7 @@ func (bs *balancerServer) Split(ctx context.Context, req *pb.SplitRequest) (*pb.
 	return &pb.SplitResponse{}, nil
 }
 
-func (bs *balancerServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.JoinResponse, error) {
+func (bs *orchestratorServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.JoinResponse, error) {
 	left, err := getRange(bs, req.RangeLeft, "range_left")
 	if err != nil {
 		return nil, err
@@ -106,11 +106,11 @@ func (bs *balancerServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.Jo
 	// TODO: Block until join is complete, like move does.
 
 	func() {
-		bs.bal.opJoinsMu.Lock()
-		defer bs.bal.opJoinsMu.Unlock()
+		bs.orch.opJoinsMu.Lock()
+		defer bs.orch.opJoinsMu.Unlock()
 
 		// TODO: Probably add a method to do this.
-		bs.bal.opJoins = append(bs.bal.opJoins, OpJoin{
+		bs.orch.opJoins = append(bs.orch.opJoins, OpJoin{
 			Left:  left,
 			Right: right,
 		})
@@ -125,7 +125,7 @@ func (bs *balancerServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.Jo
 
 // getRange examines the given range ident and returns the corresponding Range
 // or an error suitable for a gRPC response.
-func getRange(bs *balancerServer, pbid uint64, field string) (ranje.Ident, error) {
+func getRange(bs *orchestratorServer, pbid uint64, field string) (ranje.Ident, error) {
 	if pbid == 0 {
 		return ranje.ZeroRange, status.Error(codes.InvalidArgument, fmt.Sprintf("missing: %s", field))
 	}

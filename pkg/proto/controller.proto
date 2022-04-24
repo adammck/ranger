@@ -43,7 +43,7 @@ message JoinRequest {
 message JoinResponse {
 }
 
-service Balancer {
+service Orchestrator {
 
   // Place a range on specific node, moving it from the node it is currently
   // placed on, if any.

@@ -357,11 +357,6 @@ func (ks *Keyspace) RangeCanBeObsoleted(r *Range) error {
 }
 
 func (ks *Keyspace) Split(r *Range, k Key) error {
-
-	// Balancer already holds the lock.
-	//ks.mu.Lock()
-	//defer ks.mu.Unlock()
-
 	if k == ZeroKey {
 		return fmt.Errorf("can't split on zero key")
 	}
@@ -529,7 +524,7 @@ func (ks *Keyspace) PlacementsByNodeID(nID string) []PBNID {
 // TODO: This is currently only used to move ranges into Obsolete after they
 //       have been subsumed. Can we replace this with *ObsoleteRange*?
 func (ks *Keyspace) RangeToState(rng *Range, state RangeState) error {
-	// Balancer already has lock.
+	// Orchestrator already has lock.
 	// TODO: Verify this somehow?
 
 	err := rng.toState(state, ks)
@@ -541,7 +536,7 @@ func (ks *Keyspace) RangeToState(rng *Range, state RangeState) error {
 }
 
 // Callers don't bother checking the error we return, so we panic instead.
-// TODO: Update balancer to check the error!
+// TODO: Update callers to check the error!
 func (ks *Keyspace) PlacementToState(p *Placement, state PlacementState) error {
 	err := p.toState(state)
 	if err != nil {

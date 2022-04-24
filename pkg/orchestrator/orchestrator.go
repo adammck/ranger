@@ -1,4 +1,4 @@
-package balancer
+package orchestrator
 
 import (
 	"context"
@@ -15,12 +15,12 @@ import (
 	"google.golang.org/grpc"
 )
 
-type Balancer struct {
+type Orchestrator struct {
 	cfg  config.Config
 	ks   *ranje.Keyspace
 	rost *roster.Roster
 	srv  *grpc.Server
-	bs   *balancerServer
+	bs   *orchestratorServer
 	dbg  *debugServer
 
 	// Moves requested by operator (or by test)
@@ -40,8 +40,8 @@ type Balancer struct {
 	rpcWG sync.WaitGroup
 }
 
-func New(cfg config.Config, ks *ranje.Keyspace, rost *roster.Roster, srv *grpc.Server) *Balancer {
-	b := &Balancer{
+func New(cfg config.Config, ks *ranje.Keyspace, rost *roster.Roster, srv *grpc.Server) *Orchestrator {
+	b := &Orchestrator{
 		cfg:      cfg,
 		ks:       ks,
 		rost:     rost,
@@ -53,19 +53,19 @@ func New(cfg config.Config, ks *ranje.Keyspace, rost *roster.Roster, srv *grpc.S
 
 	// Register the gRPC server to receive instructions from operators. This
 	// will hopefully not be necessary once balancing actually works!
-	b.bs = &balancerServer{bal: b}
-	pb.RegisterBalancerServer(srv, b.bs)
+	b.bs = &orchestratorServer{orch: b}
+	pb.RegisterOrchestratorServer(srv, b.bs)
 
 	// Register the debug server, to fetch info about the state of the world.
 	// One could arguably pluck this straight from Consul -- since it's totally
 	// consistent *right?* -- but it's a much richer interface to do it here.
-	b.dbg = &debugServer{bal: b}
+	b.dbg = &debugServer{orch: b}
 	pb.RegisterDebugServer(srv, b.dbg)
 
 	return b
 }
 
-func (b *Balancer) Tick() {
+func (b *Orchestrator) Tick() {
 
 	// Hold the keyspace lock for the entire tick.
 	rs, unlock := b.ks.Ranges()
@@ -113,7 +113,7 @@ func (b *Balancer) Tick() {
 	// TODO: Persist here, instead of after individual state updates?
 }
 
-func (b *Balancer) tickRange(r *ranje.Range) {
+func (b *Orchestrator) tickRange(r *ranje.Range) {
 	switch r.State {
 	case ranje.RsActive:
 
@@ -197,7 +197,7 @@ func (b *Balancer) tickRange(r *ranje.Range) {
 	}
 }
 
-func (b *Balancer) moveOp(rID ranje.Ident) (OpMove, bool) {
+func (b *Orchestrator) moveOp(rID ranje.Ident) (OpMove, bool) {
 	b.opMovesMu.RLock()
 	defer b.opMovesMu.RUnlock()
 
@@ -214,7 +214,7 @@ func (b *Balancer) moveOp(rID ranje.Ident) (OpMove, bool) {
 	return OpMove{}, false
 }
 
-func (b *Balancer) doMove(r *ranje.Range, opMove OpMove) error {
+func (b *Orchestrator) doMove(r *ranje.Range, opMove OpMove) error {
 	var src *ranje.Placement
 	if opMove.Src != "" {
 
@@ -276,7 +276,7 @@ func (b *Balancer) doMove(r *ranje.Range, opMove OpMove) error {
 
 // using a weird bool pointer arg to avoid having to return false from every
 // place except one.
-func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
+func (b *Orchestrator) tickPlacement(p *ranje.Placement, destroy *bool) {
 
 	// Get the node that this placement is on.
 	// (This is a problem, in most states.)
@@ -310,9 +310,6 @@ func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 	// If the node this placement is on wants to be drained, mark this placement
 	// as wanting to be moved. The next Tick will create a new placement, and
 	// exclude the current node from the candidates.
-	//
-	// TODO: This whole WantMove thing was a hack to initiate moves in tests,
-	//       get rid of it and probably replace it with a on the balancer?
 	//
 	// TODO: Also this is almost certainly only valid in some placement states;
 	//       think about that.
@@ -536,13 +533,13 @@ func (b *Balancer) tickPlacement(p *ranje.Placement, destroy *bool) {
 	}
 }
 
-func (b *Balancer) Run(t *time.Ticker) {
+func (b *Orchestrator) Run(t *time.Ticker) {
 	for ; true; <-t.C {
 		b.Tick()
 	}
 }
 
-func (b *Balancer) RPC(f func()) {
+func (b *Orchestrator) RPC(f func()) {
 	b.rpcWG.Add(1)
 
 	go func() {
