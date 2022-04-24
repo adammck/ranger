@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"log"
 	"os"
@@ -10,14 +9,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/adammck/ranger/examples/kv/pkg/node"
-	"github.com/adammck/ranger/examples/kv/pkg/proxy"
 	"github.com/adammck/ranger/pkg/config"
 )
-
-type Runner interface {
-	Run(ctx context.Context) error
-}
 
 func main() {
 	cfg := config.Config{
@@ -26,12 +19,9 @@ func main() {
 		Replication:              1, // only thing that works for now
 	}
 
-	fnod := flag.Bool("node", false, "start a node")
-	fprx := flag.Bool("proxy", false, "start a proxy")
-
 	addrLis := flag.String("addr", "localhost:8000", "address to start grpc server on")
-	addrPub := flag.String("pub-addr", "", "address for other nodes to reach this (default: same as -listen)")
-	LogReqs := flag.Bool("log-reqs", false, "proxy, node: enable request logging")
+	addrPub := flag.String("pub-addr", "", "address for other nodes to reach this (default: same as -addr)")
+	once := flag.Bool("once", false, "perform one rebalance cycle and exit")
 	flag.Parse()
 
 	if *addrPub == "" {
@@ -39,8 +29,14 @@ func main() {
 	}
 
 	// Replace default logger.
+	// TODO: Switch to a better logging package.
 	logger := log.New(os.Stdout, "", 0)
 	*log.Default() = *logger
+
+	cmd, err := New(cfg, *addrLis, *addrPub, *once)
+	if err != nil {
+		exit(err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -51,23 +47,6 @@ func main() {
 		<-sig
 		cancel()
 	}()
-
-	var cmd Runner
-	var err error
-
-	if *fnod && !*fprx {
-		cmd, err = node.New(cfg, *addrLis, *addrPub, *LogReqs)
-
-	} else if !*fnod && *fprx {
-		cmd, err = proxy.New(cfg, *addrLis, *addrPub, *LogReqs)
-
-	} else {
-		err = errors.New("must provide one of -node, -proxy")
-	}
-
-	if err != nil {
-		exit(err)
-	}
 
 	err = cmd.Run(ctx)
 	if err != nil {

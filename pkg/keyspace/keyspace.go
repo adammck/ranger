@@ -25,7 +25,7 @@ type Keyspace struct {
 	maxIdent ranje.Ident
 }
 
-func New(cfg config.Config, persister persister.Persister) *Keyspace {
+func New(cfg config.Config, persister persister.Persister) (*Keyspace, error) {
 	ks := &Keyspace{
 		cfg:  cfg,
 		pers: persister,
@@ -33,7 +33,7 @@ func New(cfg config.Config, persister persister.Persister) *Keyspace {
 
 	ranges, err := persister.GetRanges()
 	if err != nil {
-		panic(fmt.Sprintf("error from GetRanges: %v", err))
+		return nil, err
 	}
 
 	log.Printf("got %d ranges from store\n", len(ranges))
@@ -44,7 +44,7 @@ func New(cfg config.Config, persister persister.Persister) *Keyspace {
 		r := ks.Range()
 		ks.ranges = []*ranje.Range{r}
 		ks.pers.PutRanges(ks.ranges)
-		return ks
+		return ks, nil
 	}
 
 	ks.ranges = ranges
@@ -71,7 +71,7 @@ func New(cfg config.Config, persister persister.Persister) *Keyspace {
 		panic(fmt.Sprintf("failed sanity check: %v", err))
 	}
 
-	return ks
+	return ks, nil
 }
 
 // LogString is only used by tests.

@@ -1,4 +1,4 @@
-package controller
+package main
 
 import (
 	"context"
@@ -22,7 +22,6 @@ import (
 type Controller struct {
 	cfg config.Config
 
-	name    string
 	addrLis string
 	addrPub string // do we actually need this? maybe only discovery does.
 	once    bool   // run one rebalance cycle and exit
@@ -42,19 +41,25 @@ func New(cfg config.Config, addrLis, addrPub string, once bool) (*Controller, er
 	// TODO: Make this optional.
 	reflection.Register(srv)
 
-	api, err := consulapi.NewClient(consulapi.DefaultConfig())
-	if err != nil {
-		return nil, err
-	}
-
 	// TODO: Pass in the Consul client here.
 	disc, err := consuldisc.New("controller", addrPub, consulapi.DefaultConfig(), srv)
 	if err != nil {
 		return nil, err
 	}
 
+	api, err := consulapi.NewClient(consulapi.DefaultConfig())
+	if err != nil {
+		return nil, err
+	}
+
 	pers := consulpers.New(api)
-	ks := keyspace.New(cfg, pers)
+
+	// This loads the ranges from storage, so will fail if the persister (e.g.
+	// Consul) isn't available. Starting with an empty keyspace should be rare.
+	ks, err := keyspace.New(cfg, pers)
+	if err != nil {
+		return nil, err
+	}
 
 	// TODO: Hook up the callbacks (or replace with channels)
 	rost := roster.New(cfg, disc, nil, nil, nil)
@@ -63,7 +68,6 @@ func New(cfg config.Config, addrLis, addrPub string, once bool) (*Controller, er
 
 	return &Controller{
 		cfg:     cfg,
-		name:    "controller",
 		addrLis: addrLis,
 		addrPub: addrPub,
 		once:    once,
@@ -106,27 +110,24 @@ func (c *Controller) Run(ctx context.Context) error {
 	// happens after we have the current state of the nodes.
 	c.rost.Tick()
 
-	if !c.once {
-		// Periodically probe all nodes to keep their state up to date.
-		ticker := time.NewTicker(time.Second)
-		go c.rost.Run(ticker)
-	}
-
 	if c.once {
 		c.orch.Tick()
 
 	} else {
 
+		// Periodically probe all nodes to keep their state up to date.
+		ticker := time.NewTicker(1 * time.Second)
+		go c.rost.Run(ticker)
+
 		// Start rebalancing loop.
 		// TODO: Make this MUCH faster once in-flight RPCs are skipped.
-		// TODO: This should probably be reactive rather than running in a loop. Could run after probes complete.
 		go c.orch.Run(time.NewTicker(1005 * time.Millisecond))
-	}
 
-	// If we're staying active (not --once), block until context is cancelled,
-	// indicating that caller wants shutdown.
-	if !c.once {
-		<-ctx.Done()
+		// Block until context is cancelled, indicating that caller wants
+		// shutdown.
+		if !c.once {
+			<-ctx.Done()
+		}
 	}
 
 	// Let in-flight RPCs finish and then stop. errChan will contain the error
