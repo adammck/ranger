@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/adammck/ranger/pkg/config"
+	"github.com/adammck/ranger/pkg/keyspace"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
@@ -17,7 +18,7 @@ import (
 
 type Orchestrator struct {
 	cfg  config.Config
-	ks   *ranje.Keyspace
+	ks   *keyspace.Keyspace
 	rost *roster.Roster
 	srv  *grpc.Server
 	bs   *orchestratorServer
@@ -40,7 +41,7 @@ type Orchestrator struct {
 	rpcWG sync.WaitGroup
 }
 
-func New(cfg config.Config, ks *ranje.Keyspace, rost *roster.Roster, srv *grpc.Server) *Orchestrator {
+func New(cfg config.Config, ks *keyspace.Keyspace, rost *roster.Roster, srv *grpc.Server) *Orchestrator {
 	b := &Orchestrator{
 		cfg:      cfg,
 		ks:       ks,
@@ -548,14 +549,14 @@ func (b *Orchestrator) RPC(f func()) {
 	}()
 }
 
-func getParents(ks *ranje.Keyspace, rost *roster.Roster, rang *ranje.Range) []*pb.Parent {
+func getParents(ks *keyspace.Keyspace, rost *roster.Roster, rang *ranje.Range) []*pb.Parent {
 	parents := []*pb.Parent{}
 	seen := map[ranje.Ident]struct{}{}
 	addParents(ks, rost, rang, &parents, seen)
 	return parents
 }
 
-func addParents(ks *ranje.Keyspace, rost *roster.Roster, rang *ranje.Range, parents *[]*pb.Parent, seen map[ranje.Ident]struct{}) {
+func addParents(ks *keyspace.Keyspace, rost *roster.Roster, rang *ranje.Range, parents *[]*pb.Parent, seen map[ranje.Ident]struct{}) {
 
 	// Don't bother serializing the same placement many times. (The range tree
 	// won't have cycles, but is also not a DAG.)

@@ -10,6 +10,7 @@ import (
 
 	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
+	"github.com/adammck/ranger/pkg/keyspace"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
@@ -27,7 +28,7 @@ type OrchestratorSuite struct {
 	ctx   context.Context
 	cfg   config.Config
 	nodes *fake_nodes.TestNodes
-	ks    *ranje.Keyspace
+	ks    *keyspace.Keyspace
 	rost  *roster.Roster
 	orch  *Orchestrator
 }
@@ -72,7 +73,7 @@ func (ts *OrchestratorSuite) GetRange(rID uint64) *ranje.Range {
 // world. Nothing will work until this method is called.
 func (ts *OrchestratorSuite) Init(ranges []*ranje.Range) {
 	pers := &FakePersister{ranges: ranges}
-	ts.ks = ranje.New(ts.cfg, pers)
+	ts.ks = keyspace.New(ts.cfg, pers)
 	srv := grpc.NewServer() // TODO: Allow this to be nil.
 	ts.orch = New(ts.cfg, ts.ks, ts.rost, srv)
 }

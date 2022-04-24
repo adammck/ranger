@@ -8,14 +8,15 @@ import (
 
 	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
-	consuldisc "github.com/adammck/ranger/pkg/discovery/consul"
+	"github.com/adammck/ranger/pkg/keyspace"
 	"github.com/adammck/ranger/pkg/orchestrator"
-	"github.com/adammck/ranger/pkg/ranje"
-	consulpers "github.com/adammck/ranger/pkg/ranje/persisters/consul"
 	"github.com/adammck/ranger/pkg/roster"
-	consulapi "github.com/hashicorp/consul/api"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
+
+	consuldisc "github.com/adammck/ranger/pkg/discovery/consul"
+	consulpers "github.com/adammck/ranger/pkg/persister/consul"
+	consulapi "github.com/hashicorp/consul/api"
 )
 
 type Controller struct {
@@ -28,7 +29,7 @@ type Controller struct {
 
 	srv  *grpc.Server
 	disc discovery.Discoverable
-	ks   *ranje.Keyspace
+	ks   *keyspace.Keyspace
 	rost *roster.Roster
 	orch *orchestrator.Orchestrator
 }
@@ -53,7 +54,7 @@ func New(cfg config.Config, addrLis, addrPub string, once bool) (*Controller, er
 	}
 
 	pers := consulpers.New(api)
-	ks := ranje.New(cfg, pers)
+	ks := keyspace.New(cfg, pers)
 
 	// TODO: Hook up the callbacks (or replace with channels)
 	rost := roster.New(cfg, disc, nil, nil, nil)

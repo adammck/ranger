@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/adammck/ranger/pkg/keyspace"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
@@ -32,7 +33,7 @@ func rangeResponse(r *ranje.Range) *pb.RangeResponse {
 	return res
 }
 
-func nodeResponse(ks *ranje.Keyspace, n *roster.Node) *pb.NodeResponse {
+func nodeResponse(ks *keyspace.Keyspace, n *roster.Node) *pb.NodeResponse {
 	res := &pb.NodeResponse{
 		Node: &pb.NodeMeta{
 			Ident:     n.Ident(),

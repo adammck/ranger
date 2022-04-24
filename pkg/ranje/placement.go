@@ -51,6 +51,14 @@ func NewReplacement(r *Range, destNodeID, srcNodeID string, done func()) *Placem
 	}
 }
 
+func (p *Placement) Repair(r *Range) {
+	if p.rang != nil {
+		panic("tried to repair valid placementn")
+	}
+
+	p.rang = r
+}
+
 // TODO: Rename this to just String?
 func (p *Placement) LogString() string {
 	return fmt.Sprintf("{%s %s:%s}", p.rang.Meta, p.NodeID, p.State)
@@ -71,7 +79,7 @@ func (p *Placement) DoneReplacing() {
 	}
 }
 
-func (p *Placement) toState(new PlacementState) error {
+func (p *Placement) ToState(new PlacementState) error {
 	ok := false
 	old := p.State
 
