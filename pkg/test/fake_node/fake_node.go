@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,14 +26,14 @@ type rangeInState struct {
 
 type TestNode struct {
 	Addr string
-	srv  *grpc.Server // TODO: Do we need to keep this?
 	Conn *grpc.ClientConn
-	rpcs []interface{}
-
 	rglt *rangelet.Rangelet
 
-	// TODO: Locking.
-	transitions map[rangeInState]error
+	rpcs   []interface{}
+	rpcsMu sync.Mutex
+
+	transitions   map[rangeInState]error
+	transitionsMu sync.Mutex
 }
 
 func NewTestNode(ctx context.Context, addr string, rangeInfos map[ranje.Ident]*info.RangeInfo) (*TestNode, func()) {
@@ -45,7 +46,6 @@ func NewTestNode(ctx context.Context, addr string, rangeInfos map[ranje.Ident]*i
 
 	tn := &TestNode{
 		Addr:        addr,
-		srv:         srv,
 		transitions: map[rangeInState]error{},
 	}
 
@@ -73,9 +73,14 @@ func (n *TestNode) waitUntil(rID ranje.Ident, src state.RemoteState) error {
 	t := time.Now().Add(500 * time.Millisecond)
 
 	for {
-		if err, ok := n.transitions[ris]; ok {
+		n.transitionsMu.Lock()
+		err, ok := n.transitions[ris]
+		if ok {
 			log.Printf("advancing %v!\n", rID)
 			delete(n.transitions, ris)
+		}
+		n.transitionsMu.Unlock()
+		if ok {
 			return err
 		}
 
@@ -133,7 +138,9 @@ func (n *TestNode) spyInterceptor(
 
 	// TODO: Hack! Remove this! Update the tests to expect Info requests!
 	if method != "/ranger.Node/Info" {
+		n.rpcsMu.Lock()
 		n.rpcs = append(n.rpcs, req)
+		n.rpcsMu.Unlock()
 	}
 
 	err := invoker(ctx, method, req, res, cc, opts...)
@@ -209,14 +216,21 @@ func (n *TestNode) AdvanceTo(t *testing.T, rID ranje.Ident, new state.RemoteStat
 	}
 
 	log.Printf("registering transition: (rID=%v, state=%s)\n", ris.rID, ris.s)
+
+	n.transitionsMu.Lock()
 	n.transitions[ris] = err
+	n.transitionsMu.Unlock()
 
 	// Now wait until it's gone.
 	// This assumes that some other goroutine is sitting in waitUntil.
 	// TODO: Verify that before registering the transition. Fail the test if
 	//       we try to advance while nobody is waiting.
 	for {
-		if _, ok := n.transitions[ris]; !ok {
+		n.transitionsMu.Lock()
+		_, ok := n.transitions[ris]
+		n.transitionsMu.Unlock()
+
+		if !ok {
 			break
 		}
 
@@ -235,6 +249,9 @@ func (n *TestNode) Ranges(ctx context.Context, req *pb.RangesRequest) (*pb.Range
 // an ugly hack because asserting that an unordered bunch of protos were all
 // sent is hard.
 func (n *TestNode) RPCs() []interface{} {
+	n.rpcsMu.Lock()
+	defer n.rpcsMu.Unlock()
+
 	ret := n.rpcs
 	n.rpcs = nil
 
