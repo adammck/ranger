@@ -20,18 +20,18 @@ import (
 	consulapi "github.com/hashicorp/consul/api"
 )
 
-type KeysVals struct {
-	data    map[string][]byte
-	mu      sync.RWMutex // guards data
-	fetcher *Fetcher
-	writes  bool
+type Range struct {
+	data     map[string][]byte
+	dataMu   sync.RWMutex // guards data
+	fetcher  *fetcher
+	writable uint32 // semantically bool, but uint so we can read atomically
 }
 
 type Node struct {
 	cfg config.Config
 
-	data map[ranje.Ident]*KeysVals
-	mu   sync.RWMutex // guards ranges
+	ranges   map[ranje.Ident]*Range
+	rangesMu sync.RWMutex // guards ranges
 
 	addrLis string
 	addrPub string
@@ -65,7 +65,7 @@ func New(cfg config.Config, addrLis, addrPub string, logReqs bool) (*Node, error
 
 	n := &Node{
 		cfg:     cfg,
-		data:    map[ranje.Ident]*KeysVals{},
+		ranges:  map[ranje.Ident]*Range{},
 		addrLis: addrLis,
 		addrPub: addrPub,
 		srv:     srv,

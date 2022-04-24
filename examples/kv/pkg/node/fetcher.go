@@ -13,18 +13,18 @@ import (
 	"google.golang.org/grpc"
 )
 
-type Src struct {
+type src struct {
 	meta ranje.Meta
 	node string
 }
 
-type Fetcher struct {
+type fetcher struct {
 	meta ranje.Meta
-	srcs []Src
+	srcs []src
 }
 
-func NewFetcher(rm ranje.Meta, parents []rangelet.Parent) *Fetcher {
-	srcs := []Src{}
+func newFetcher(rm ranje.Meta, parents []rangelet.Parent) *fetcher {
+	srcs := []src{}
 
 	// If this is a range move, we can just fetch the whole thing from a single
 	// node. Writes to that node will be disabled (via PrepareDropShard) before
@@ -33,7 +33,7 @@ func NewFetcher(rm ranje.Meta, parents []rangelet.Parent) *Fetcher {
 	for _, par := range parents {
 		for _, plc := range par.Placements {
 			if plc.State == ranje.PsReady {
-				src := Src{meta: par.Meta, node: plc.Node}
+				src := src{meta: par.Meta, node: plc.Node}
 				srcs = append(srcs, src)
 			}
 		}
@@ -50,13 +50,13 @@ func NewFetcher(rm ranje.Meta, parents []rangelet.Parent) *Fetcher {
 		log.Printf("no idea what's going on: %s (n=%d)", rm.Ident, len(srcs))
 	}
 
-	return &Fetcher{
+	return &fetcher{
 		meta: rm,
 		srcs: srcs,
 	}
 }
 
-func (f *Fetcher) Fetch(dest *KeysVals) error {
+func (f *fetcher) Fetch(dest *Range) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -81,7 +81,7 @@ func (f *Fetcher) Fetch(dest *KeysVals) error {
 	return nil
 }
 
-func fetch(ctx context.Context, dest *KeysVals, meta ranje.Meta, addr string, src ranje.Meta) error {
+func fetch(ctx context.Context, dest *Range, meta ranje.Meta, addr string, src ranje.Meta) error {
 	log.Printf("fetch: %s from: %s", src.Ident, addr)
 
 	conn, err := grpc.DialContext(
@@ -108,8 +108,8 @@ func fetch(ctx context.Context, dest *KeysVals, meta ranje.Meta, addr string, sr
 
 	func() {
 		// Hold lock for duration rather than flapping.
-		dest.mu.Lock()
-		defer dest.mu.Unlock()
+		dest.dataMu.Lock()
+		defer dest.dataMu.Unlock()
 		for _, pair := range res.Pairs {
 
 			// Ignore any keys which are not in the destination range, since we

@@ -75,9 +75,7 @@ func init() {
 const defaultConfig = `
 {
 	"workers": [
-		{ "prefix": "a", "qps": { "create": 10, "read": 50, "update": 20, "delete": 0 } },
-		{ "prefix": "b", "qps": { "create": 10, "read": 50, "update": 20, "delete": 0 } },
-		{ "prefix": "c", "qps": { "create": 10, "read": 50, "update": 20, "delete": 0 } }
+		{ "prefix": "", "qps": { "create": 10, "read": 50, "update": 20, "delete": 0 } }
 	]
 }
 `

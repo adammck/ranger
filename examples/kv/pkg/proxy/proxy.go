@@ -76,7 +76,6 @@ func (p *Proxy) Add(rem *discovery.Remote) {
 
 	p.clientsMu.Lock()
 	defer p.clientsMu.Unlock()
-
 	p.clients[rem.Ident] = pbkv.NewKVClient(conn)
 }
 
