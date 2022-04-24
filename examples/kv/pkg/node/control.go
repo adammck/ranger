@@ -9,8 +9,8 @@ import (
 	"github.com/adammck/ranger/pkg/ranje"
 )
 
-// PrepareAddShard: Create the range, but don't do anything with it yet.
-func (n *Node) PrepareAddShard(rm ranje.Meta, parents []rangelet.Parent) error {
+// PrepareAddRange: Create the range, but don't do anything with it yet.
+func (n *Node) PrepareAddRange(rm ranje.Meta, parents []rangelet.Parent) error {
 	n.rangesMu.Lock()
 	defer n.rangesMu.Unlock()
 
@@ -20,7 +20,7 @@ func (n *Node) PrepareAddShard(rm ranje.Meta, parents []rangelet.Parent) error {
 	}
 
 	// TODO: Ideally we would perform most of the fetch here, and only exchange
-	//       the delta (keys which have changed since then) in AddShard.
+	//       the delta (keys which have changed since then) in AddRange.
 
 	n.ranges[rm.Ident] = &Range{
 		data:     map[string][]byte{},
@@ -32,14 +32,14 @@ func (n *Node) PrepareAddShard(rm ranje.Meta, parents []rangelet.Parent) error {
 	return nil
 }
 
-// AddShard:
-func (n *Node) AddShard(rID ranje.Ident) error {
+// AddRange:
+func (n *Node) AddRange(rID ranje.Ident) error {
 	n.rangesMu.Lock()
 	defer n.rangesMu.Unlock()
 
 	r, ok := n.ranges[rID]
 	if !ok {
-		panic("rangelet called AddShard with unknown range!")
+		panic("rangelet called AddRange with unknown range!")
 	}
 
 	err := r.fetcher.Fetch(r)
@@ -54,16 +54,16 @@ func (n *Node) AddShard(rID ranje.Ident) error {
 	return nil
 }
 
-// PrepareDropShard: Disable writes to the range, because we're about to move
+// PrepareDropRange: Disable writes to the range, because we're about to move
 // it and I don't have the time to implement something better today. In this
 // example, keys are writable on exactly one node. (Or zero, during failures!)
-func (n *Node) PrepareDropShard(rID ranje.Ident) error {
+func (n *Node) PrepareDropRange(rID ranje.Ident) error {
 	n.rangesMu.Lock()
 	defer n.rangesMu.Unlock()
 
 	r, ok := n.ranges[rID]
 	if !ok {
-		panic("rangelet called PrepareDropShard with unknown range!")
+		panic("rangelet called PrepareDropRange with unknown range!")
 	}
 
 	// Prevent further writes to the range.
@@ -73,14 +73,14 @@ func (n *Node) PrepareDropShard(rID ranje.Ident) error {
 	return nil
 }
 
-// DropShard: Discard the range.
-func (n *Node) DropShard(rID ranje.Ident) error {
+// DropRange: Discard the range.
+func (n *Node) DropRange(rID ranje.Ident) error {
 	n.rangesMu.Lock()
 	defer n.rangesMu.Unlock()
 
 	_, ok := n.ranges[rID]
 	if !ok {
-		panic("rangelet called DropShard with unknown range!")
+		panic("rangelet called DropRange with unknown range!")
 	}
 
 	delete(n.ranges, rID)

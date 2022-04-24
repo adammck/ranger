@@ -88,19 +88,19 @@ func (n *TestNode) waitUntil(rID ranje.Ident, src state.RemoteState) error {
 	}
 }
 
-func (n *TestNode) PrepareAddShard(m ranje.Meta, p []rangelet.Parent) error {
+func (n *TestNode) PrepareAddRange(m ranje.Meta, p []rangelet.Parent) error {
 	return n.waitUntil(m.Ident, state.NsPreparing)
 }
 
-func (n *TestNode) AddShard(rID ranje.Ident) error {
+func (n *TestNode) AddRange(rID ranje.Ident) error {
 	return n.waitUntil(rID, state.NsReadying)
 }
 
-func (n *TestNode) PrepareDropShard(rID ranje.Ident) error {
+func (n *TestNode) PrepareDropRange(rID ranje.Ident) error {
 	return n.waitUntil(rID, state.NsTaking)
 }
 
-func (n *TestNode) DropShard(rID ranje.Ident) error {
+func (n *TestNode) DropRange(rID ranje.Ident) error {
 	return n.waitUntil(rID, state.NsDropping)
 }
 

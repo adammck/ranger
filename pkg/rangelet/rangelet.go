@@ -82,7 +82,7 @@ func (r *Rangelet) runThenUpdateState(rID ranje.Ident, success state.RemoteState
 func (r *Rangelet) give(rm ranje.Meta, parents []Parent) (info.RangeInfo, error) {
 	rID := rm.Ident
 
-	// TODO: Release the lock while calling PrepareAddShard.
+	// TODO: Release the lock while calling PrepareAddRange.
 	r.Lock()
 	defer r.Unlock()
 
@@ -101,7 +101,7 @@ func (r *Rangelet) give(rm ranje.Meta, parents []Parent) (info.RangeInfo, error)
 		//       have to wait for the next Give to tell the controller they have
 		//       finished preparing.
 		go r.runThenUpdateState(rID, state.NsPrepared, state.NsPreparingError, func() error {
-			return r.n.PrepareAddShard(rm, parents)
+			return r.n.PrepareAddRange(rm, parents)
 		})
 
 		return tmp, nil
@@ -135,7 +135,7 @@ func (r *Rangelet) serve(rID ranje.Ident) (*info.RangeInfo, error) {
 	case state.NsPrepared:
 		ri.State = state.NsReadying
 		go r.runThenUpdateState(rID, state.NsReady, state.NsReadyingError, func() error {
-			return r.n.AddShard(rID)
+			return r.n.AddRange(rID)
 		})
 
 	case state.NsReadying, state.NsReady:
@@ -161,7 +161,7 @@ func (r *Rangelet) take(rID ranje.Ident) (*info.RangeInfo, error) {
 	case state.NsReady:
 		ri.State = state.NsTaking
 		go r.runThenUpdateState(rID, state.NsTaken, state.NsTakingError, func() error {
-			return r.n.PrepareDropShard(rID)
+			return r.n.PrepareDropRange(rID)
 		})
 
 	case state.NsTaking, state.NsTaken:
@@ -188,7 +188,7 @@ func (r *Rangelet) drop(rID ranje.Ident) (*info.RangeInfo, error) {
 	case state.NsTaken:
 		ri.State = state.NsDropping
 		go r.runThenUpdateState(rID, state.NsNotFound, state.NsDroppingError, func() error {
-			return r.n.DropShard(rID)
+			return r.n.DropRange(rID)
 		})
 
 	case state.NsDropping:

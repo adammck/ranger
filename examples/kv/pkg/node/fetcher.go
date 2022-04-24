@@ -27,8 +27,8 @@ func newFetcher(rm ranje.Meta, parents []rangelet.Parent) *fetcher {
 	srcs := []src{}
 
 	// If this is a range move, we can just fetch the whole thing from a single
-	// node. Writes to that node will be disabled (via PrepareDropShard) before
-	// the fetch occurs (via AddShard).
+	// node. Writes to that node will be disabled (via PrepareDropRange) before
+	// the fetch occurs (via AddRange).
 
 	for _, par := range parents {
 		for _, plc := range par.Placements {
