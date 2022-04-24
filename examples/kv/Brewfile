@@ -1,2 +1,4 @@
 brew "consul"
 brew "foreman"
+brew "protoc-gen-go"
+brew "protoc-gen-go-grpc"
