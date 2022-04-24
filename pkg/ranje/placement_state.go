@@ -46,7 +46,7 @@ func init() {
 	}
 }
 
-//go:generate stringer -type=PlacementState -output=zzz_state_placement_string.go
+//go:generate stringer -type=PlacementState -output=placement_state_string.go
 
 func (s PlacementState) ToProto() pb.PlacementState {
 	switch s {
