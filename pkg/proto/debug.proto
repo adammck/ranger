@@ -10,49 +10,49 @@ message RangesListRequest {
 }
 
 message RangesListResponse {
-    repeated RangeResponse ranges = 1;
+  repeated RangeResponse ranges = 1;
 }
 
 message RangeRequest {
-    uint64 range = 1;
+  uint64 range = 1;
 }
 
 message RangeResponse {
-    RangeMeta meta = 1;
-    RangeState state = 2;
-    repeated PlacementTwo placements = 3;
+  RangeMeta meta = 1;
+  RangeState state = 2;
+  repeated Placement placements = 3;
 }
 
 message NodesListRequest {
 }
 
 message NodesListResponse {
-    repeated NodeResponse nodes = 1;
+  repeated NodeResponse nodes = 1;
 }
 
 message NodeRequest {
-    string node = 1;
+  string node = 1;
 }
 
 message NodeMeta {
-    string ident = 1;
-    string address = 2;
-    bool want_drain = 3;
+  string ident = 1;
+  string address = 2;
+  bool want_drain = 3;
 }
 
 message NodeRange {
-    RangeMeta meta = 1;
-    PlacementState state = 3;
+  RangeMeta meta = 1;
+  PlacementState state = 3;
 }
 
 message NodeResponse {
-    NodeMeta node = 1;
-    repeated NodeRange ranges = 2;
+  NodeMeta node = 1;
+  repeated NodeRange ranges = 2;
 }
 
 service Debug {
-    rpc RangesList (RangesListRequest) returns (RangesListResponse) {}
-    rpc Range (RangeRequest) returns (RangeResponse) {}
-    rpc NodesList (NodesListRequest) returns (NodesListResponse) {}
-    rpc Node (NodeRequest) returns (NodeResponse) {}
+  rpc RangesList (RangesListRequest) returns (RangesListResponse) {}
+  rpc Range (RangeRequest) returns (RangeResponse) {}
+  rpc NodesList (NodesListRequest) returns (NodesListResponse) {}
+  rpc Node (NodeRequest) returns (NodeResponse) {}
 }

@@ -25,7 +25,7 @@ func rangeResponse(r *ranje.Range) *pb.RangeResponse {
 	}
 
 	for _, p := range r.Placements {
-		res.Placements = append(res.Placements, &pb.PlacementTwo{
+		res.Placements = append(res.Placements, &pb.Placement{
 			Node:  p.NodeID,
 			State: p.State.ToProto(),
 		})

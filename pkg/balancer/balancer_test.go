@@ -164,14 +164,20 @@ func (ts *BalancerSuite) TestPlacement() {
 					End:   []byte(ranje.ZeroKey),
 				},
 				// TODO: It's weird and kind of useless for this to be in here.
-				Parents: []*pb.Placement{
+				Parents: []*pb.Parent{
 					{
 						Range: &pb.RangeMeta{
 							Ident: 1,
 							Start: []byte(ranje.ZeroKey),
 							End:   []byte(ranje.ZeroKey),
 						},
-						Node: "",
+						Parent: []uint64{},
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-aaa:1",
+								State: pb.PlacementState_PS_PENDING,
+							},
+						},
 					},
 				},
 			}, aaa[0])
@@ -188,7 +194,7 @@ func (ts *BalancerSuite) TestPlacement() {
 	ts.Equal("{test-aaa [1:NsPreparing]}", ts.rost.TestString())
 
 	// The node finished preparing, but we don't know about it.
-	ts.nodes.RangeState("test-aaa", 1, state.NsPrepared)
+	ts.nodes.Get("test-aaa").AdvanceTo(ts.T(), 1, state.NsPrepared, nil)
 	ts.Equal("{test-aaa [1:NsPreparing]}", ts.rost.TestString())
 
 	ts.bal.Tick()
@@ -213,7 +219,7 @@ func (ts *BalancerSuite) TestPlacement() {
 	ts.Equal("{test-aaa [1:NsReadying]}", ts.rost.TestString())
 
 	// The node became ready, but as above, we don't know about it.
-	ts.nodes.RangeState("test-aaa", 1, state.NsReady)
+	ts.nodes.Get("test-aaa").AdvanceTo(ts.T(), 1, state.NsReady, nil)
 	ts.Equal("{test-aaa [1:NsReadying]}", ts.rost.TestString())
 
 	ts.bal.Tick()
@@ -294,12 +300,17 @@ func (ts *BalancerSuite) TestMissingPlacement() {
 				Range: &pb.RangeMeta{
 					Ident: 1,
 				},
-				Parents: []*pb.Placement{
+				Parents: []*pb.Parent{
 					{
 						Range: &pb.RangeMeta{
 							Ident: 1,
 						},
-						Node: "",
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-aaa:1",
+								State: pb.PlacementState_PS_PENDING,
+							},
+						},
 					},
 				},
 			}, aaa[0])
@@ -376,14 +387,23 @@ func (ts *BalancerSuite) TestMove() {
 					Start: []byte(ranje.ZeroKey),
 					End:   []byte(ranje.ZeroKey),
 				},
-				Parents: []*pb.Placement{
+				Parents: []*pb.Parent{
 					{
 						Range: &pb.RangeMeta{
 							Ident: 1,
 							Start: []byte(ranje.ZeroKey),
 							End:   []byte(ranje.ZeroKey),
 						},
-						Node: "host-aaa:1",
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-aaa:1",
+								State: pb.PlacementState_PS_READY,
+							},
+							{
+								Node:  "host-bbb:1",
+								State: pb.PlacementState_PS_PENDING,
+							},
+						},
 					},
 				},
 			}, bbb[0])
@@ -394,7 +414,7 @@ func (ts *BalancerSuite) TestMove() {
 	ts.Equal("{test-aaa [1:NsReady]} {test-bbb [1:NsPreparing]}", ts.rost.TestString())
 
 	// Node B finished preparing.
-	ts.nodes.RangeState("test-bbb", 1, state.NsPrepared)
+	ts.nodes.Get("test-bbb").AdvanceTo(ts.T(), 1, state.NsPrepared, nil)
 	ts.Equal("{test-aaa [1:NsReady]} {test-bbb [1:NsPreparing]}", ts.rost.TestString())
 
 	ts.rost.Tick()
@@ -423,7 +443,7 @@ func (ts *BalancerSuite) TestMove() {
 	ts.Equal("{test-aaa [1:NsTaking]} {test-bbb [1:NsPrepared]}", ts.rost.TestString())
 
 	// Node A finished taking.
-	ts.nodes.RangeState("test-aaa", 1, state.NsTaken)
+	ts.nodes.Get("test-aaa").AdvanceTo(ts.T(), 1, state.NsTaken, nil)
 	ts.Equal("{test-aaa [1:NsTaking]} {test-bbb [1:NsPrepared]}", ts.rost.TestString())
 
 	ts.rost.Tick()
@@ -445,7 +465,7 @@ func (ts *BalancerSuite) TestMove() {
 	ts.Equal("{test-aaa [1:NsTaken]} {test-bbb [1:NsReadying]}", ts.rost.TestString())
 
 	// Node B finished becoming ready.
-	ts.nodes.RangeState("test-bbb", 1, state.NsReady)
+	ts.nodes.Get("test-bbb").AdvanceTo(ts.T(), 1, state.NsReady, nil)
 	ts.Equal("{test-aaa [1:NsTaken]} {test-bbb [1:NsReadying]}", ts.rost.TestString())
 
 	ts.rost.Tick()
@@ -466,7 +486,7 @@ func (ts *BalancerSuite) TestMove() {
 	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken p1=test-bbb:PsReady:replacing(test-aaa)}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsDropping]} {test-bbb [1:NsReady]}", ts.rost.TestString())
 
-	ts.nodes.FinishDrop(ts.T(), "test-aaa", 1)
+	ts.nodes.Get("test-aaa").AdvanceTo(ts.T(), 1, state.NsNotFound, nil)
 
 	ts.bal.Tick()
 	ts.Len(RPCs(ts.nodes.RPCs()), 1) // redundant Drop
@@ -564,20 +584,30 @@ func (ts *BalancerSuite) TestSplit() {
 					Start: []byte(ranje.ZeroKey),
 					End:   []byte("ccc"),
 				},
-				Parents: []*pb.Placement{
+				Parents: []*pb.Parent{
 					{
 						Range: &pb.RangeMeta{
 							Ident: 2,
 							Start: []byte(ranje.ZeroKey),
 							End:   []byte("ccc"),
 						},
-						Node: "",
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-aaa:1",
+								State: pb.PlacementState_PS_PENDING,
+							},
+						},
 					},
 					{
 						Range: &pb.RangeMeta{
 							Ident: 1,
 						},
-						Node: "host-aaa:1",
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-aaa:1",
+								State: pb.PlacementState_PS_READY,
+							},
+						},
 					},
 				},
 			}, aaa[0])
@@ -587,14 +617,19 @@ func (ts *BalancerSuite) TestSplit() {
 					Start: []byte("ccc"),
 					End:   []byte(ranje.ZeroKey),
 				},
-				Parents: []*pb.Placement{
+				Parents: []*pb.Parent{
 					{
 						Range: &pb.RangeMeta{
 							Ident: 3,
 							Start: []byte("ccc"),
 							End:   []byte(ranje.ZeroKey),
 						},
-						Node: "",
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-aaa:1",
+								State: pb.PlacementState_PS_PENDING,
+							},
+						},
 					},
 					{
 						Range: &pb.RangeMeta{
@@ -602,7 +637,12 @@ func (ts *BalancerSuite) TestSplit() {
 							Start: []byte(ranje.ZeroKey),
 							End:   []byte(ranje.ZeroKey),
 						},
-						Node: "host-aaa:1",
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-aaa:1",
+								State: pb.PlacementState_PS_READY,
+							},
+						},
 					},
 				},
 			}, aaa[1])
@@ -615,7 +655,7 @@ func (ts *BalancerSuite) TestSplit() {
 	// 3. Wait for placements to become Prepared.
 
 	// R2 finished preparing, but R3 has not yet.
-	ts.nodes.RangeState("test-aaa", 2, state.NsPrepared)
+	ts.nodes.Get("test-aaa").AdvanceTo(ts.T(), 2, state.NsPrepared, nil)
 	ts.Equal("{test-aaa [1:NsReady, 2:NsPreparing, 3:NsPreparing]}", ts.rost.TestString())
 
 	ts.bal.Tick()
@@ -623,7 +663,7 @@ func (ts *BalancerSuite) TestSplit() {
 	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsReady} {2 [-inf, ccc] RsActive p0=test-aaa:PsPending} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", ts.ks.LogString())
 
 	// R3 becomes Prepared, too.
-	ts.nodes.RangeState("test-aaa", 3, state.NsPrepared)
+	ts.nodes.Get("test-aaa").AdvanceTo(ts.T(), 3, state.NsPrepared, nil)
 	ts.Equal("{test-aaa [1:NsReady, 2:NsPrepared, 3:NsPreparing]}", ts.rost.TestString())
 
 	ts.bal.Tick()
@@ -648,7 +688,7 @@ func (ts *BalancerSuite) TestSplit() {
 	ts.Equal("{test-aaa [1:NsTaking, 2:NsPrepared, 3:NsPrepared]}", ts.rost.TestString())
 
 	// r1p0 finishes taking.
-	ts.nodes.RangeState("test-aaa", 1, state.NsTaken)
+	ts.nodes.Get("test-aaa").AdvanceTo(ts.T(), 1, state.NsTaken, nil)
 	ts.Equal("{test-aaa [1:NsTaking, 2:NsPrepared, 3:NsPrepared]}", ts.rost.TestString())
 
 	ts.bal.Tick()
@@ -669,7 +709,7 @@ func (ts *BalancerSuite) TestSplit() {
 	ts.Equal("{test-aaa [1:NsTaken, 2:NsReadying, 3:NsReadying]}", ts.rost.TestString())
 
 	// r3p0 becomes ready.
-	ts.nodes.RangeState("test-aaa", 3, state.NsReady)
+	ts.nodes.Get("test-aaa").AdvanceTo(ts.T(), 3, state.NsReady, nil)
 
 	// Balancer notices on next tick.
 	ts.bal.Tick()
@@ -678,7 +718,7 @@ func (ts *BalancerSuite) TestSplit() {
 	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsTaken} {2 [-inf, ccc] RsActive p0=test-aaa:PsPrepared} {3 (ccc, +inf] RsActive p0=test-aaa:PsPrepared}", ts.ks.LogString())
 
 	// r2p0 becomes ready.
-	ts.nodes.RangeState("test-aaa", 2, state.NsReady)
+	ts.nodes.Get("test-aaa").AdvanceTo(ts.T(), 2, state.NsReady, nil)
 
 	// Balancer notices on next tick.
 	ts.bal.Tick()
@@ -709,7 +749,7 @@ func (ts *BalancerSuite) TestSplit() {
 	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsTaken} {2 [-inf, ccc] RsActive p0=test-aaa:PsReady} {3 (ccc, +inf] RsActive p0=test-aaa:PsReady}", ts.ks.LogString())
 
 	// r1p0 finishes dropping.
-	ts.nodes.FinishDrop(ts.T(), "test-aaa", 1)
+	ts.nodes.Get("test-aaa").AdvanceTo(ts.T(), 1, state.NsNotFound, nil)
 
 	ts.bal.Tick()
 	ts.Len(RPCs(ts.nodes.RPCs()), 1) // redundant Drop
@@ -840,26 +880,41 @@ func (ts *BalancerSuite) TestJoin() {
 				Range: &pb.RangeMeta{
 					Ident: 3,
 				},
-				Parents: []*pb.Placement{
+				Parents: []*pb.Parent{
 					{
 						Range: &pb.RangeMeta{
 							Ident: 3,
 						},
-						Node: "",
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-ccc:1",
+								State: pb.PlacementState_PS_PENDING,
+							},
+						},
 					},
 					{
 						Range: &pb.RangeMeta{
 							Ident: 1,
 							End:   []byte("ggg"),
 						},
-						Node: "host-aaa:1",
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-aaa:1",
+								State: pb.PlacementState_PS_READY,
+							},
+						},
 					},
 					{
 						Range: &pb.RangeMeta{
 							Ident: 2,
 							Start: []byte("ggg"),
 						},
-						Node: "host-bbb:1",
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-bbb:1",
+								State: pb.PlacementState_PS_READY,
+							},
+						},
 					},
 				},
 			}, ccc[0])
@@ -871,7 +926,7 @@ func (ts *BalancerSuite) TestJoin() {
 
 	// 2. New range finishes preparing.
 
-	ts.nodes.RangeState("test-ccc", 3, state.NsPrepared)
+	ts.nodes.Get("test-ccc").AdvanceTo(ts.T(), 3, state.NsPrepared, nil)
 	ts.rost.Tick()
 	ts.Equal("{test-aaa [1:NsReady]} {test-bbb [2:NsReady]} {test-ccc [3:NsPrepared]}", ts.rost.TestString())
 
@@ -897,8 +952,8 @@ func (ts *BalancerSuite) TestJoin() {
 
 	// 4. Old ranges becomes taken.
 
-	ts.nodes.RangeState("test-aaa", 1, state.NsTaken)
-	ts.nodes.RangeState("test-bbb", 2, state.NsTaken)
+	ts.nodes.Get("test-aaa").AdvanceTo(ts.T(), 1, state.NsTaken, nil)
+	ts.nodes.Get("test-bbb").AdvanceTo(ts.T(), 2, state.NsTaken, nil)
 	ts.rost.Tick()
 	ts.Equal("{test-aaa [1:NsTaken]} {test-bbb [2:NsTaken]} {test-ccc [3:NsPrepared]}", ts.rost.TestString())
 
@@ -914,7 +969,7 @@ func (ts *BalancerSuite) TestJoin() {
 
 	// 5. New range becomes ready.
 
-	ts.nodes.RangeState("test-ccc", 3, state.NsReady)
+	ts.nodes.Get("test-ccc").AdvanceTo(ts.T(), 3, state.NsReady, nil)
 	ts.rost.Tick()
 	ts.Equal("{test-aaa [1:NsTaken]} {test-bbb [2:NsTaken]} {test-ccc [3:NsReady]}", ts.rost.TestString())
 
@@ -937,8 +992,8 @@ func (ts *BalancerSuite) TestJoin() {
 	ts.Equal("{test-aaa [1:NsDropping]} {test-bbb [2:NsDropping]} {test-ccc [3:NsReady]}", ts.rost.TestString())
 
 	// Drops finish.
-	ts.nodes.FinishDrop(ts.T(), "test-aaa", 1)
-	ts.nodes.FinishDrop(ts.T(), "test-bbb", 2)
+	ts.nodes.Get("test-aaa").AdvanceTo(ts.T(), 1, state.NsNotFound, nil)
+	ts.nodes.Get("test-bbb").AdvanceTo(ts.T(), 2, state.NsNotFound, nil)
 	ts.rost.Tick()
 	ts.Equal("{test-aaa []} {test-bbb []} {test-ccc [3:NsReady]}", ts.rost.TestString())
 

@@ -14,7 +14,7 @@ import (
 
 const rpcTimeout = 1 * time.Second
 
-func (n *Node) Give(ctx context.Context, p *ranje.Placement, parents []*pb.Placement) error {
+func (n *Node) Give(ctx context.Context, p *ranje.Placement, parents []*pb.Parent) error {
 	log.Printf("giving %s to %s...", p.LogString(), n.Ident())
 
 	// TODO: Do something sensible when this is called while a previous Give is

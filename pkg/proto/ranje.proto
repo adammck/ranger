@@ -13,33 +13,43 @@ message RangeMeta {
   bytes end = 3; // exclusive
 }
 
-// TODO: This is actually not the same as Placement. Only used by GetRequest, and should include recursive parents. Maybe Provenance?
+// TODO: Should include the placement index in here, so the node can verify that
+//       the controller is talking about the same placement when it sees
+//       duplicates. Just in case the controller has gone mad and is trying to
+//       place multiple replicas of the same range on a single node.
 message Placement {
-  RangeMeta range = 1;
-
-  // TODO: This should probably be two fields, host and port? Or node ident?
-  string node = 2;
-}
-
-// TODO: Rename this to placement when the above is out of the way!
-message PlacementTwo {
   string node = 1;
   PlacementState state = 2;
 }
+
+message RangeInfo {
+  RangeMeta meta = 1;
+  
+  // The state which the range is currently in, according to the node.
+  RangeNodeState state = 2;
+  
+  // Number of keys which this range contains.
+  // Just for reporting? Not balancing?
+  uint64 keys = 3;
+  
+  // TODO: Generic load info? cpu/ram/network/disk?
+  // TODO: Extra domain-specific info?
+  // TODO: Suggested split point(s)
+  }
 
 // Keep synced with RangeState (in node.go for now)
 enum RangeNodeState {
   UNKNOWN = 0;
   PREPARING = 1;
-	PREPARING_ERROR = 2;
-	PREPARED = 3;
-	READYING = 4;
-	READY = 5;
-	TAKING = 6;
-	TAKEN = 7;
-	DROPPING = 8;
+  PREPARING_ERROR = 2;
+  PREPARED = 3;
+  READYING = 4;
+  READY = 5;
+  TAKING = 6;
+  TAKEN = 7;
+  DROPPING = 8;
   // Special case: See roster.RemoteState
-	NOT_FOUND = 9;
+  NOT_FOUND = 9;
 }
 
 // This is only for debugging purposes, for now.
@@ -55,10 +65,10 @@ enum RangeState {
 // Keep synced with ranje.PlacementState (in pkg/ranje/state_placement.go)
 enum PlacementState {
   PS_UNKNOWN = 0;
-	PS_PENDING = 1;
-	PS_PREPARED = 2;
-	PS_READY = 3;
-	PS_TAKEN = 4;
-	PS_GIVE_UP = 5;
-	PS_DROPPED = 6;
+  PS_PENDING = 1;
+  PS_PREPARED = 2;
+  PS_READY = 3;
+  PS_TAKEN = 4;
+  PS_GIVE_UP = 5;
+  PS_DROPPED = 6;
 }

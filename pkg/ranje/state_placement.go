@@ -1,6 +1,10 @@
 package ranje
 
-import pb "github.com/adammck/ranger/pkg/proto/gen"
+import (
+	"log"
+
+	pb "github.com/adammck/ranger/pkg/proto/gen"
+)
 
 type PlacementState uint8
 
@@ -71,4 +75,33 @@ func (s PlacementState) ToProto() pb.PlacementState {
 
 	// Probably a state was added but this method wasn't updated.
 	panic("unknown PlacementState value!")
+}
+
+func PlacementStateFromProto(s *pb.PlacementState) PlacementState {
+	switch *s {
+	case pb.PlacementState_PS_UNKNOWN:
+		return PsUnknown
+
+	case pb.PlacementState_PS_PENDING:
+		return PsPending
+
+	case pb.PlacementState_PS_PREPARED:
+		return PsPrepared
+
+	case pb.PlacementState_PS_READY:
+		return PsReady
+
+	case pb.PlacementState_PS_TAKEN:
+		return PsTaken
+
+	case pb.PlacementState_PS_GIVE_UP:
+		return PsGiveUp
+
+	case pb.PlacementState_PS_DROPPED:
+		return PsDropped
+
+	}
+
+	log.Printf("warn: unknown PlacementState from proto: %v", *s)
+	return PsUnknown
 }

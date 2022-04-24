@@ -570,14 +570,14 @@ func (b *Balancer) RPC(f func()) {
 	}()
 }
 
-func getParents(ks *ranje.Keyspace, rost *roster.Roster, rang *ranje.Range) []*pb.Placement {
-	parents := []*pb.Placement{}
+func getParents(ks *ranje.Keyspace, rost *roster.Roster, rang *ranje.Range) []*pb.Parent {
+	parents := []*pb.Parent{}
 	seen := map[ranje.Ident]struct{}{}
 	addParents(ks, rost, rang, &parents, seen)
 	return parents
 }
 
-func addParents(ks *ranje.Keyspace, rost *roster.Roster, rang *ranje.Range, parents *[]*pb.Placement, seen map[ranje.Ident]struct{}) {
+func addParents(ks *ranje.Keyspace, rost *roster.Roster, rang *ranje.Range, parents *[]*pb.Parent, seen map[ranje.Ident]struct{}) {
 
 	// Don't bother serializing the same placement many times. (The range tree
 	// won't have cycles, but is also not a DAG.)
@@ -600,28 +600,31 @@ func addParents(ks *ranje.Keyspace, rost *roster.Roster, rang *ranje.Range, pare
 	}
 }
 
-func pbPlacement(rost *roster.Roster, r *ranje.Range) *pb.Placement {
+func pbPlacement(rost *roster.Roster, r *ranje.Range) *pb.Parent {
 
-	// Include the address of the node where the range is currently placed, if
-	// it's in a state where it can be fetched.
-	//
 	// TODO: The kv example doesn't care about range history, because it has no
 	//       external write log, so can only fetch from nodes. So we can skip
 	//       sending them at all. Maybe add a controller feature flag?
 	//
-	node := ""
-	for _, p := range r.Placements {
-		if p.State == ranje.PsReady || p.State == ranje.PsTaken {
-			n := rost.NodeByIdent(p.NodeID)
-			if n != nil {
-				node = n.Addr()
-				break
-			}
+
+	pbPlacements := make([]*pb.Placement, len(r.Placements))
+
+	for i, p := range r.Placements {
+		n := rost.NodeByIdent(p.NodeID)
+
+		node := ""
+		if n != nil {
+			node = n.Addr()
+		}
+
+		pbPlacements[i] = &pb.Placement{
+			Node:  node,
+			State: p.State.ToProto(),
 		}
 	}
 
-	return &pb.Placement{
-		Range: r.Meta.ToProto(),
-		Node:  node,
+	return &pb.Parent{
+		Range:      r.Meta.ToProto(),
+		Placements: pbPlacements,
 	}
 }

@@ -1,3 +1,3 @@
 controller: ./kv -controller -addr "127.0.0.1:$PORT"
-proxy: ./kv -proxy -addr "127.0.0.1:$PORT" -log-reqs
+proxy: ./kv -proxy -addr "127.0.0.1:$PORT"
 node: ./kv -node -addr "127.0.0.1:$PORT"
