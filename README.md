@@ -7,7 +7,10 @@ to support stateful workloads, which need to move around large amounts of data
 in order to rebalance, but should be useful to stateless worksloads, too.
 
 Ranger is just a toy today, with various critical features missing and hardly
-any tests, so is not suitable for any purpose under any circumstances.
+any tests, so is not yet suitable for any purpose under any circumstances. I'm
+working on it (on the side) because I'm acquainted with many systems which would
+benefit from such a thing existing. Please drop me a line if you're interested
+in collaborating.
 
 ## Examples
 
@@ -36,8 +39,8 @@ TODO
 
 ## Related Work
 
-I have shamelessly taken concepts from most of these. I will expand this doc
-soon to clarify what was taken from each. For now, here are some links.
+I've taken ideas from most of these systems. I'll expand this doc soon to
+clarify what came from each. But for now, here are some links:
 
 - [Shard Manager](https://dl.acm.org/doi/pdf/10.1145/3477132.3483546) (Facebook, 2021)
 - [Service Fabric](https://dl.acm.org/doi/pdf/10.1145/3190508.3190546) (Microsoft, 2018)
