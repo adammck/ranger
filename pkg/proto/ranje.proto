@@ -44,12 +44,15 @@ enum RangeNodeState {
   PREPARING_ERROR = 2;
   PREPARED = 3;
   READYING = 4;
-  READY = 5;
-  TAKING = 6;
-  TAKEN = 7;
-  DROPPING = 8;
+  READYING_ERROR = 5;
+  READY = 6;
+  TAKING = 7;
+  TAKING_ERROR = 8;
+  TAKEN = 9;
+  DROPPING = 10;
+  DROPPING_ERROR = 11;
   // Special case: See roster.RemoteState
-  NOT_FOUND = 9;
+  NOT_FOUND = 12;
 }
 
 // This is only for debugging purposes, for now.

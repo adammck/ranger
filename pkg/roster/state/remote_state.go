@@ -51,14 +51,20 @@ func RemoteStateFromProto(s pb.RangeNodeState) RemoteState {
 		return NsPrepared
 	case pb.RangeNodeState_READYING:
 		return NsReadying
+	case pb.RangeNodeState_READYING_ERROR:
+		return NsReadyingError
 	case pb.RangeNodeState_READY:
 		return NsReady
 	case pb.RangeNodeState_TAKING:
 		return NsTaking
+	case pb.RangeNodeState_TAKING_ERROR:
+		return NsTakingError
 	case pb.RangeNodeState_TAKEN:
 		return NsTaken
 	case pb.RangeNodeState_DROPPING:
 		return NsDropping
+	case pb.RangeNodeState_DROPPING_ERROR:
+		return NsDroppingError
 	case pb.RangeNodeState_NOT_FOUND:
 		return NsNotFound
 	}
@@ -83,10 +89,14 @@ func (rs RemoteState) ToProto() pb.RangeNodeState {
 		return pb.RangeNodeState_READY
 	case NsTaking:
 		return pb.RangeNodeState_TAKING
+	case NsTakingError:
+		return pb.RangeNodeState_TAKING_ERROR
 	case NsTaken:
 		return pb.RangeNodeState_TAKEN
 	case NsDropping:
 		return pb.RangeNodeState_DROPPING
+	case NsDroppingError:
+		return pb.RangeNodeState_DROPPING_ERROR
 	case NsNotFound:
 		return pb.RangeNodeState_NOT_FOUND
 	}
