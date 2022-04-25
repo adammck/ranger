@@ -117,6 +117,8 @@ func (n *Node) performChaos() error {
 	log.Printf("Sleeping %v", d)
 	time.Sleep(d)
 
+	// TODO: This causes actual problems really fast if raised significantly.
+	//       Looks like an orchestrator bug. Look into it.
 	if rand.Float32() < 0.05 {
 		return fmt.Errorf("it's your unlucky day")
 	}
