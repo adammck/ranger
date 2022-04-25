@@ -1,133 +1,50 @@
 # Ranger
 
-This is an experiment to define a generic interface for stateful range-sharded
-distributed storage systems to implement, and a generic master to load-balance
-keys between them.
+This is an experiment to define a generic range-based sharding interface which
+services can implement in order to have their workloads automatically balanced,
+and a generic controller to perform that balancing. It's designed in particular
+to support stateful workloads, which need to move around large amounts of data
+in order to rebalance, but should be useful to stateless worksloads, too.
 
-## Development
+Ranger is just a toy today, with various critical features missing and hardly
+any tests, so is not suitable for any purpose under any circumstances.
 
-Install development deps
+## Examples
 
-```console
-$ brew install protoc-gen-go
-$ brew install protoc-gen-go-grpc
-```
+- [key-value store](examples/kv)
 
-Install local runtime deps
+## Interface
 
-```console
-$ brew install consul
-```
+Services implement [rangelet.Node](pkg/rangelet/interface.go):
 
-Regenerate the files in `pkg/proto`
+- `PrepareAddRange(rm RangeMeta, parents []Parent) error`
+- `AddRange(rid RangeID) error`
+- `PrepareDropRange(rid RangeID) error`
+- `DropRange(rid RangeID) error`
 
-```console
-$ bin/gen-proto.sh
-$ examples/kv/bin/gen-proto.sh
-```
+This is a Go interface, but it's all gRPC+protobufs under the hood. There are no
+other implementations today, but it's a goal to avoid doing anything which would
+make it difficult to implement Rangelets in other languages.
 
-## State Machine
+## Design
 
-```graphviz
-digraph G {
-    edge [fontcolor=grey, fontsize=8];
-    
-    subgraph cluster_0 {
-        label=Range;
-        
-        rActive [label=Active];
-        rSubsuming [label=Subsuming];
-        rObsolete [label=Obsolete];
-        
-        rActive -> rSubsuming;
-        rSubsuming -> rActive;
-        rSubsuming -> rObsolete;
-    }
+TODO
 
-    subgraph cluster_2 {
-      label=Placement;
+## State Machines
 
-        pPending
-        [label=<Pending<br/><font point-size="8" color="#aaaaaa">Send <u>Give</u><br/><i>prepare_add_shard</i></font>>];
-        
-        pPreparing
-        [label=<Preparing<br/><font point-size="8" color="#aaaaaa">If (something):<br/>Send <u>Serve</u><i><br/>add_shard</i></font>>];
-        
-        pGiveUp
-        [label=<GiveUp> color=red];
+TODO
 
-        pReady
-        [penwidth=2 label=<Ready<br/><font point-size="8" color="#aaaaaa">If (something):<br/>Send <u>Take</u><i><br/>prepare_remove_shard</i></font>>];
-        
-        pTaken
-        [label=<Taken<br/><font point-size="8" color="#aaaaaa">If (something):<br/>Send <u>Take</u><i><br/>remove_shard</i></font>>];
+## Related Work
 
-        pDropped;
-        
-        pPending -> pPreparing
-        [label="remote state is:\nPsPreparing"];
-        
-        pPreparing -> pReady
-        [label="remote state is:\nPsReady"];
-        
-        pReady -> pTaken
-        [label="remote state is:\nPsTaken"];
-        
-        pTaken -> pDropped
-        [label="remote state is:\nPsDropped"];
+I have shamelessly taken concepts from most of these. I will expand this doc
+soon to clarify what was taken from each. For now, here are some links.
 
-        # Most states can move to GiveUp on failure. Some other placement will
-        # hopefully pick up the workload.
-        pPending -> pGiveUp;
-        pPreparing -> pGiveUp;
-        pReady -> pGiveUp;
-        pTaken -> pGiveUp;
-    
-        pGiveUp -> pDropped;
-        
-        # Shortcuts for systems which don't need prepare steps.
-        #pPending -> pReady [color="grey"];
-        #pReady -> pDropped [color="grey"];
-    }
-}
-```
+- [Shard Manager](https://dl.acm.org/doi/pdf/10.1145/3477132.3483546) (Facebook, 2021)
+- [Service Fabric](https://dl.acm.org/doi/pdf/10.1145/3190508.3190546) (Microsoft, 2018)
+- [Slicer](https://www.usenix.org/system/files/conference/osdi16/osdi16-adya.pdf) (Google, 2016)
+- [Ringpop](https://ringpop.readthedocs.io/en/latest/index.html) (Uber, 2016)
+- [Helix](https://sci-hub.ru/10.1145/2391229.2391248) (LinkedIn, 2012)
 
-## Objects
+## License
 
-### stateful
-
-this stuff lives in a durable store, which must always be kept up to date. no
-local state.
-
-```text
-keyspace
-- next_id
-- []range
-  - id
-  - [2]placement # current, next
-    - id
-    - node_id # <- where it is _expected_ to be
-    - state # needed? can maybe be inferred
-```
-
-### volatile
-
-this stuff is gathered at startup, and kept up to date during runtime.
-
-```text
-roster
-- []node
-  - id
-  - host
-  - port
-
-  - utilization
-    - cpu?
-    - memory?
-    - network?
-    - disk?
-  
-  - vplacement
-    - state
-    - utilization # as above
-```
+MIT
