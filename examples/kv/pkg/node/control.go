@@ -3,7 +3,10 @@ package node
 import (
 	"fmt"
 	"log"
+	"math"
+	"math/rand"
 	"sync/atomic"
+	"time"
 
 	"github.com/adammck/ranger/pkg/rangelet"
 	"github.com/adammck/ranger/pkg/ranje"
@@ -11,6 +14,10 @@ import (
 
 // PrepareAddRange: Create the range, but don't do anything with it yet.
 func (n *Node) PrepareAddRange(rm ranje.Meta, parents []rangelet.Parent) error {
+	if err := n.performChaos(); err != nil {
+		return err
+	}
+
 	n.rangesMu.Lock()
 	defer n.rangesMu.Unlock()
 
@@ -34,6 +41,10 @@ func (n *Node) PrepareAddRange(rm ranje.Meta, parents []rangelet.Parent) error {
 
 // AddRange:
 func (n *Node) AddRange(rID ranje.Ident) error {
+	if err := n.performChaos(); err != nil {
+		return err
+	}
+
 	n.rangesMu.Lock()
 	defer n.rangesMu.Unlock()
 
@@ -58,6 +69,10 @@ func (n *Node) AddRange(rID ranje.Ident) error {
 // it and I don't have the time to implement something better today. In this
 // example, keys are writable on exactly one node. (Or zero, during failures!)
 func (n *Node) PrepareDropRange(rID ranje.Ident) error {
+	if err := n.performChaos(); err != nil {
+		return err
+	}
+
 	n.rangesMu.Lock()
 	defer n.rangesMu.Unlock()
 
@@ -75,6 +90,10 @@ func (n *Node) PrepareDropRange(rID ranje.Ident) error {
 
 // DropRange: Discard the range.
 func (n *Node) DropRange(rID ranje.Ident) error {
+	if err := n.performChaos(); err != nil {
+		return err
+	}
+
 	n.rangesMu.Lock()
 	defer n.rangesMu.Unlock()
 
@@ -86,5 +105,21 @@ func (n *Node) DropRange(rID ranje.Ident) error {
 	delete(n.ranges, rID)
 
 	log.Printf("Dropped range: %s", rID)
+	return nil
+}
+
+// performChaos sleeps for a random amount of time between zero and 5000ms,
+// biased towards zero. Then returns an error 5% of the time. This is of course
+// intended to make our testing a little more chaotic.
+func (n *Node) performChaos() error {
+	ms := int(3000 * math.Pow(rand.Float64(), 2))
+	d := time.Duration(ms) * time.Millisecond
+	log.Printf("Sleeping %v", d)
+	time.Sleep(d)
+
+	if rand.Float32() < 0.05 {
+		return fmt.Errorf("it's your unlucky day")
+	}
+
 	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"log"
+	"math/rand"
 	"os"
 	"os/signal"
 	"syscall"
@@ -17,6 +18,10 @@ import (
 
 type Runner interface {
 	Run(ctx context.Context) error
+}
+
+func init() {
+	rand.Seed(time.Now().UTC().UnixNano())
 }
 
 func main() {

@@ -106,6 +106,10 @@ func (c *Controller) Run(ctx context.Context) error {
 		return err
 	}
 
+	// Wait a bit for other services to come up before starting. This makes
+	// development easier my minimizing log spam, and is no big deal in prod.
+	time.Sleep(1 * time.Second)
+
 	// Perform a single blocking probe cycle, to ensure that the first rebalance
 	// happens after we have the current state of the nodes.
 	c.rost.Tick()
@@ -120,8 +124,7 @@ func (c *Controller) Run(ctx context.Context) error {
 		go c.rost.Run(ticker)
 
 		// Start rebalancing loop.
-		// TODO: Make this MUCH faster once in-flight RPCs are skipped.
-		go c.orch.Run(time.NewTicker(1005 * time.Millisecond))
+		go c.orch.Run(time.NewTicker(200 * time.Millisecond))
 
 		// Block until context is cancelled, indicating that caller wants
 		// shutdown.
@@ -130,8 +133,12 @@ func (c *Controller) Run(ctx context.Context) error {
 		}
 	}
 
-	// Let in-flight RPCs finish and then stop. errChan will contain the error
-	// returned by srv.Serve (above) or be closed with no error.
+	// Let in-flight outgoing RPCs finish. (This isn't necessary, but allows
+	// us to persist remote state now rather than at next startup.)
+	c.orch.WaitRPCs()
+
+	// Let in-flight incoming RPCs finish and then stop. errChan will contain
+	// the error returned by srv.Serve (above) or be closed with no error.
 	c.srv.GracefulStop()
 	err = <-errChan
 	if err != nil {

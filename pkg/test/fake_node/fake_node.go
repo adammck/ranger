@@ -29,8 +29,15 @@ type TestNode struct {
 	Conn *grpc.ClientConn
 	rglt *rangelet.Rangelet
 
+	// Keep requests sent to this node.
+	// Call RPCs() to fetch and clear.
 	rpcs   []interface{}
 	rpcsMu sync.Mutex
+
+	// Allow requests to be blocked by method name.
+	// (This is to test what happens when RPCs span ticks.)
+	gates   map[string][2]*sync.WaitGroup
+	gatesMu sync.Mutex
 
 	transitions   map[rangeInState]error
 	transitionsMu sync.Mutex
@@ -46,6 +53,7 @@ func NewTestNode(ctx context.Context, addr string, rangeInfos map[ranje.Ident]*i
 
 	tn := &TestNode{
 		Addr:        addr,
+		gates:       map[string][2]*sync.WaitGroup{},
 		transitions: map[rangeInState]error{},
 	}
 
@@ -70,7 +78,7 @@ func (n *TestNode) waitUntil(rID ranje.Ident, src state.RemoteState) error {
 		s:   src,
 	}
 
-	t := time.Now().Add(500 * time.Millisecond)
+	t := time.Now().Add(5 * time.Second)
 
 	for {
 		n.transitionsMu.Lock()
@@ -84,12 +92,14 @@ func (n *TestNode) waitUntil(rID ranje.Ident, src state.RemoteState) error {
 			return err
 		}
 
+		// TODO: This is flaky when the race detector is enabled. Replace this
+		//       dumb double-sleeping synchronization with waitgroups.
 		if time.Now().After(t) {
 			panic(fmt.Sprintf("test deadlocked waiting for %v to advance past %v on node %v", ris.rID, ris.s, n.Addr))
 		}
 
 		log.Println("zzz...")
-		time.Sleep(1 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -121,12 +131,12 @@ func (n *TestNode) nodeServer(ctx context.Context, s *grpc.Server) (*grpc.Client
 
 	conn, _ := grpc.DialContext(ctx, "", grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 		return listener.Dial()
-	}), grpc.WithInsecure(), grpc.WithBlock(), n.withSpyInterceptor())
+	}), grpc.WithInsecure(), grpc.WithBlock(), n.withTestInterceptor())
 
 	return conn, s.Stop
 }
 
-func (n *TestNode) spyInterceptor(
+func (n *TestNode) testInterceptor(
 	ctx context.Context,
 	method string,
 	req interface{},
@@ -136,6 +146,8 @@ func (n *TestNode) spyInterceptor(
 	opts ...grpc.CallOption,
 ) error {
 
+	// Spy
+
 	// TODO: Hack! Remove this! Update the tests to expect Info requests!
 	if method != "/ranger.Node/Info" {
 		n.rpcsMu.Lock()
@@ -143,13 +155,50 @@ func (n *TestNode) spyInterceptor(
 		n.rpcsMu.Unlock()
 	}
 
+	// Gate
+
+	n.gatesMu.Lock()
+	wgs, ok := n.gates[method]
+	if ok {
+		delete(n.gates, method)
+	}
+	n.gatesMu.Unlock()
+
+	if ok {
+		// TODO: Allow errors to be injected here.
+		log.Printf("Gating RPC: method=%s", method)
+		wgs[1].Done()
+		wgs[0].Wait()
+	}
+
 	err := invoker(ctx, method, req, res, cc, opts...)
 	log.Printf("RPC: method=%s; Error=%v", method, err)
 	return err
 }
 
-func (n *TestNode) withSpyInterceptor() grpc.DialOption {
-	return grpc.WithUnaryInterceptor(n.spyInterceptor)
+func (n *TestNode) withTestInterceptor() grpc.DialOption {
+	return grpc.WithUnaryInterceptor(n.testInterceptor)
+}
+
+func (n *TestNode) GateRPC(t *testing.T, method string) [2]*sync.WaitGroup {
+
+	one := &sync.WaitGroup{}
+	two := &sync.WaitGroup{}
+	wgs := [2]*sync.WaitGroup{one, two}
+
+	n.gatesMu.Lock()
+	defer n.gatesMu.Unlock()
+
+	if _, ok := n.gates[method]; ok {
+		t.Fatalf("tried to add gate when one already exists: addr=%s, method=%s", n.Addr, method)
+		return wgs
+	}
+
+	wgs[0].Add(1)
+
+	log.Printf("Added gate: addr=%s, method=%s", n.Addr, method)
+	n.gates[method] = wgs
+	return wgs
 }
 
 func (n *TestNode) AdvanceTo(t *testing.T, rID ranje.Ident, new state.RemoteState, err error) {

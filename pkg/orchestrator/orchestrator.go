@@ -16,6 +16,9 @@ import (
 	"google.golang.org/grpc"
 )
 
+type RpcIdent struct {
+}
+
 type Orchestrator struct {
 	cfg  config.Config
 	ks   *keyspace.Keyspace
@@ -39,6 +42,12 @@ type Orchestrator struct {
 
 	// TODO: Move this into the Tick method; just pass it along.
 	rpcWG sync.WaitGroup
+
+	// RPCs which have been sent (via orch.RPC) but not yet completed. Used to
+	// avoid sending the same RPC redundantly every single tick. (Though RPCs
+	// *can* be re-sent an arbitrary number of times. Rangelet will dedup them.)
+	inFlight   map[string]struct{}
+	inFlightMu sync.Mutex
 }
 
 func New(cfg config.Config, ks *keyspace.Keyspace, rost *roster.Roster, srv *grpc.Server) *Orchestrator {
@@ -50,6 +59,7 @@ func New(cfg config.Config, ks *keyspace.Keyspace, rost *roster.Roster, srv *grp
 		opMoves:  []OpMove{},
 		opSplits: map[ranje.Ident]OpSplit{},
 		opJoins:  []OpJoin{},
+		inFlight: map[string]struct{}{},
 	}
 
 	// Register the gRPC server to receive instructions from operators. This
@@ -107,11 +117,13 @@ func (b *Orchestrator) Tick() {
 		b.tickRange(r)
 	}
 
-	// Now that we're finished advancing the ranges and placements, wait for any
-	// RPCs emitted to complete.
-	b.rpcWG.Wait()
-
 	// TODO: Persist here, instead of after individual state updates?
+}
+
+// WaitRPCs blocks until and in-flight RPCs have completed. This is useful for
+// tests and at shutdown.
+func (b *Orchestrator) WaitRPCs() {
+	b.rpcWG.Wait()
 }
 
 func (b *Orchestrator) tickRange(r *ranje.Range) {
@@ -314,7 +326,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, destroy *bool) {
 	//
 	// TODO: Also this is almost certainly only valid in some placement states;
 	//       think about that.
-	if n.WantDrain() {
+	if n != nil && n.WantDrain() {
 		func() {
 			b.opMovesMu.Lock()
 			defer b.opMovesMu.Unlock()
@@ -366,7 +378,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, destroy *bool) {
 		// Send a Give RPC (maybe not the first time; once per tick).
 		// TODO: Keep track of how many times we've tried this and for how long.
 		//       We'll want to give up if it takes too long to prepare.
-		b.RPC(func() {
+		b.RPC(p, "Give", func() {
 			err := n.Give(context.Background(), p, getParents(b.ks, b.rost, p.Range()))
 			if err != nil {
 				log.Printf("error giving %v to %s: %v", p.LogString(), n.Ident(), err)
@@ -417,7 +429,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, destroy *bool) {
 			return
 		}
 
-		b.RPC(func() {
+		b.RPC(p, "Serve", func() {
 			err := n.Serve(context.Background(), p)
 			if err != nil {
 				log.Printf("error serving %v to %s: %v", p.LogString(), n.Ident(), err)
@@ -435,7 +447,8 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, destroy *bool) {
 
 		switch ri.State {
 		case state.NsReady:
-			log.Printf("ready: %s", p.LogString())
+			// No need to keep logging this.
+			//log.Printf("ready: %s", p.LogString())
 
 		case state.NsTaking:
 			log.Printf("node %s still taking %s", n.Ident(), p.Range().Meta.Ident)
@@ -464,7 +477,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, destroy *bool) {
 			return
 		}
 
-		b.RPC(func() {
+		b.RPC(p, "Take", func() {
 			err := n.Take(context.Background(), p)
 			if err != nil {
 				log.Printf("error taking %v from %s: %v", p.LogString(), n.Ident(), err)
@@ -510,7 +523,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, destroy *bool) {
 			}
 		}
 
-		b.RPC(func() {
+		b.RPC(p, "Drop", func() {
 			err := n.Drop(context.Background(), p)
 			if err != nil {
 				log.Printf("error dropping %v from %s: %v", p.LogString(), n.Ident(), err)
@@ -540,11 +553,39 @@ func (b *Orchestrator) Run(t *time.Ticker) {
 	}
 }
 
-func (b *Orchestrator) RPC(f func()) {
+func (b *Orchestrator) RPC(p *ranje.Placement, method string, f func()) {
+	key := fmt.Sprintf("%s:%s:%s", p.NodeID, p.Range().Meta.Ident, method)
+
+	b.inFlightMu.Lock()
+	_, ok := b.inFlight[key]
+	if !ok {
+		b.inFlight[key] = struct{}{}
+	}
+	b.inFlightMu.Unlock()
+
+	if ok {
+		log.Printf("dropping in-flight RPC: %s", key)
+		return
+	}
+
 	b.rpcWG.Add(1)
 
 	go func() {
+
+		// TODO: Inject some client-side chaos here, too. RPCs complete very
+		//       quickly locally, which doesn't test our in-flight thing well.
 		f()
+
+		b.inFlightMu.Lock()
+		_, ok := b.inFlight[key]
+		if !ok {
+			// Critical this works, because could drop all RPCs.
+			panic(fmt.Sprintf("no record of in-flight RPC: %s", key))
+		}
+		log.Printf("RPC completed: %s", key)
+		delete(b.inFlight, key)
+		b.inFlightMu.Unlock()
+
 		b.rpcWG.Done()
 	}()
 }
