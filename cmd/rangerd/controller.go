@@ -22,9 +22,10 @@ import (
 type Controller struct {
 	cfg config.Config
 
-	addrLis string
-	addrPub string // do we actually need this? maybe only discovery does.
-	once    bool   // run one rebalance cycle and exit
+	addrLis  string
+	addrPub  string // do we actually need this? maybe only discovery does.
+	interval time.Duration
+	once     bool // run one rebalance cycle and exit
 
 	srv  *grpc.Server
 	disc discovery.Discoverable
@@ -33,7 +34,7 @@ type Controller struct {
 	orch *orchestrator.Orchestrator
 }
 
-func New(cfg config.Config, addrLis, addrPub string, once bool) (*Controller, error) {
+func New(cfg config.Config, addrLis, addrPub string, interval time.Duration, once bool) (*Controller, error) {
 	var opts []grpc.ServerOption
 	srv := grpc.NewServer(opts...)
 
@@ -67,15 +68,16 @@ func New(cfg config.Config, addrLis, addrPub string, once bool) (*Controller, er
 	orch := orchestrator.New(cfg, ks, rost, srv)
 
 	return &Controller{
-		cfg:     cfg,
-		addrLis: addrLis,
-		addrPub: addrPub,
-		once:    once,
-		srv:     srv,
-		disc:    disc,
-		ks:      ks,
-		rost:    rost,
-		orch:    orch,
+		cfg:      cfg,
+		addrLis:  addrLis,
+		addrPub:  addrPub,
+		interval: interval,
+		once:     once,
+		srv:      srv,
+		disc:     disc,
+		ks:       ks,
+		rost:     rost,
+		orch:     orch,
 	}, nil
 }
 
@@ -124,7 +126,7 @@ func (c *Controller) Run(ctx context.Context) error {
 		go c.rost.Run(ticker)
 
 		// Start rebalancing loop.
-		go c.orch.Run(time.NewTicker(200 * time.Millisecond))
+		go c.orch.Run(time.NewTicker(c.interval))
 
 		// Block until context is cancelled, indicating that caller wants
 		// shutdown.

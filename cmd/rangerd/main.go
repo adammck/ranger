@@ -21,6 +21,7 @@ func main() {
 
 	addrLis := flag.String("addr", "localhost:8000", "address to start grpc server on")
 	addrPub := flag.String("pub-addr", "", "address for other nodes to reach this (default: same as -addr)")
+	interval := flag.Duration("interval", 250*time.Millisecond, "frequency of orchestration loop")
 	once := flag.Bool("once", false, "perform one rebalance cycle and exit")
 	flag.Parse()
 
@@ -33,7 +34,7 @@ func main() {
 	logger := log.New(os.Stdout, "", 0)
 	*log.Default() = *logger
 
-	cmd, err := New(cfg, *addrLis, *addrPub, *once)
+	cmd, err := New(cfg, *addrLis, *addrPub, *interval, *once)
 	if err != nil {
 		exit(err)
 	}
