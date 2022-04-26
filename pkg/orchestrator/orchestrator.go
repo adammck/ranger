@@ -198,9 +198,7 @@ func (b *Orchestrator) tickRange(r *ranje.Range) {
 	toDestroy := []int{}
 
 	for i, p := range r.Placements {
-		destroy := false
-		b.tickPlacement(p, &destroy)
-		if destroy {
+		if b.tickPlacement(p) {
 			toDestroy = append(toDestroy, i)
 		}
 	}
@@ -287,9 +285,8 @@ func (b *Orchestrator) doMove(r *ranje.Range, opMove OpMove) error {
 	return nil
 }
 
-// using a weird bool pointer arg to avoid having to return false from every
-// place except one.
-func (b *Orchestrator) tickPlacement(p *ranje.Placement, destroy *bool) {
+func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
+	destroy = false
 
 	// Get the node that this placement is on.
 	// (This is a problem, in most states.)
@@ -539,12 +536,14 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, destroy *bool) {
 
 	case ranje.PsDropped:
 		log.Printf("will destroy %s", p.LogString())
-		*destroy = true
+		destroy = true
 		return
 
 	default:
 		panic(fmt.Sprintf("unhandled PlacementState value: %s", p.State))
 	}
+
+	return
 }
 
 func (b *Orchestrator) Run(t *time.Ticker) {
