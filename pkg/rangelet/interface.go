@@ -18,7 +18,7 @@ type Parent struct {
 	Placements []Placement
 }
 
-// See also roster/info.RangeInfo
+// Same as roster/info.LoadInfo, to avoid circular import.
 type LoadInfo struct {
 	Keys int
 }
