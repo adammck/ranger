@@ -16,6 +16,10 @@ type Parent struct {
 	Placements []Placement
 }
 
+type LoadInfo struct {
+	Keys int
+}
+
 type Storage interface {
 	Read() []*info.RangeInfo
 	Write()
@@ -25,6 +29,9 @@ type Storage interface {
 // Ranger, but Shard Manager uses roughly (s/Shard/Range/g) these terms. Better
 // to follow those than invent our own.
 type Node interface {
+
+	// GetLoadInfo returns the LoadInfo for the given range.
+	GetLoadInfo(rID ranje.Ident) LoadInfo
 
 	// PrepareAddRange.
 	PrepareAddRange(m ranje.Meta, p []Parent) error
