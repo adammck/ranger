@@ -17,10 +17,17 @@ message RangeRequest {
   uint64 range = 1;
 }
 
+// Similar to Placement (from ranje.proto), but includes extra junk for debug
+// views. The other one is used on the control plane, so should be minimal.
+message PlacementWithRangeInfo {
+  Placement placement = 1;
+  RangeInfo range_info = 2;
+}
+
 message RangeResponse {
   RangeMeta meta = 1;
   RangeState state = 2;
-  repeated Placement placements = 3;
+  repeated PlacementWithRangeInfo placements = 3;
 }
 
 message NodesListRequest {
@@ -40,6 +47,7 @@ message NodeMeta {
   bool want_drain = 3;
 }
 
+// TODO: Remove this, and use PlacementWithRangeInfo
 message NodeRange {
   RangeMeta meta = 1;
   PlacementState state = 3;

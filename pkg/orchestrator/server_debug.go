@@ -17,17 +17,30 @@ type debugServer struct {
 	orch *Orchestrator
 }
 
-func rangeResponse(r *ranje.Range) *pb.RangeResponse {
+func rangeResponse(r *ranje.Range, rost *roster.Roster) *pb.RangeResponse {
 	res := &pb.RangeResponse{
 		Meta:  r.Meta.ToProto(),
 		State: r.State.ToProto(),
 	}
 
 	for _, p := range r.Placements {
-		res.Placements = append(res.Placements, &pb.Placement{
-			Node:  p.NodeID,
-			State: p.State.ToProto(),
-		})
+		plc := &pb.PlacementWithRangeInfo{
+			Placement: &pb.Placement{
+				Node:  p.NodeID,
+				State: p.State.ToProto(),
+			},
+		}
+
+		// If RangeInfo is available include it.
+		// Might not be, if the node has just vanished or forgotten the range.
+		nod := rost.NodeByIdent(p.NodeID)
+		if nod != nil {
+			if ri, ok := nod.Get(r.Meta.Ident); ok {
+				plc.RangeInfo = ri.ToProto()
+			}
+		}
+
+		res.Placements = append(res.Placements, plc)
 	}
 
 	return res
@@ -60,7 +73,7 @@ func (srv *debugServer) RangesList(ctx context.Context, req *pb.RangesListReques
 
 	for _, r := range ranges {
 		r.Mutex.Lock()
-		res.Ranges = append(res.Ranges, rangeResponse(r))
+		res.Ranges = append(res.Ranges, rangeResponse(r, srv.orch.rost))
 		r.Mutex.Unlock()
 	}
 
@@ -84,7 +97,7 @@ func (srv *debugServer) Range(ctx context.Context, req *pb.RangeRequest) (*pb.Ra
 
 	r.Mutex.Lock()
 	defer r.Mutex.Unlock()
-	res := rangeResponse(r)
+	res := rangeResponse(r, srv.orch.rost)
 
 	return res, nil
 }
