@@ -25,6 +25,7 @@ type LoadInfo struct {
 
 type Storage interface {
 	// TODO: Return a rangelet-only type, to avoid importing the whole roster.
+	// TODO: Return info.RangeInfo instead! Pointer is pointless.
 	Read() []*info.RangeInfo
 	Write()
 }
