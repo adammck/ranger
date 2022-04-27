@@ -1,6 +1,8 @@
 package rangelet
 
 import (
+	"errors"
+
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster/info"
 )
@@ -16,14 +18,18 @@ type Parent struct {
 	Placements []Placement
 }
 
+// See also roster/info.RangeInfo
 type LoadInfo struct {
 	Keys int
 }
 
 type Storage interface {
+	// TODO: Return a rangelet-only type, to avoid importing the whole roster.
 	Read() []*info.RangeInfo
 	Write()
 }
+
+var NotFound = errors.New("EOF")
 
 // These don't match the Prepare/Give/Take/Drop terminology used internally by
 // Ranger, but Shard Manager uses roughly (s/Shard/Range/g) these terms. Better
@@ -31,7 +37,10 @@ type Storage interface {
 type Node interface {
 
 	// GetLoadInfo returns the LoadInfo for the given range.
-	GetLoadInfo(rID ranje.Ident) LoadInfo
+	// Implementations should return NotFound if (from their point of view) the
+	// range doesn't exist. This can happen when GetLoadInfo and PrepareAddRange
+	// and/or DropRange are racing.
+	GetLoadInfo(rID ranje.Ident) (LoadInfo, error)
 
 	// PrepareAddRange.
 	PrepareAddRange(m ranje.Meta, p []Parent) error

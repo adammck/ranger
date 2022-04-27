@@ -103,10 +103,10 @@ func (n *TestNode) waitUntil(rID ranje.Ident, src state.RemoteState) error {
 	}
 }
 
-func (n *TestNode) GetLoadInfo(rID ranje.Ident) rangelet.LoadInfo {
+func (n *TestNode) GetLoadInfo(rID ranje.Ident) (rangelet.LoadInfo, error) {
 	return rangelet.LoadInfo{
 		Keys: 0,
-	}
+	}, nil
 }
 
 func (n *TestNode) PrepareAddRange(m ranje.Meta, p []rangelet.Parent) error {

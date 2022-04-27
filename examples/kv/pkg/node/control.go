@@ -12,13 +12,13 @@ import (
 	"github.com/adammck/ranger/pkg/ranje"
 )
 
-func (n *Node) GetLoadInfo(rID ranje.Ident) rangelet.LoadInfo {
+func (n *Node) GetLoadInfo(rID ranje.Ident) (rangelet.LoadInfo, error) {
 	n.rangesMu.RLock()
 	defer n.rangesMu.RUnlock()
 
 	r, ok := n.ranges[rID]
 	if !ok {
-		panic("GetLoad with unknown range!")
+		return rangelet.LoadInfo{}, rangelet.NotFound
 	}
 
 	r.dataMu.RLock()
@@ -27,7 +27,7 @@ func (n *Node) GetLoadInfo(rID ranje.Ident) rangelet.LoadInfo {
 
 	return rangelet.LoadInfo{
 		Keys: keys,
-	}
+	}, nil
 }
 
 // PrepareAddRange: Create the range, but don't do anything with it yet.
