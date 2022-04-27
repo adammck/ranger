@@ -76,8 +76,8 @@ func (n *Node) TestString() string {
 }
 
 func (n *Node) Get(rangeID ranje.Ident) (info.RangeInfo, bool) {
-	n.muConn.RLock()
-	defer n.muConn.RUnlock()
+	n.muRanges.RLock()
+	defer n.muRanges.RUnlock()
 
 	ri, ok := n.ranges[rangeID]
 	if !ok {
