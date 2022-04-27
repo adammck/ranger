@@ -1,0 +1,46 @@
+name: Go
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Check out repo
+      uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v3
+      with:
+        go-version: 1.16
+
+    # TODO: Remove this and check in protos
+    - name: Install Protoc
+      uses: arduino/setup-protoc@v1
+      with:
+        # Use the same version as Brew, 2022-04-26
+        # https://formulae.brew.sh/formula/protobuf
+        version: '3.19'
+
+    # TODO: Remove this and check in protos
+    - name: Install Protoc for Go
+      run: |
+        go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28
+        go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.2
+
+    # TODO: Remove this and check in protos
+    - name: Generate protos
+      run: |
+        bin/gen-proto.sh
+        examples/kv/bin/gen-proto.sh
+
+    - name: Build
+      run: go build -v ./...
+
+    - name: Test
+      run: go test -v ./...
