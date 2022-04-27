@@ -85,6 +85,8 @@ func (rs RemoteState) ToProto() pb.RangeNodeState {
 		return pb.RangeNodeState_PREPARED
 	case NsReadying:
 		return pb.RangeNodeState_READYING
+	case NsReadyingError:
+		return pb.RangeNodeState_READYING_ERROR
 	case NsReady:
 		return pb.RangeNodeState_READY
 	case NsTaking:
