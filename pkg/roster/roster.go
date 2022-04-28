@@ -326,6 +326,14 @@ func (r *Roster) Run(t *time.Ticker) {
 }
 
 // Candidate returns the NodeIdent of a node which could accept the given range.
+//
+// TODO: Instead of an actual range, this should take a "pseudo-range" which is
+//       either a single range (wanting to split) and split point, or two ranges
+//       (wanting to join). Or I guess just a wrapper around a single (moving)
+//       range. From these, we can estimate how much capacity the candidate
+//       node(s) will need, allowing us to find candidates before actually
+//       performing splits and joins.
+//
 func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (string, error) {
 	r.RLock()
 	defer r.RUnlock()

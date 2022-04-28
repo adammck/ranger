@@ -119,6 +119,7 @@ func (bs *orchestratorServer) Join(ctx context.Context, req *pb.JoinRequest) (*p
 		Left:  left,
 		Right: right,
 		Dest:  req.Node,
+		Err:   make(chan error),
 	}
 
 	bs.orch.opJoinsMu.Lock()
