@@ -29,6 +29,32 @@ This is a Go interface, but it's all gRPC+protobufs under the hood. There are no
 other implementations today, but it's a goal to avoid doing anything which would
 make it difficult to implement Rangelets in other languages.
 
+## Client
+
+Ranger includes a command line client, `rangerctl`, which is a thin wrapper
+around the gRPC interface to the orchestrator. This is currently the primary
+means of inspecting and balancing data across a cluster.
+
+```console
+$ ./rangerctl -h
+Usage: ./rangerctl [-addr=host:port] <action> [<args>]
+
+Action and args must be one of:
+  - ranges
+  - range <rangeID>
+  - nodes
+  - node <nodeID>
+  - move <rangeID> [<nodeID>]
+  - split <rangeID> <boundary> [<nodeID>] [<nodeID>]
+  - join <rangeID> <rangeID> [<nodeID>]
+
+Flags:
+  -addr string
+        controller address (default "localhost:5000")
+  -request
+        print gRPC request instead of sending it
+```
+
 ## Design
 
 TODO
