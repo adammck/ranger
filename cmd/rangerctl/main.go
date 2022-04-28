@@ -28,7 +28,7 @@ func main() {
 		fmt.Fprintf(w, "  - nodes\n")
 		fmt.Fprintf(w, "  - node <nodeID>\n")
 		fmt.Fprintf(w, "  - move <rangeID> <nodeID>\n")
-		fmt.Fprintf(w, "  - split <rangeID> <boundary> <nodeID> <nodeID>\n")
+		fmt.Fprintf(w, "  - split <rangeID> <boundary> [<nodeID>] [<nodeID>]\n")
 		fmt.Fprintf(w, "  - join <rangeID> <rangeID> <nodeID>\n")
 		fmt.Fprintf(w, "\n")
 		fmt.Fprintf(w, "Flags:\n")
@@ -116,8 +116,8 @@ func main() {
 		cmdMove(*printReq, client, ctx, rID, flag.Arg(2))
 
 	case "split", "s":
-		if flag.NArg() != 5 {
-			fmt.Fprintf(w, "Usage: %s split <rangeID> <boundary> <nodeID> <nodeID>\n", os.Args[0])
+		if flag.NArg() < 3 || flag.NArg() > 5 {
+			fmt.Fprintf(w, "Usage: %s split <rangeID> <boundary> [<nodeID>] [<nodeID>]\n", os.Args[0])
 			os.Exit(1)
 		}
 
