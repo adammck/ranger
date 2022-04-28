@@ -20,8 +20,9 @@ type OpSplit struct {
 	Err   chan error
 }
 
-// TODO: Allow operator to specify which node to target?
 type OpJoin struct {
 	Left  ranje.Ident
 	Right ranje.Ident
+	Dest  string
+	Err   chan error
 }

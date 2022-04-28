@@ -115,22 +115,29 @@ func (bs *orchestratorServer) Join(ctx context.Context, req *pb.JoinRequest) (*p
 		return nil, err
 	}
 
-	// TODO: Allow destination node(s) to be specified.
-	// TODO: Block until join is complete, like move does.
+	op := OpJoin{
+		Left:  left,
+		Right: right,
+		Dest:  req.Node,
+	}
 
-	func() {
-		bs.orch.opJoinsMu.Lock()
-		defer bs.orch.opJoinsMu.Unlock()
+	bs.orch.opJoinsMu.Lock()
+	bs.orch.opJoins = append(bs.orch.opJoins, op)
+	bs.orch.opJoinsMu.Unlock()
 
-		// TODO: Probably add a method to do this.
-		bs.orch.opJoins = append(bs.orch.opJoins, OpJoin{
-			Left:  left,
-			Right: right,
-		})
-	}()
+	errs := []string{}
+	for {
+		err, ok := <-op.Err
+		if !ok { // closed
+			break
+		}
+		errs = append(errs, err.Error())
+	}
 
-	if err != nil {
-		return nil, status.Error(codes.Aborted, fmt.Sprintf("join operation failed: %v", err))
+	if len(errs) > 0 {
+		return nil, status.Error(
+			codes.Aborted,
+			fmt.Sprintf("join operation failed: %v", strings.Join(errs, "; ")))
 	}
 
 	return &pb.JoinResponse{}, nil
