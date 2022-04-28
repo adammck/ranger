@@ -374,7 +374,7 @@ func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (string, error)
 	//    still come back, but let's avoid it anyway.
 	//
 	for i := range nodes {
-		if nodes[i].HasRange(rng.Meta.Ident) {
+		if rng != nil && nodes[i].HasRange(rng.Meta.Ident) {
 			s := fmt.Sprintf("node already has range: %v", c.NodeID)
 			if c.NodeID != "" {
 				return "", errors.New(s)

@@ -22,6 +22,8 @@ func (bs *orchestratorServer) Move(ctx context.Context, req *pb.MoveRequest) (*p
 		return nil, err
 	}
 
+	// TODO: Make this optional. Empty will allow the roster to pick any node,
+	//       which should result in the least-loaded.
 	nID := req.Node
 	if nID == "" {
 		return nil, status.Error(codes.InvalidArgument, "missing: node")
@@ -72,20 +74,31 @@ func (bs *orchestratorServer) Split(ctx context.Context, req *pb.SplitRequest) (
 		return nil, status.Error(codes.InvalidArgument, "missing: boundary")
 	}
 
-	// TODO: Allow destination node(s) to be specified.
-	// TODO: Block until split is complete, like move does.
+	op := OpSplit{
+		Range: rID,
+		Key:   boundary,
+		Left:  req.NodeLeft,
+		Right: req.NodeRight,
+		Err:   make(chan error),
+	}
 
-	func() {
-		bs.orch.opSplitsMu.Lock()
-		defer bs.orch.opSplitsMu.Unlock()
-		bs.orch.opSplits[rID] = OpSplit{
-			Range: rID,
-			Key:   boundary,
+	bs.orch.opSplitsMu.Lock()
+	bs.orch.opSplits[rID] = op
+	bs.orch.opSplitsMu.Unlock()
+
+	errs := []string{}
+	for {
+		err, ok := <-op.Err
+		if !ok { // closed
+			break
 		}
-	}()
+		errs = append(errs, err.Error())
+	}
 
-	if err != nil {
-		return nil, status.Error(codes.Aborted, fmt.Sprintf("split operation failed: %v", err))
+	if len(errs) > 0 {
+		return nil, status.Error(
+			codes.Aborted,
+			fmt.Sprintf("split operation failed: %v", strings.Join(errs, "; ")))
 	}
 
 	return &pb.SplitResponse{}, nil

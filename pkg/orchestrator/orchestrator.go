@@ -173,7 +173,90 @@ func (b *Orchestrator) tickRange(r *ranje.Range) {
 		}()
 
 		if opSplit != nil {
-			b.ks.Split(r, opSplit.Key)
+
+			// Find candidates for the left and right sides *before* performing
+			// the split. Once that happens, we can't (currently) abort.
+			//
+			// TODO: Allow split abort by allowing ranges to transition back
+			//       from RsSubsuming into RsActive, and from RsActive into some
+			//       new terminal state (RsAborted?) like RsObsolete. Would also
+			//       need a new entry state (RsNewSplit?) to indicate that it's
+			//       okay to give up, unlike RsActive. Ranges would need to keep
+			//       track of how many placements had been created and failed.
+
+			c := ranje.AnyNode
+			if opSplit.Left != "" {
+				c = ranje.Constraint{NodeID: opSplit.Left}
+			}
+			nIDL, err := b.rost.Candidate(nil, c)
+			if err != nil {
+				log.Printf("error selecting split candidate left: %v", err)
+				if opSplit.Err != nil {
+					opSplit.Err <- err
+					close(opSplit.Err)
+				}
+				return
+			}
+
+			c = ranje.AnyNode
+			if opSplit.Right != "" {
+				c = ranje.Constraint{NodeID: opSplit.Right}
+			}
+			nIDR, err := b.rost.Candidate(nil, c)
+			if err != nil {
+				log.Printf("error selecting split candidate right: %v", err)
+				if opSplit.Err != nil {
+					opSplit.Err <- err
+					close(opSplit.Err)
+				}
+				return
+			}
+
+			// Perform the actual range split. The source range (r) is moved to
+			// RsSubsuming, where it will remain until its placements have all
+			// been moved elsewhere. Two new ranges
+			rL, rR, err := b.ks.Split(r, opSplit.Key)
+
+			if err != nil {
+				log.Printf("error initiating split: %v", err)
+				if opSplit.Err != nil {
+					opSplit.Err <- err
+					close(opSplit.Err)
+				}
+				return
+			}
+
+			// If we made it this far, the split has happened and already been
+			// persisted.
+
+			// TODO: We're creating placements here on a range which is NOT the
+			//       one we're ticking. That seems... okay? We hold the keyspace
+			//       lock for the whole tick. But think about edge cases?
+			//       -
+			//       We could leave some turd like NextPlacementNodeID on the
+			//       range and let the first clause (no placements?) in this
+			//       method pick it up, but (a) that's gross, and (b) what if
+			//       some later range gets placed on the node before that
+			//       happens? All worse options.
+			//       -
+			//       Actually I think we need to extract this chunk of code up
+			//       into a "ranges which have splits scheduled" loop before the
+			//       main all-ranges loop. Join is already up there.
+
+			pL := ranje.NewPlacement(rL, nIDL)
+			rL.Placements = append(rL.Placements, pL)
+
+			pR := ranje.NewPlacement(rR, nIDR)
+			rR.Placements = append(rR.Placements, pR)
+
+			// If the split was initiated by an operator (via RPC), then it will
+			// have an error channel. When the split is complete (i.e. the range
+			// becomes obsolete) close to channel to unblock the RPC handler.
+			if opSplit.Err != nil {
+				r.OnObsolete(func() {
+					close(opSplit.Err)
+				})
+			}
 		}
 
 	case ranje.RsSubsuming:
