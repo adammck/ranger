@@ -2,6 +2,7 @@ package roster
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sort"
@@ -374,17 +375,32 @@ func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (string, error)
 	//
 	for i := range nodes {
 		if nodes[i].HasRange(rng.Meta.Ident) {
-			log.Printf("node already has range (nID=%v)", nodes[i].Ident())
+			s := fmt.Sprintf("node already has range: %v", c.NodeID)
+			if c.NodeID != "" {
+				return "", errors.New(s)
+			}
+
+			log.Print(s)
 			continue
 		}
 
 		if nodes[i].WantDrain() {
-			log.Printf("node wants drain (nID=%v)", nodes[i].Ident())
+			s := fmt.Sprintf("node wants drain: %v", nodes[i].Ident())
+			if c.NodeID != "" {
+				return "", errors.New(s)
+			}
+
+			log.Print(s)
 			continue
 		}
 
 		if nodes[i].IsMissing(r.cfg, time.Now()) {
-			log.Printf("node is missing (nID=%v)", nodes[i].Ident())
+			s := fmt.Sprintf("node is missing: %v", nodes[i].Ident())
+			if c.NodeID != "" {
+				return "", errors.New(s)
+			}
+
+			log.Print(s)
 			continue
 		}
 

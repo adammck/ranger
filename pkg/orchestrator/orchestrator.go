@@ -144,6 +144,7 @@ func (b *Orchestrator) tickRange(r *ranje.Range) {
 
 		}
 
+		// Pending move for this range?
 		if opMove, ok := b.moveOp(r.Meta.Ident); ok {
 			err := b.doMove(r, opMove)
 			if err != nil {

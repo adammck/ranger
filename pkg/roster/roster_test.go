@@ -66,41 +66,77 @@ func (ts *RosterSuite) TestNoCandidates() {
 }
 
 func (ts *RosterSuite) TestCandidateByNodeID() {
-	ts.nodes.Add(ts.ctx, discovery.Remote{
+
+	aRem := discovery.Remote{
 		Ident: "test-aaa",
 		Host:  "host-aaa",
 		Port:  1,
-	}, nil)
+	}
 
-	ts.nodes.Add(ts.ctx, discovery.Remote{
+	bRem := discovery.Remote{
 		Ident: "test-bbb",
 		Host:  "host-bbb",
 		Port:  1,
-	}, nil)
+	}
 
-	ts.nodes.Add(ts.ctx, discovery.Remote{
+	cRem := discovery.Remote{
 		Ident: "test-ccc",
 		Host:  "host-ccc",
 		Port:  1,
-	}, nil)
+	}
+
+	r := &ranje.Range{
+		Meta: ranje.Meta{
+			Ident: 1,
+		},
+		State: ranje.RsActive,
+		Placements: []*ranje.Placement{{
+			NodeID: aRem.Ident,
+			State:  ranje.PsReady,
+		}},
+	}
+
+	aInfos := map[ranje.Ident]*info.RangeInfo{
+		r.Meta.Ident: {
+			Meta:  r.Meta,
+			State: state.NsReady,
+		},
+	}
+
+	ts.nodes.Add(ts.ctx, aRem, aInfos)
+	ts.nodes.Add(ts.ctx, bRem, nil)
+	ts.nodes.Add(ts.ctx, cRem, nil)
+	ts.nodes.Get("test-ccc").SetWantDrain(true)
 
 	ts.Init()
 	ts.rost.Tick()
 
+	// -------------------------------------------------------------------------
+
 	nID, err := ts.rost.Candidate(ts.r, ranje.Constraint{NodeID: "test-bbb"})
 	if ts.NoError(err) {
-		ts.Equal(nID, "test-bbb")
-	}
-
-	nID, err = ts.rost.Candidate(ts.r, ranje.Constraint{NodeID: "test-ccc"})
-	if ts.NoError(err) {
-		ts.Equal(nID, "test-ccc")
+		ts.Equal("test-bbb", nID)
 	}
 
 	// This one doesn't exist
 	nID, err = ts.rost.Candidate(ts.r, ranje.Constraint{NodeID: "test-ddd"})
 	if ts.Error(err) {
-		ts.Equal(err.Error(), "no such node: test-ddd")
+		ts.Equal("no such node: test-ddd", err.Error())
+	}
+
+	// This one already has the range
+	nID, err = ts.rost.Candidate(ts.r, ranje.Constraint{NodeID: "test-aaa"})
+	if ts.Error(err) {
+		ts.Equal("node already has range: test-aaa", err.Error())
+	}
+
+	// This one doesn't want any more ranges, because it's drained.
+	// Note that we only know that the node wants to be drained because of the
+	// roster tick, above. If we just called SetWantDrain(true) and didn't tick,
+	// the "remote" node would want drain, but the roster wouldn't know that.
+	nID, err = ts.rost.Candidate(ts.r, ranje.Constraint{NodeID: "test-ccc"})
+	if ts.Error(err) {
+		ts.Equal("node wants drain: test-ccc", err.Error())
 	}
 }
 
