@@ -22,31 +22,19 @@ func (bs *orchestratorServer) Move(ctx context.Context, req *pb.MoveRequest) (*p
 		return nil, err
 	}
 
-	// TODO: Make this optional. Empty will allow the roster to pick any node,
-	//       which should result in the least-loaded.
-	nID := req.Node
-	if nID == "" {
-		return nil, status.Error(codes.InvalidArgument, "missing: node")
+	op := OpMove{
+		Range: rID,
+		Dest:  req.Node, // TODO: Verify if given
+		Err:   make(chan error),
 	}
 
-	errCh := make(chan error)
-
-	func() {
-		bs.orch.opMovesMu.Lock()
-		defer bs.orch.opMovesMu.Unlock()
-
-		// TODO: Probably add a method to do this.
-		bs.orch.opMoves = append(bs.orch.opMoves, OpMove{
-			Range: rID,
-			Dest:  nID,
-			Err:   errCh,
-		})
-	}()
+	bs.orch.opMovesMu.Lock()
+	bs.orch.opMoves = append(bs.orch.opMoves, op)
+	bs.orch.opMovesMu.Unlock()
 
 	errs := []string{}
-
 	for {
-		err, ok := <-errCh
+		err, ok := <-op.Err
 		if !ok { // closed
 			break
 		}

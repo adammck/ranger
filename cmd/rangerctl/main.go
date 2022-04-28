@@ -27,9 +27,9 @@ func main() {
 		fmt.Fprintf(w, "  - range <rangeID>\n")
 		fmt.Fprintf(w, "  - nodes\n")
 		fmt.Fprintf(w, "  - node <nodeID>\n")
-		fmt.Fprintf(w, "  - move <rangeID> <nodeID>\n")
+		fmt.Fprintf(w, "  - move <rangeID> [<nodeID>]\n")
 		fmt.Fprintf(w, "  - split <rangeID> <boundary> [<nodeID>] [<nodeID>]\n")
-		fmt.Fprintf(w, "  - join <rangeID> <rangeID> <nodeID>\n")
+		fmt.Fprintf(w, "  - join <rangeID> <rangeID> [<nodeID>]\n")
 		fmt.Fprintf(w, "\n")
 		fmt.Fprintf(w, "Flags:\n")
 		flag.PrintDefaults()
@@ -101,8 +101,8 @@ func main() {
 		cmdNode(*printReq, client, ctx, flag.Arg(1))
 
 	case "move", "m":
-		if flag.NArg() != 3 {
-			fmt.Fprintf(w, "Usage: %s move <rangeID> <nodeID>\n", os.Args[0])
+		if flag.NArg() < 2 || flag.NArg() > 3 {
+			fmt.Fprintf(w, "Usage: %s move <rangeID> [<nodeID>]\n", os.Args[0])
 			os.Exit(1)
 		}
 
