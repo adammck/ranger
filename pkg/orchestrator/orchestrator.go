@@ -133,7 +133,7 @@ func (b *Orchestrator) tickRange(r *ranje.Range) {
 		// Not enough placements? Create one!
 		if len(r.Placements) < b.cfg.Replication {
 
-			nID, err := b.rost.Candidate(r, *ranje.AnyNode())
+			nID, err := b.rost.Candidate(r, ranje.AnyNode)
 			if err != nil {
 				log.Printf("error finding candidate node for %v: %v", r, err)
 				return
@@ -141,7 +141,6 @@ func (b *Orchestrator) tickRange(r *ranje.Range) {
 
 			p := ranje.NewPlacement(r, nID)
 			r.Placements = append(r.Placements, p)
-
 		}
 
 		// Pending move for this range?
