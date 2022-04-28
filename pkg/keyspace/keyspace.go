@@ -350,43 +350,48 @@ func (ks *Keyspace) RangeCanBeObsoleted(r *ranje.Range) error {
 	return nil
 }
 
-func (ks *Keyspace) Split(r *ranje.Range, k ranje.Key) error {
+func (ks *Keyspace) Split(r *ranje.Range, k ranje.Key) (one *ranje.Range, two *ranje.Range, err error) {
 	if k == ranje.ZeroKey {
-		return fmt.Errorf("can't split on zero key")
+		err = fmt.Errorf("can't split on zero key")
+		return
 	}
 
 	if r.State != ranje.RsActive {
-		return errors.New("can't split non-active range")
+		err = errors.New("can't split non-active range")
+		return
 	}
 
 	// This should not be possible. Panic?
 	if len(r.Children) > 0 {
-		return fmt.Errorf("range %s already has %d children", r, len(r.Children))
+		err = fmt.Errorf("range %s already has %d children", r, len(r.Children))
+		return
 	}
 
 	if !r.Meta.Contains(k) {
-		return fmt.Errorf("range %s does not contain key: %s", r, k)
+		err = fmt.Errorf("range %s does not contain key: %s", r, k)
+		return
 	}
 
 	if k == r.Meta.Start {
-		return fmt.Errorf("range %s starts with key: %s", r, k)
+		err = fmt.Errorf("range %s starts with key: %s", r, k)
+		return
 	}
 
 	// Change the state of the splitting range directly via Range.toState rather
 	// than Keyspace.ToState as (usually!) recommended, because we don't want
 	// to persist the change until the two new ranges have been created, below.
-	err := r.ToState(ranje.RsSubsuming)
+	err = r.ToState(ranje.RsSubsuming)
 	if err != nil {
 		// The error is clear enough, no need to wrap it.
-		return err
+		return
 	}
 
-	one := ks.Range()
+	one = ks.Range()
 	one.Meta.Start = r.Meta.Start
 	one.Meta.End = k
 	one.Parents = []ranje.Ident{r.Meta.Ident}
 
-	two := ks.Range()
+	two = ks.Range()
 	two.Meta.Start = k
 	two.Meta.End = r.Meta.End
 	two.Parents = []ranje.Ident{r.Meta.Ident}
@@ -404,7 +409,7 @@ func (ks *Keyspace) Split(r *ranje.Range, k ranje.Key) error {
 	// Persist all three ranges.
 	ks.mustPersistDirtyRanges()
 
-	return nil
+	return
 }
 
 // Get returns a range by its ident, or an error if no such range exists.
