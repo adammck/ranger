@@ -5,8 +5,8 @@
             "type":"go",
             "name": "Launch Controller",
             "request": "launch",
-            "program": "${workspaceFolder}/examples/kv/main.go",
-            "args": ["-controller", "-addr", ":5200"],
+            "program": "${workspaceFolder}/cmd/rangerd",
+            "args": ["-addr", ":5200"],
         }
     ]
 }
