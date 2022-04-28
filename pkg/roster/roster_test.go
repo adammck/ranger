@@ -96,6 +96,12 @@ func (ts *RosterSuite) TestCandidateByNodeID() {
 	if ts.NoError(err) {
 		ts.Equal(nID, "test-ccc")
 	}
+
+	// This one doesn't exist
+	nID, err = ts.rost.Candidate(ts.r, ranje.Constraint{NodeID: "test-ddd"})
+	if ts.Error(err) {
+		ts.Equal(err.Error(), "no such node: test-ddd")
+	}
 }
 
 func (ts *RosterSuite) TestProbeOne() {

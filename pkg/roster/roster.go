@@ -346,11 +346,19 @@ func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (string, error)
 	// Filter the list of nodes by name
 	// (We still might exclude it below though)
 	if c.NodeID != "" {
+		found := false
+
 		for i := range nodes {
 			if nodes[i].Ident() == c.NodeID {
 				nodes = []*Node{nodes[i]}
+				found = true
 				break
 			}
+		}
+
+		// Specific NodeID was given, but no such node was found.
+		if !found {
+			return "", fmt.Errorf("no such node: %v", c.NodeID)
 		}
 	}
 
