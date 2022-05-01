@@ -48,16 +48,6 @@ type TestNode struct {
 
 func NewTestNode(ctx context.Context, addr string, rangeInfos map[ranje.Ident]*info.RangeInfo) (*TestNode, func()) {
 
-	// Copy rangeInfos to be loaded (via Storage) into rangelet.
-	// TODO: This allows test to mess with RangeInfo; get rid of the pointers.
-	infos := []*info.RangeInfo{}
-	for _, ri := range rangeInfos {
-		infos = append(infos, &info.RangeInfo{
-			Meta:  ri.Meta,
-			State: ri.State,
-		})
-	}
-
 	// Extract LoadInfos to keep in the client (TestNode). Rangelet fetches via
 	// GetLoadInfo.
 	li := map[ranje.Ident]api.LoadInfo{}
@@ -67,28 +57,26 @@ func NewTestNode(ctx context.Context, addr string, rangeInfos map[ranje.Ident]*i
 		}
 	}
 
-	srv := grpc.NewServer()
-
-	tn := &TestNode{
+	n := &TestNode{
 		Addr:        addr,
 		loadInfos:   li,
 		gates:       map[string][2]*sync.WaitGroup{},
 		transitions: map[rangeInState]error{},
 	}
 
-	stor := Storage{infos: infos}
-	rglt := rangelet.NewRangelet(tn, srv, &stor)
+	srv := grpc.NewServer()
+	stor := NewStorage(rangeInfos)
+	n.rglt = rangelet.NewRangelet(n, srv, stor)
+	closer := n.Listen(ctx, srv)
 
-	// Rangelet has registered the NodeService by now.
-	conn, closer := tn.nodeServer(ctx, srv)
-	tn.Conn = conn
+	return n, closer
+}
 
-	// TODO: Does the client actually need to talk back to the rangelet other
-	//       than via the callbacks? Probably for to update health of ranges?
-	//       but maybe that can just happen via the rangeinfos.
-	tn.rglt = rglt
-
-	return tn, closer
+// Rangelet has registered the NodeService by now.
+func (n *TestNode) Listen(ctx context.Context, srv *grpc.Server) func() {
+	conn, closer := n.nodeServer(ctx, srv)
+	n.Conn = conn
+	return closer
 }
 
 func (n *TestNode) waitUntil(rID ranje.Ident, src state.RemoteState) error {
@@ -268,13 +256,6 @@ func (n *TestNode) AdvanceTo(t *testing.T, rID ranje.Ident, new state.RemoteStat
 
 	default:
 		t.Fatalf("can't advance to state: %s", new)
-	}
-
-	// Check that current state matches expected state.
-	act := n.rglt.State(rID)
-	if act != exp {
-		t.Fatalf("can't advance to state %s when current state is %s (expected: %s)", new, act, exp)
-		return
 	}
 
 	// Check that an error was given, if one was expected

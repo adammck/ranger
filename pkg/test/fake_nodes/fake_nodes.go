@@ -36,8 +36,8 @@ func (tn *TestNodes) Close() {
 
 func (tn *TestNodes) Add(ctx context.Context, remote discovery.Remote, rangeInfos map[ranje.Ident]*info.RangeInfo) {
 	n, closer := fake_node.NewTestNode(ctx, remote.Addr(), rangeInfos)
-	tn.nodes[remote.Ident] = n
 	tn.closers = append(tn.closers, closer)
+	tn.nodes[remote.Ident] = n
 	tn.disc.Add("node", remote)
 }
 
@@ -68,6 +68,12 @@ func (tn *TestNodes) RPCs() map[string][]interface{} {
 func (tn *TestNodes) NodeConnFactory(ctx context.Context, remote discovery.Remote) (*grpc.ClientConn, error) {
 	for _, n := range tn.nodes {
 		if n.Addr == remote.Addr() {
+
+			if n.Conn == nil {
+				// Fail rather than return nil connection
+				return nil, fmt.Errorf("nil conn (called before Listen) for test node: %v", n)
+			}
+
 			return n.Conn, nil
 		}
 	}
