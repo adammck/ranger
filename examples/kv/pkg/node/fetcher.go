@@ -7,7 +7,7 @@ import (
 	"time"
 
 	pbkv "github.com/adammck/ranger/examples/kv/proto/gen"
-	"github.com/adammck/ranger/pkg/rangelet"
+	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/ranje"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
@@ -23,7 +23,7 @@ type fetcher struct {
 	srcs []src
 }
 
-func newFetcher(rm ranje.Meta, parents []rangelet.Parent) *fetcher {
+func newFetcher(rm ranje.Meta, parents []api.Parent) *fetcher {
 	srcs := []src{}
 
 	// If this is a range move, we can just fetch the whole thing from a single

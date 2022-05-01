@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/adammck/ranger/pkg/api"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/rangelet"
 	"github.com/adammck/ranger/pkg/ranje"
@@ -29,7 +30,7 @@ type TestNode struct {
 	Conn *grpc.ClientConn
 	rglt *rangelet.Rangelet
 
-	loadInfos map[ranje.Ident]rangelet.LoadInfo
+	loadInfos map[ranje.Ident]api.LoadInfo
 
 	// Keep requests sent to this node.
 	// Call RPCs() to fetch and clear.
@@ -59,9 +60,9 @@ func NewTestNode(ctx context.Context, addr string, rangeInfos map[ranje.Ident]*i
 
 	// Extract LoadInfos to keep in the client (TestNode). Rangelet fetches via
 	// GetLoadInfo.
-	li := map[ranje.Ident]rangelet.LoadInfo{}
+	li := map[ranje.Ident]api.LoadInfo{}
 	for _, ri := range rangeInfos {
-		li[ri.Meta.Ident] = rangelet.LoadInfo{
+		li[ri.Meta.Ident] = api.LoadInfo{
 			Keys: int(ri.Info.Keys),
 		}
 	}
@@ -121,16 +122,16 @@ func (n *TestNode) waitUntil(rID ranje.Ident, src state.RemoteState) error {
 	}
 }
 
-func (n *TestNode) GetLoadInfo(rID ranje.Ident) (rangelet.LoadInfo, error) {
+func (n *TestNode) GetLoadInfo(rID ranje.Ident) (api.LoadInfo, error) {
 	li, ok := n.loadInfos[rID]
 	if !ok {
-		return rangelet.LoadInfo{}, rangelet.NotFound
+		return api.LoadInfo{}, api.NotFound
 	}
 
 	return li, nil
 }
 
-func (n *TestNode) PrepareAddRange(m ranje.Meta, p []rangelet.Parent) error {
+func (n *TestNode) PrepareAddRange(m ranje.Meta, p []api.Parent) error {
 	return n.waitUntil(m.Ident, state.NsPreparing)
 }
 

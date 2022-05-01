@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster/info"
 	"github.com/adammck/ranger/pkg/roster/state"
@@ -18,8 +19,8 @@ type Rangelet struct {
 	info         map[ranje.Ident]*info.RangeInfo
 	sync.RWMutex // guards info (keys *and* values)
 
-	n Node
-	s Storage
+	n api.Node
+	s api.Storage
 
 	// TODO: Store abstract "node load" or "node status"? Drain is just a desire
 	//       for all of the ranges to be moved away. Overload is just a desire
@@ -29,7 +30,7 @@ type Rangelet struct {
 	srv *NodeServer
 }
 
-func NewRangelet(n Node, sr grpc.ServiceRegistrar, s Storage) *Rangelet {
+func NewRangelet(n api.Node, sr grpc.ServiceRegistrar, s api.Storage) *Rangelet {
 	r := &Rangelet{
 		info: map[ranje.Ident]*info.RangeInfo{},
 		n:    n,
@@ -81,7 +82,7 @@ func (r *Rangelet) runThenUpdateState(rID ranje.Ident, success state.RemoteState
 	ri.State = s
 }
 
-func (r *Rangelet) give(rm ranje.Meta, parents []Parent) (info.RangeInfo, error) {
+func (r *Rangelet) give(rm ranje.Meta, parents []api.Parent) (info.RangeInfo, error) {
 	rID := rm.Ident
 
 	// TODO: Release the lock while calling PrepareAddRange.
@@ -230,7 +231,7 @@ func (r *Rangelet) gatherLoadInfo() error {
 	for rID, ri := range r.info {
 		info, err := r.n.GetLoadInfo(rID)
 
-		if err == NotFound {
+		if err == api.NotFound {
 			// No problem. The Rangelet knows about this range, but the client
 			// doesn't, for whatever reason. Probably racing PrepareAddRange.
 			log.Printf("GetLoadInfo(%v): NotFound", rID)
@@ -252,7 +253,7 @@ func (r *Rangelet) gatherLoadInfo() error {
 // store in Rangelet.info, via roster/info.RangeInfo) with the info from the
 // given rangelet.LoadInfo. This is very nasty and hopefully temporary.
 // TODO: Remove once roster/info import is gone from rangelet.
-func updateLoadInfo(rostLI *info.LoadInfo, rgltLI LoadInfo) {
+func updateLoadInfo(rostLI *info.LoadInfo, rgltLI api.LoadInfo) {
 	rostLI.Keys = uint64(rgltLI.Keys)
 }
 

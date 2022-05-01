@@ -1,34 +1,10 @@
-package rangelet
+package api
 
 import (
 	"errors"
 
 	"github.com/adammck/ranger/pkg/ranje"
-	"github.com/adammck/ranger/pkg/roster/info"
 )
-
-type Placement struct {
-	Node  string
-	State ranje.PlacementState
-}
-
-type Parent struct {
-	Meta       ranje.Meta
-	Parents    []ranje.Ident
-	Placements []Placement
-}
-
-// Same as roster/info.LoadInfo, to avoid circular import.
-type LoadInfo struct {
-	Keys int
-}
-
-type Storage interface {
-	// TODO: Return a rangelet-only type, to avoid importing the whole roster.
-	// TODO: Return info.RangeInfo instead! Pointer is pointless.
-	Read() []*info.RangeInfo
-	Write()
-}
 
 var NotFound = errors.New("EOF")
 

@@ -3,6 +3,7 @@ package rangelet
 import (
 	"context"
 
+	"github.com/adammck/ranger/pkg/api"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster/info"
@@ -26,8 +27,8 @@ func (ns *NodeServer) Register(sr grpc.ServiceRegistrar) {
 	pb.RegisterNodeServer(sr, ns)
 }
 
-func parentsFromProto(prot []*pb.Parent) ([]Parent, error) {
-	p := []Parent{}
+func parentsFromProto(prot []*pb.Parent) ([]api.Parent, error) {
+	p := []api.Parent{}
 
 	for _, pp := range prot {
 		m, err := ranje.MetaFromProto(pp.Range)
@@ -40,15 +41,15 @@ func parentsFromProto(prot []*pb.Parent) ([]Parent, error) {
 			parentIds[i] = ranje.Ident(pp.Parent[i])
 		}
 
-		placements := make([]Placement, len(pp.Placements))
+		placements := make([]api.Placement, len(pp.Placements))
 		for i := range pp.Placements {
-			placements[i] = Placement{
+			placements[i] = api.Placement{
 				Node:  pp.Placements[i].Node,
 				State: ranje.PlacementStateFromProto(&pp.Placements[i].State),
 			}
 		}
 
-		p = append(p, Parent{
+		p = append(p, api.Parent{
 			Meta:       *m,
 			Parents:    parentIds,
 			Placements: placements,

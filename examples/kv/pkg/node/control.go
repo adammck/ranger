@@ -8,30 +8,30 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/adammck/ranger/pkg/rangelet"
+	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/ranje"
 )
 
-func (n *Node) GetLoadInfo(rID ranje.Ident) (rangelet.LoadInfo, error) {
+func (n *Node) GetLoadInfo(rID ranje.Ident) (api.LoadInfo, error) {
 	n.rangesMu.RLock()
 	defer n.rangesMu.RUnlock()
 
 	r, ok := n.ranges[rID]
 	if !ok {
-		return rangelet.LoadInfo{}, rangelet.NotFound
+		return api.LoadInfo{}, api.NotFound
 	}
 
 	r.dataMu.RLock()
 	defer r.dataMu.RUnlock()
 	keys := len(r.data)
 
-	return rangelet.LoadInfo{
+	return api.LoadInfo{
 		Keys: keys,
 	}, nil
 }
 
 // PrepareAddRange: Create the range, but don't do anything with it yet.
-func (n *Node) PrepareAddRange(rm ranje.Meta, parents []rangelet.Parent) error {
+func (n *Node) PrepareAddRange(rm ranje.Meta, parents []api.Parent) error {
 	if err := n.performChaos(); err != nil {
 		return err
 	}
