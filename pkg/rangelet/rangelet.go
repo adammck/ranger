@@ -41,8 +41,11 @@ func NewRangelet(n api.Node, sr grpc.ServiceRegistrar, s api.Storage) *Rangelet 
 		r.info[ri.Meta.Ident] = ri
 	}
 
-	r.srv = NewNodeServer(r)
-	r.srv.Register(sr)
+	// Can't think of any reason this would be useful outside of a test.
+	if sr != nil {
+		r.srv = NewNodeServer(r)
+		r.srv.Register(sr)
+	}
 
 	return r
 }
