@@ -177,13 +177,13 @@ func (r *Rangelet) serve(rID ranje.Ident) (info.RangeInfo, error) {
 	return *ri, nil
 }
 
-func (r *Rangelet) take(rID ranje.Ident) (*info.RangeInfo, error) {
+func (r *Rangelet) take(rID ranje.Ident) (info.RangeInfo, error) {
 	r.Lock()
 	defer r.Unlock()
 
 	ri, ok := r.info[rID]
 	if !ok {
-		return nil, status.Errorf(codes.InvalidArgument, "can't Take unknown range: %v", rID)
+		return info.RangeInfo{}, status.Errorf(codes.InvalidArgument, "can't Take unknown range: %v", rID)
 	}
 
 	switch ri.State {
@@ -197,20 +197,20 @@ func (r *Rangelet) take(rID ranje.Ident) (*info.RangeInfo, error) {
 		log.Printf("got redundant Take")
 
 	default:
-		return nil, status.Errorf(codes.InvalidArgument, "invalid state for Take: %v", ri.State)
+		return info.RangeInfo{}, status.Errorf(codes.InvalidArgument, "invalid state for Take: %v", ri.State)
 	}
 
-	return ri, nil
+	return *ri, nil
 }
 
-func (r *Rangelet) drop(rID ranje.Ident) (*info.RangeInfo, error) {
+func (r *Rangelet) drop(rID ranje.Ident) (info.RangeInfo, error) {
 	r.Lock()
 	defer r.Unlock()
 
 	ri, ok := r.info[rID]
 	if !ok {
 		log.Printf("got redundant Drop (no such range; maybe drop complete)")
-		return ri, ErrNotFound
+		return info.RangeInfo{}, ErrNotFound
 	}
 
 	switch ri.State {
@@ -224,10 +224,10 @@ func (r *Rangelet) drop(rID ranje.Ident) (*info.RangeInfo, error) {
 		log.Printf("got redundant Drop (drop in progress)")
 
 	default:
-		return nil, status.Errorf(codes.InvalidArgument, "invalid state for Drop: %v", ri.State)
+		return info.RangeInfo{}, status.Errorf(codes.InvalidArgument, "invalid state for Drop: %v", ri.State)
 	}
 
-	return ri, nil
+	return *ri, nil
 }
 
 func (r *Rangelet) Find(k ranje.Key) (ranje.Ident, bool) {
