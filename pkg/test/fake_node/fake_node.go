@@ -16,6 +16,7 @@ import (
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster/info"
 	"github.com/adammck/ranger/pkg/roster/state"
+	"github.com/adammck/ranger/pkg/test/fake_storage"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/test/bufconn"
 )
@@ -65,8 +66,12 @@ func NewTestNode(ctx context.Context, addr string, rangeInfos map[ranje.Ident]*i
 	}
 
 	srv := grpc.NewServer()
-	stor := NewStorage(rangeInfos)
+	stor := fake_storage.NewFakeStorage(rangeInfos)
 	n.rglt = rangelet.NewRangelet(n, srv, stor)
+
+	// Just for tests.
+	n.rglt.SetGracePeriod(10 * time.Millisecond)
+
 	closer := n.Listen(ctx, srv)
 
 	return n, closer

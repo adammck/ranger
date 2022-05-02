@@ -1,4 +1,4 @@
-package fake_node
+package fake_storage
 
 import (
 	"github.com/adammck/ranger/pkg/ranje"
@@ -9,7 +9,7 @@ type storage struct {
 	infos []*info.RangeInfo
 }
 
-func NewStorage(rangeInfos map[ranje.Ident]*info.RangeInfo) *storage {
+func NewFakeStorage(rangeInfos map[ranje.Ident]*info.RangeInfo) *storage {
 	infos := []*info.RangeInfo{}
 	for _, ri := range rangeInfos {
 		infos = append(infos, ri)

@@ -342,3 +342,9 @@ func withTimeout(timeout time.Duration, f func()) bool {
 		return false
 	}
 }
+
+// Just for tests.
+// TODO: Remove this somehow? Only TestNodes needs it.
+func (r *Rangelet) SetGracePeriod(d time.Duration) {
+	r.gracePeriod = d
+}

@@ -10,7 +10,7 @@ import (
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster/info"
 	"github.com/adammck/ranger/pkg/roster/state"
-	"github.com/adammck/ranger/pkg/test/fake_node"
+	"github.com/adammck/ranger/pkg/test/fake_storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -46,9 +46,13 @@ func (n *MockNode) DropRange(rID ranje.Ident) error {
 	return n.rDrop
 }
 
+func (n *MockNode) GetLoadInfo(rID ranje.Ident) (api.LoadInfo, error) {
+	return api.LoadInfo{}, errors.New("not implemented")
+}
+
 func Setup() (*MockNode, *Rangelet) {
 	n := &MockNode{}
-	stor := fake_node.NewStorage(nil)
+	stor := fake_storage.NewFakeStorage(nil)
 	rglt := NewRangelet(n, nil, stor)
 	rglt.gracePeriod = 10 * time.Millisecond
 	return n, rglt
