@@ -2,9 +2,11 @@ package rangelet
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/ranje"
@@ -27,6 +29,8 @@ type Rangelet struct {
 	//       for *some* ranges to be moved.
 	xWantDrain uint32
 
+	gracePeriod time.Duration
+
 	srv *NodeServer
 }
 
@@ -35,6 +39,8 @@ func NewRangelet(n api.Node, sr grpc.ServiceRegistrar, s api.Storage) *Rangelet 
 		info: map[ranje.Ident]*info.RangeInfo{},
 		n:    n,
 		s:    s,
+
+		gracePeriod: 1 * time.Second,
 	}
 
 	for _, ri := range s.Read() {
@@ -128,30 +134,47 @@ func (r *Rangelet) give(rm ranje.Meta, parents []api.Parent) (info.RangeInfo, er
 	return *ri, nil
 }
 
-func (r *Rangelet) serve(rID ranje.Ident) (*info.RangeInfo, error) {
+func (r *Rangelet) serve(rID ranje.Ident) (info.RangeInfo, error) {
 	r.Lock()
-	defer r.Unlock()
 
 	ri, ok := r.info[rID]
 	if !ok {
-		return ri, status.Errorf(codes.InvalidArgument, "can't Serve unknown range: %v", rID)
+		r.Unlock()
+		return info.RangeInfo{}, status.Errorf(codes.InvalidArgument, "can't Serve unknown range: %v", rID)
 	}
 
-	switch ri.State {
-	case state.NsPrepared:
-		ri.State = state.NsReadying
-		go r.runThenUpdateState(rID, state.NsReady, state.NsReadyingError, func() error {
+	if ri.State == state.NsReadying || ri.State == state.NsReady {
+		log.Printf("got redundant Serve")
+		defer r.Unlock()
+		return *ri, nil
+	}
+
+	if ri.State != state.NsPrepared {
+		defer r.Unlock()
+		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Serve: %v", ri.State)
+	}
+
+	// State is NsPrepared
+
+	ri.State = state.NsReadying
+	r.Unlock()
+
+	withTimeout(r.gracePeriod, func() {
+		r.runThenUpdateState(rID, state.NsReady, state.NsReadyingError, func() error {
 			return r.n.AddRange(rID)
 		})
+	})
 
-	case state.NsReadying, state.NsReady:
-		log.Printf("got redundant Serve")
+	r.Lock()
+	defer r.Unlock()
 
-	default:
-		return ri, status.Errorf(codes.InvalidArgument, "invalid state for Serve: %v", ri.State)
+	// Fetch the current rangeinfo again!
+	ri, ok = r.info[rID]
+	if !ok {
+		panic(fmt.Sprintf("range vanished from infos during serve! (rID=%v)", rID))
 	}
 
-	return ri, nil
+	return *ri, nil
 }
 
 func (r *Rangelet) take(rID ranje.Ident) (*info.RangeInfo, error) {
@@ -288,4 +311,34 @@ func (r *Rangelet) SetWantDrain(b bool) {
 // changes via the Node interface.
 func (r *Rangelet) State(rID ranje.Ident) state.RemoteState {
 	return r.info[rID].State
+}
+
+func (r *Rangelet) rangeInfo(rID ranje.Ident) (info.RangeInfo, bool) {
+	r.Lock()
+	defer r.Unlock()
+
+	ri, ok := r.info[rID]
+	if ok {
+		return *ri, true
+	}
+
+	return info.RangeInfo{}, false
+}
+
+func withTimeout(timeout time.Duration, f func()) bool {
+	ch := make(chan struct{})
+	go func() {
+		f()
+		close(ch)
+	}()
+
+	select {
+	case <-ch:
+		log.Print("finished!")
+		return true
+
+	case <-time.After(timeout):
+		log.Print("timed out")
+		return false
+	}
 }

@@ -2,6 +2,7 @@ package rangelet
 
 import (
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,13 +12,19 @@ import (
 	"github.com/adammck/ranger/pkg/roster/state"
 	"github.com/adammck/ranger/pkg/test/fake_node"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
+// For assert.Eventually
+const waitFor = 500 * time.Millisecond
+const tick = 10 * time.Millisecond
+
 type MockNode struct {
-	rGive  error
-	rServe error
-	rTake  error
-	rDrop  error
+	rGive   error
+	rServe  error
+	wgServe *sync.WaitGroup
+	rTake   error
+	rDrop   error
 }
 
 func (n *MockNode) PrepareAddRange(m ranje.Meta, p []api.Parent) error {
@@ -25,6 +32,9 @@ func (n *MockNode) PrepareAddRange(m ranje.Meta, p []api.Parent) error {
 }
 
 func (n *MockNode) AddRange(rID ranje.Ident) error {
+	if n.wgServe != nil {
+		n.wgServe.Wait()
+	}
 	return n.rServe
 }
 
@@ -40,6 +50,7 @@ func Setup() (*MockNode, *Rangelet) {
 	n := &MockNode{}
 	stor := fake_node.NewStorage(nil)
 	rglt := NewRangelet(n, nil, stor)
+	rglt.gracePeriod = 10 * time.Millisecond
 	return n, rglt
 }
 
@@ -107,26 +118,64 @@ func TestServe(t *testing.T) {
 	ri, err := r.serve(m.Ident)
 	assert.EqualError(t, err, "rpc error: code = InvalidArgument desc = can't Serve unknown range: 1")
 
-	// correct state to become ready.
+	// Add a range in ready-to-serve state.
 	r.info[m.Ident] = &info.RangeInfo{
 		Meta:  m,
 		State: state.NsPrepared,
 	}
 
 	ri, err = r.serve(m.Ident)
-	if assert.NoError(t, err) {
-		assert.Equal(t, m, ri.Meta)
-		assert.Equal(t, state.NsReadying, ri.State)
+	require.NoError(t, err)
+	assert.Equal(t, m, ri.Meta)
+	assert.Equal(t, state.NsReady, ri.State)
+
+	// Check that state was updated.
+	ri, ok := r.rangeInfo(m.Ident)
+	require.True(t, ok)
+	assert.Equal(t, state.NsReady, ri.State)
+}
+
+func TestSlowServe(t *testing.T) {
+	n, r := Setup()
+
+	m := ranje.Meta{Ident: 1}
+
+	ri, err := r.serve(m.Ident)
+	require.EqualError(t, err, "rpc error: code = InvalidArgument desc = can't Serve unknown range: 1")
+
+	r.info[m.Ident] = &info.RangeInfo{
+		Meta:  m,
+		State: state.NsPrepared,
 	}
 
-	// TODO: Noooo
-	time.Sleep(10 * time.Millisecond)
+	// AddRange will take a long time!
+	n.wgServe = &sync.WaitGroup{}
+	n.wgServe.Add(1)
+
+	// This one will give up waiting and return early.
+	ri, err = r.serve(m.Ident)
+	require.NoError(t, err)
+	assert.Equal(t, m, ri.Meta)
+	assert.Equal(t, state.NsReadying, ri.State)
+
+	// Check that state was updated.
+	ri, ok := r.rangeInfo(m.Ident)
+	require.True(t, ok)
+	assert.Equal(t, state.NsReadying, ri.State)
+
+	// AddRange finished.
+	n.wgServe.Done()
+
+	// Wait until state is updated
+	assert.Eventually(t, func() bool {
+		ri, ok := r.rangeInfo(m.Ident)
+		return ok && ri.State == state.NsReady
+	}, waitFor, tick)
 
 	ri, err = r.serve(m.Ident)
-	if assert.NoError(t, err) {
-		assert.Equal(t, m, ri.Meta)
-		assert.Equal(t, state.NsReady, ri.State)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, m, ri.Meta)
+	assert.Equal(t, state.NsReady, ri.State)
 }
 
 func TestTake(t *testing.T) {
