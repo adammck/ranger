@@ -165,16 +165,18 @@ func TestGiveErrorSlow(t *testing.T) {
 	}
 }
 
+func setupServe(infos map[ranje.Ident]*info.RangeInfo, m ranje.Meta) {
+	infos[m.Ident] = &info.RangeInfo{
+		Meta:  m,
+		State: state.NsPrepared,
+	}
+}
+
 func TestServeFast(t *testing.T) {
 	_, rglt := Setup()
 
 	m := ranje.Meta{Ident: 1}
-
-	// State valid for AddRange.
-	rglt.info[m.Ident] = &info.RangeInfo{
-		Meta:  m,
-		State: state.NsPrepared,
-	}
+	setupServe(rglt.info, m)
 
 	ri, err := rglt.serve(m.Ident)
 	require.NoError(t, err)
@@ -197,12 +199,7 @@ func TestServeSlow(t *testing.T) {
 	n, rglt := Setup()
 
 	m := ranje.Meta{Ident: 1}
-
-	// State valid for AddRange.
-	rglt.info[m.Ident] = &info.RangeInfo{
-		Meta:  m,
-		State: state.NsPrepared,
-	}
+	setupServe(rglt.info, m)
 
 	// AddRange will take a long time!
 	n.wgAddRange.Add(1)
@@ -245,15 +242,11 @@ func TestServeUnknown(t *testing.T) {
 
 func TestServeErrorFast(t *testing.T) {
 	n, rglt := Setup()
-	n.erAddRange = errors.New("error from AddRange")
 
 	m := ranje.Meta{Ident: 1}
+	setupServe(rglt.info, m)
 
-	// State valid for AddRange.
-	rglt.info[m.Ident] = &info.RangeInfo{
-		Meta:  m,
-		State: state.NsPrepared,
-	}
+	n.erAddRange = errors.New("error from AddRange")
 
 	ri, err := rglt.serve(m.Ident)
 	require.NoError(t, err)
@@ -270,12 +263,7 @@ func TestServeErrorSlow(t *testing.T) {
 	n, rglt := Setup()
 
 	m := ranje.Meta{Ident: 1}
-
-	// State valid for AddRange.
-	rglt.info[m.Ident] = &info.RangeInfo{
-		Meta:  m,
-		State: state.NsPrepared,
-	}
+	setupServe(rglt.info, m)
 
 	// AddRange will block, then return an error.
 	n.erAddRange = errors.New("error from AddRange")
@@ -308,16 +296,18 @@ func TestServeErrorSlow(t *testing.T) {
 	}
 }
 
+func setupTake(infos map[ranje.Ident]*info.RangeInfo, m ranje.Meta) {
+	infos[m.Ident] = &info.RangeInfo{
+		Meta:  m,
+		State: state.NsReady,
+	}
+}
+
 func TestTakeFast(t *testing.T) {
 	_, rglt := Setup()
 
 	m := ranje.Meta{Ident: 1}
-
-	// State valid for PrepareDropRange.
-	rglt.info[m.Ident] = &info.RangeInfo{
-		Meta:  m,
-		State: state.NsReady,
-	}
+	setupTake(rglt.info, m)
 
 	ri, err := rglt.take(m.Ident)
 	require.NoError(t, err)
@@ -340,12 +330,7 @@ func TestTakeSlow(t *testing.T) {
 	n, rglt := Setup()
 
 	m := ranje.Meta{Ident: 1}
-
-	// State valid for PrepareDropRange.
-	rglt.info[m.Ident] = &info.RangeInfo{
-		Meta:  m,
-		State: state.NsReady,
-	}
+	setupTake(rglt.info, m)
 
 	n.wgPrepareDropRange.Add(1)
 
@@ -390,15 +375,11 @@ func TestTakeUnknown(t *testing.T) {
 
 func TestTakeErrorFast(t *testing.T) {
 	n, rglt := Setup()
-	n.erPrepareDropRange = errors.New("error from PrepareDropRange")
 
 	m := ranje.Meta{Ident: 1}
+	setupTake(rglt.info, m)
 
-	// State valid for PrepareDropRange.
-	rglt.info[m.Ident] = &info.RangeInfo{
-		Meta:  m,
-		State: state.NsReady,
-	}
+	n.erPrepareDropRange = errors.New("error from PrepareDropRange")
 
 	ri, err := rglt.take(m.Ident)
 	require.NoError(t, err)
@@ -415,12 +396,7 @@ func TestTakeErrorSlow(t *testing.T) {
 	n, rglt := Setup()
 
 	m := ranje.Meta{Ident: 1}
-
-	// State valid for PrepareDropRange.
-	rglt.info[m.Ident] = &info.RangeInfo{
-		Meta:  m,
-		State: state.NsReady,
-	}
+	setupTake(rglt.info, m)
 
 	// PrepareDropRange will block, then return an error.
 	n.erPrepareDropRange = errors.New("error from PrepareDropRange")
@@ -453,16 +429,18 @@ func TestTakeErrorSlow(t *testing.T) {
 	}
 }
 
+func setupDrop(infos map[ranje.Ident]*info.RangeInfo, m ranje.Meta) {
+	infos[m.Ident] = &info.RangeInfo{
+		Meta:  m,
+		State: state.NsTaken,
+	}
+}
+
 func TestDropFast(t *testing.T) {
 	_, rglt := Setup()
 
 	m := ranje.Meta{Ident: 1}
-
-	// State valid for DropRange.
-	rglt.info[m.Ident] = &info.RangeInfo{
-		Meta:  m,
-		State: state.NsTaken,
-	}
+	setupDrop(rglt.info, m)
 
 	ri, err := rglt.drop(m.Ident)
 	require.NoError(t, err)
@@ -483,12 +461,7 @@ func TestDropSlow(t *testing.T) {
 	n, rglt := Setup()
 
 	m := ranje.Meta{Ident: 1}
-
-	// State valid for DropRange.
-	rglt.info[m.Ident] = &info.RangeInfo{
-		Meta:  m,
-		State: state.NsTaken,
-	}
+	setupDrop(rglt.info, m)
 
 	// DropRange will block.
 	n.wgDropRange.Add(1)
@@ -524,7 +497,6 @@ func TestDropUnknown(t *testing.T) {
 	_, rglt := Setup()
 
 	ri, err := rglt.drop(1)
-
 	require.NoError(t, err)
 	assert.Equal(t,
 		info.RangeInfo{
@@ -535,15 +507,11 @@ func TestDropUnknown(t *testing.T) {
 
 func TestDropErrorFast(t *testing.T) {
 	n, rglt := Setup()
-	n.erDropRange = errors.New("error from DropRange")
 
 	m := ranje.Meta{Ident: 1}
+	setupDrop(rglt.info, m)
 
-	// State valid for DropRange.
-	rglt.info[m.Ident] = &info.RangeInfo{
-		Meta:  m,
-		State: state.NsTaken,
-	}
+	n.erDropRange = errors.New("error from DropRange")
 
 	ri, err := rglt.drop(m.Ident)
 	require.NoError(t, err)
@@ -560,12 +528,7 @@ func TestDropErrorSlow(t *testing.T) {
 	n, rglt := Setup()
 
 	m := ranje.Meta{Ident: 1}
-
-	// State valid for DropRange.
-	rglt.info[m.Ident] = &info.RangeInfo{
-		Meta:  m,
-		State: state.NsTaken,
-	}
+	setupDrop(rglt.info, m)
 
 	// DropRange will block, then return an error.
 	n.erDropRange = errors.New("error from DropRange")
