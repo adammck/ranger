@@ -24,6 +24,7 @@ type Placement struct {
 
 	// Not persisted.
 	replaceDone func()
+	onReady     func()
 
 	// Guards everything.
 	// TODO: What is "everything" ??
@@ -94,6 +95,13 @@ func (p *Placement) ToState(new PlacementState) error {
 		return fmt.Errorf("invalid placement state transition: %s -> %s", old.String(), new.String())
 	}
 
+	// Special case: When entering PsReady, fire the optional callback.
+	if new == PsReady {
+		if p.onReady != nil {
+			p.onReady()
+		}
+	}
+
 	p.State = new
 	p.rang.dirty = true
 
@@ -101,4 +109,21 @@ func (p *Placement) ToState(new PlacementState) error {
 	log.Printf("R%d P %s -> %s", p.rang.Meta.Ident, old, new)
 
 	return nil
+}
+
+func (p *Placement) OnReady(f func()) {
+	p.Lock()
+	defer p.Unlock()
+
+	if p.onReady != nil {
+		panic("placement already has non-nil onReady callback")
+	}
+
+	if p.State != PsPending {
+		panic(fmt.Sprintf(
+			"can't attach onReady callback to non-pending placement (s=%v, rID=%v, nID=%v)",
+			p.State, p.rang.Meta.Ident, p.NodeID))
+	}
+
+	p.onReady = f
 }

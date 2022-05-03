@@ -14,6 +14,5 @@ func (c Constraint) String() string {
 	return "any"
 }
 
-func AnyNode() *Constraint {
-	return &Constraint{}
-}
+// AnyNode is an empty constraint, which matches... any node.
+var AnyNode = Constraint{}

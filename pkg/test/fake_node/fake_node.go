@@ -361,3 +361,7 @@ func (n *TestNode) RPCs() []interface{} {
 
 	return ret
 }
+
+func (n *TestNode) SetWantDrain(b bool) {
+	n.rglt.SetWantDrain(b)
+}

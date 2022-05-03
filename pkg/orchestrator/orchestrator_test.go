@@ -571,21 +571,21 @@ func (ts *OrchestratorSuite) TestSplit() {
 
 	// -------------------------------------------------------------------------
 
-	func() {
-		ts.orch.opSplitsMu.Lock()
-		defer ts.orch.opSplitsMu.Unlock()
-		// TODO: Probably add a method to do this.
-		ts.orch.opSplits[r0.Meta.Ident] = OpSplit{
-			Range: r0.Meta.Ident,
-			Key:   "ccc",
-		}
-	}()
+	op := OpSplit{
+		Range: r0.Meta.Ident,
+		Key:   "ccc",
+		Err:   make(chan error),
+	}
+
+	ts.orch.opSplitsMu.Lock()
+	ts.orch.opSplits[r0.Meta.Ident] = op
+	ts.orch.opSplitsMu.Unlock()
 
 	// 1. Split initiated by controller. Node hasn't heard about it yet.
 
 	ts.tickWait()
 	ts.Empty(ts.nodes.RPCs())
-	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsReady} {2 [-inf, ccc] RsActive} {3 (ccc, +inf] RsActive}", ts.ks.LogString())
+	ts.Equal("{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsReady} {2 [-inf, ccc] RsActive p0=test-aaa:PsPending} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsReady]}", ts.rost.TestString())
 
 	// 2. Controller places new ranges on nodes.
@@ -793,6 +793,16 @@ func (ts *OrchestratorSuite) TestSplit() {
 	ts.Equal("{test-aaa [2:NsReady, 3:NsReady]}", ts.rost.TestString())
 
 	ts.EnsureStable()
+
+	// Assert that the error chan was closed, to indicate op is complete.
+	select {
+	case err, ok := <-op.Err:
+		if ok {
+			ts.NoError(err)
+		}
+	default:
+		ts.Fail("expected op.Err to be closed")
+	}
 }
 
 func (ts *OrchestratorSuite) TestJoin() {
@@ -871,21 +881,22 @@ func (ts *OrchestratorSuite) TestJoin() {
 	// TODO: Inject the target node for r3. It currently defaults to the empty
 	//       node
 
-	func() {
-		ts.orch.opJoinsMu.Lock()
-		defer ts.orch.opJoinsMu.Unlock()
+	op := OpJoin{
+		Left:  r1.Meta.Ident,
+		Right: r2.Meta.Ident,
+		Dest:  "test-ccc",
+		Err:   make(chan error),
+	}
 
-		ts.orch.opJoins = append(ts.orch.opJoins, OpJoin{
-			Left:  r1.Meta.Ident,
-			Right: r2.Meta.Ident,
-		})
-	}()
+	ts.orch.opJoinsMu.Lock()
+	ts.orch.opJoins = append(ts.orch.opJoins, op)
+	ts.orch.opJoinsMu.Unlock()
 
 	// 1. Controller initiates join.
 
 	ts.tickWait()
 	ts.Empty(ts.nodes.RPCs())
-	ts.Equal("{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsReady} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsReady} {3 [-inf, +inf] RsActive}", ts.ks.LogString())
+	ts.Equal("{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsReady} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsReady} {3 [-inf, +inf] RsActive p0=test-ccc:PsPending}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsReady]} {test-bbb [2:NsReady]} {test-ccc []}", ts.rost.TestString())
 
 	ts.tickWait()
@@ -1028,6 +1039,16 @@ func (ts *OrchestratorSuite) TestJoin() {
 	ts.Equal("{test-aaa []} {test-bbb []} {test-ccc [3:NsReady]}", ts.rost.TestString())
 
 	ts.EnsureStable()
+
+	// Assert that the error chan was closed, to indicate op is complete.
+	select {
+	case err, ok := <-op.Err:
+		if ok {
+			ts.NoError(err)
+		}
+	default:
+		ts.Fail("expected op.Err to be closed")
+	}
 }
 
 func (ts *OrchestratorSuite) TestSlowRPC() {

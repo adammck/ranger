@@ -22,29 +22,19 @@ func (bs *orchestratorServer) Move(ctx context.Context, req *pb.MoveRequest) (*p
 		return nil, err
 	}
 
-	nID := req.Node
-	if nID == "" {
-		return nil, status.Error(codes.InvalidArgument, "missing: node")
+	op := OpMove{
+		Range: rID,
+		Dest:  req.Node, // TODO: Verify if given
+		Err:   make(chan error),
 	}
 
-	errCh := make(chan error)
-
-	func() {
-		bs.orch.opMovesMu.Lock()
-		defer bs.orch.opMovesMu.Unlock()
-
-		// TODO: Probably add a method to do this.
-		bs.orch.opMoves = append(bs.orch.opMoves, OpMove{
-			Range: rID,
-			Dest:  nID,
-			Err:   errCh,
-		})
-	}()
+	bs.orch.opMovesMu.Lock()
+	bs.orch.opMoves = append(bs.orch.opMoves, op)
+	bs.orch.opMovesMu.Unlock()
 
 	errs := []string{}
-
 	for {
-		err, ok := <-errCh
+		err, ok := <-op.Err
 		if !ok { // closed
 			break
 		}
@@ -72,20 +62,31 @@ func (bs *orchestratorServer) Split(ctx context.Context, req *pb.SplitRequest) (
 		return nil, status.Error(codes.InvalidArgument, "missing: boundary")
 	}
 
-	// TODO: Allow destination node(s) to be specified.
-	// TODO: Block until split is complete, like move does.
+	op := OpSplit{
+		Range: rID,
+		Key:   boundary,
+		Left:  req.NodeLeft,
+		Right: req.NodeRight,
+		Err:   make(chan error),
+	}
 
-	func() {
-		bs.orch.opSplitsMu.Lock()
-		defer bs.orch.opSplitsMu.Unlock()
-		bs.orch.opSplits[rID] = OpSplit{
-			Range: rID,
-			Key:   boundary,
+	bs.orch.opSplitsMu.Lock()
+	bs.orch.opSplits[rID] = op
+	bs.orch.opSplitsMu.Unlock()
+
+	errs := []string{}
+	for {
+		err, ok := <-op.Err
+		if !ok { // closed
+			break
 		}
-	}()
+		errs = append(errs, err.Error())
+	}
 
-	if err != nil {
-		return nil, status.Error(codes.Aborted, fmt.Sprintf("split operation failed: %v", err))
+	if len(errs) > 0 {
+		return nil, status.Error(
+			codes.Aborted,
+			fmt.Sprintf("split operation failed: %v", strings.Join(errs, "; ")))
 	}
 
 	return &pb.SplitResponse{}, nil
@@ -102,22 +103,30 @@ func (bs *orchestratorServer) Join(ctx context.Context, req *pb.JoinRequest) (*p
 		return nil, err
 	}
 
-	// TODO: Allow destination node(s) to be specified.
-	// TODO: Block until join is complete, like move does.
+	op := OpJoin{
+		Left:  left,
+		Right: right,
+		Dest:  req.Node,
+		Err:   make(chan error),
+	}
 
-	func() {
-		bs.orch.opJoinsMu.Lock()
-		defer bs.orch.opJoinsMu.Unlock()
+	bs.orch.opJoinsMu.Lock()
+	bs.orch.opJoins = append(bs.orch.opJoins, op)
+	bs.orch.opJoinsMu.Unlock()
 
-		// TODO: Probably add a method to do this.
-		bs.orch.opJoins = append(bs.orch.opJoins, OpJoin{
-			Left:  left,
-			Right: right,
-		})
-	}()
+	errs := []string{}
+	for {
+		err, ok := <-op.Err
+		if !ok { // closed
+			break
+		}
+		errs = append(errs, err.Error())
+	}
 
-	if err != nil {
-		return nil, status.Error(codes.Aborted, fmt.Sprintf("join operation failed: %v", err))
+	if len(errs) > 0 {
+		return nil, status.Error(
+			codes.Aborted,
+			fmt.Sprintf("join operation failed: %v", strings.Join(errs, "; ")))
 	}
 
 	return &pb.JoinResponse{}, nil

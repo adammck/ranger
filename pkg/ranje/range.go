@@ -22,6 +22,9 @@ type Range struct {
 	// TODO: Can we get rid of this and just use the keyspace lock?
 	sync.Mutex
 
+	// Not persisted.
+	onObsolete func()
+
 	// Indicates that this range needs persisting before the keyspace lock is
 	// released. We've made changes locally which will be lost if we crash.
 	// TODO: Also store the old state, so we can roll back instead of crash?
@@ -97,6 +100,14 @@ func (r *Range) ToState(new RangeState) error {
 		return fmt.Errorf("invalid range state transition: %s -> %s", old.String(), new.String())
 	}
 
+	// Special case: When entering RsObsolete, fire the optional callback.
+	// TODO: Maybe make this into a generic "when entering state x" callback?
+	if new == RsObsolete {
+		if r.onObsolete != nil {
+			r.onObsolete()
+		}
+	}
+
 	r.State = new
 	r.dirty = true
 
@@ -104,4 +115,21 @@ func (r *Range) ToState(new RangeState) error {
 	log.Printf("%s %s -> %s", r, old, new)
 
 	return nil
+}
+
+func (r *Range) OnObsolete(f func()) {
+	r.Lock()
+	defer r.Unlock()
+
+	if r.onObsolete != nil {
+		// This really shouldn't be possible, so panic.
+		// TODO: Relax this later. It indicates a bug, but not a serious one.
+		panic(fmt.Sprintf("range %d has non-nil onObsolete callback", r.Meta.Ident))
+	}
+
+	if r.State == RsObsolete {
+		panic(fmt.Sprintf("cant attach onObsolete callback to obsolete range: %d", r.Meta.Ident))
+	}
+
+	r.onObsolete = f
 }

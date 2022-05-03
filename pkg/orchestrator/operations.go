@@ -15,10 +15,14 @@ type OpMove struct {
 type OpSplit struct {
 	Range ranje.Ident
 	Key   ranje.Key
+	Left  string
+	Right string
+	Err   chan error
 }
 
-// TODO: Allow operator to specify which node to target?
 type OpJoin struct {
 	Left  ranje.Ident
 	Right ranje.Ident
+	Dest  string
+	Err   chan error
 }

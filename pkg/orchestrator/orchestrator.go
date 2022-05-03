@@ -88,26 +88,67 @@ func (b *Orchestrator) Tick() {
 		b.opJoinsMu.RLock()
 		defer b.opJoinsMu.RUnlock()
 
-		for _, j := range b.opJoins {
-			r1, err := b.ks.Get(j.Left)
+		for _, opJoin := range b.opJoins {
+
+			fail := func(err error) {
+				log.Print(err.Error())
+				if opJoin.Err != nil {
+					opJoin.Err <- err
+					close(opJoin.Err)
+				}
+			}
+
+			r1, err := b.ks.Get(opJoin.Left)
 			if err != nil {
-				log.Printf("join with invalid left side: %v (rID=%v)", err, j.Left)
+				fail(fmt.Errorf("join with invalid left side: %v (rID=%v)", err, opJoin.Left))
 				continue
 			}
 
-			r2, err := b.ks.Get(j.Right)
+			r2, err := b.ks.Get(opJoin.Right)
 			if err != nil {
-				log.Printf("join with invalid right side: %v (rID=%v)", err, j.Right)
+				fail(fmt.Errorf("join with invalid right side: %v (rID=%v)", err, opJoin.Right))
+				continue
+			}
+
+			// Find the candidate for the new (joined) range before performing
+			// the join. Once that happens, we can't (currently) abort.
+			c := ranje.AnyNode
+			if opJoin.Dest != "" {
+				c = ranje.Constraint{NodeID: opJoin.Dest}
+			}
+			nIDr3, err := b.rost.Candidate(nil, c)
+			if err != nil {
+				fail(fmt.Errorf("error selecting join candidate: %v", err))
 				continue
 			}
 
 			r3, err := b.ks.JoinTwo(r1, r2)
 			if err != nil {
-				log.Printf("join failed: %v (left=%v, right=%v)", err, j.Left, j.Right)
+				fail(fmt.Errorf("join failed: %v (left=%v, right=%v)", err, opJoin.Left, opJoin.Right))
 				continue
 			}
 
 			log.Printf("new range from join: %v", r3)
+
+			// If we made it this far, the join has happened and already been
+			// persisted. No turning back now.
+
+			p := ranje.NewPlacement(r3, nIDr3)
+			r3.Placements = append(r3.Placements, p)
+
+			// Unlock operator RPC if applicable.
+			// Note that this will only fire if *this* placement becomes ready.
+			// If it fails, and is replaced, and that succeeds, the RPC will
+			// never unblock.
+			//
+			// TODO: Move this to range.OnReady, which should only fire when
+			//       the minReady number of placements are ready.
+			//
+			if opJoin.Err != nil {
+				p.OnReady(func() {
+					close(opJoin.Err)
+				})
+			}
 		}
 
 		b.opJoins = []OpJoin{}
@@ -133,7 +174,7 @@ func (b *Orchestrator) tickRange(r *ranje.Range) {
 		// Not enough placements? Create one!
 		if len(r.Placements) < b.cfg.Replication {
 
-			nID, err := b.rost.Candidate(r, *ranje.AnyNode())
+			nID, err := b.rost.Candidate(r, ranje.AnyNode)
 			if err != nil {
 				log.Printf("error finding candidate node for %v: %v", r, err)
 				return
@@ -141,9 +182,9 @@ func (b *Orchestrator) tickRange(r *ranje.Range) {
 
 			p := ranje.NewPlacement(r, nID)
 			r.Placements = append(r.Placements, p)
-
 		}
 
+		// Pending move for this range?
 		if opMove, ok := b.moveOp(r.Meta.Ident); ok {
 			err := b.doMove(r, opMove)
 			if err != nil {
@@ -173,7 +214,90 @@ func (b *Orchestrator) tickRange(r *ranje.Range) {
 		}()
 
 		if opSplit != nil {
-			b.ks.Split(r, opSplit.Key)
+
+			// Find candidates for the left and right sides *before* performing
+			// the split. Once that happens, we can't (currently) abort.
+			//
+			// TODO: Allow split abort by allowing ranges to transition back
+			//       from RsSubsuming into RsActive, and from RsActive into some
+			//       new terminal state (RsAborted?) like RsObsolete. Would also
+			//       need a new entry state (RsNewSplit?) to indicate that it's
+			//       okay to give up, unlike RsActive. Ranges would need to keep
+			//       track of how many placements had been created and failed.
+
+			c := ranje.AnyNode
+			if opSplit.Left != "" {
+				c = ranje.Constraint{NodeID: opSplit.Left}
+			}
+			nIDL, err := b.rost.Candidate(nil, c)
+			if err != nil {
+				log.Printf("error selecting split candidate left: %v", err)
+				if opSplit.Err != nil {
+					opSplit.Err <- err
+					close(opSplit.Err)
+				}
+				return
+			}
+
+			c = ranje.AnyNode
+			if opSplit.Right != "" {
+				c = ranje.Constraint{NodeID: opSplit.Right}
+			}
+			nIDR, err := b.rost.Candidate(nil, c)
+			if err != nil {
+				log.Printf("error selecting split candidate right: %v", err)
+				if opSplit.Err != nil {
+					opSplit.Err <- err
+					close(opSplit.Err)
+				}
+				return
+			}
+
+			// Perform the actual range split. The source range (r) is moved to
+			// RsSubsuming, where it will remain until its placements have all
+			// been moved elsewhere. Two new ranges
+			rL, rR, err := b.ks.Split(r, opSplit.Key)
+
+			if err != nil {
+				log.Printf("error initiating split: %v", err)
+				if opSplit.Err != nil {
+					opSplit.Err <- err
+					close(opSplit.Err)
+				}
+				return
+			}
+
+			// If we made it this far, the split has happened and already been
+			// persisted.
+
+			// TODO: We're creating placements here on a range which is NOT the
+			//       one we're ticking. That seems... okay? We hold the keyspace
+			//       lock for the whole tick. But think about edge cases?
+			//       -
+			//       We could leave some turd like NextPlacementNodeID on the
+			//       range and let the first clause (no placements?) in this
+			//       method pick it up, but (a) that's gross, and (b) what if
+			//       some later range gets placed on the node before that
+			//       happens? All worse options.
+			//       -
+			//       Actually I think we need to extract this chunk of code up
+			//       into a "ranges which have splits scheduled" loop before the
+			//       main all-ranges loop. Join is already up there.
+
+			pL := ranje.NewPlacement(rL, nIDL)
+			rL.Placements = append(rL.Placements, pL)
+
+			pR := ranje.NewPlacement(rR, nIDR)
+			rR.Placements = append(rR.Placements, pR)
+
+			// If the split was initiated by an operator (via RPC), then it will
+			// have an error channel. When the split is complete (i.e. the range
+			// becomes obsolete) close to channel to unblock the RPC handler.
+			if opSplit.Err != nil {
+				r.OnObsolete(func() {
+					close(opSplit.Err)
+				})
+			}
 		}
 
 	case ranje.RsSubsuming:

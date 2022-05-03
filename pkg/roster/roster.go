@@ -2,6 +2,7 @@ package roster
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sort"
@@ -325,6 +326,14 @@ func (r *Roster) Run(t *time.Ticker) {
 }
 
 // Candidate returns the NodeIdent of a node which could accept the given range.
+//
+// TODO: Instead of an actual range, this should take a "pseudo-range" which is
+//       either a single range (wanting to split) and split point, or two ranges
+//       (wanting to join). Or I guess just a wrapper around a single (moving)
+//       range. From these, we can estimate how much capacity the candidate
+//       node(s) will need, allowing us to find candidates before actually
+//       performing splits and joins.
+//
 func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (string, error) {
 	r.RLock()
 	defer r.RUnlock()
@@ -346,11 +355,19 @@ func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (string, error)
 	// Filter the list of nodes by name
 	// (We still might exclude it below though)
 	if c.NodeID != "" {
+		found := false
+
 		for i := range nodes {
 			if nodes[i].Ident() == c.NodeID {
 				nodes = []*Node{nodes[i]}
+				found = true
 				break
 			}
+		}
+
+		// Specific NodeID was given, but no such node was found.
+		if !found {
+			return "", fmt.Errorf("no such node: %v", c.NodeID)
 		}
 	}
 
@@ -365,18 +382,33 @@ func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (string, error)
 	//    still come back, but let's avoid it anyway.
 	//
 	for i := range nodes {
-		if nodes[i].HasRange(rng.Meta.Ident) {
-			log.Printf("node already has range (nID=%v)", nodes[i].Ident())
+		if rng != nil && nodes[i].HasRange(rng.Meta.Ident) {
+			s := fmt.Sprintf("node already has range: %v", c.NodeID)
+			if c.NodeID != "" {
+				return "", errors.New(s)
+			}
+
+			log.Print(s)
 			continue
 		}
 
 		if nodes[i].WantDrain() {
-			log.Printf("node wants drain (nID=%v)", nodes[i].Ident())
+			s := fmt.Sprintf("node wants drain: %v", nodes[i].Ident())
+			if c.NodeID != "" {
+				return "", errors.New(s)
+			}
+
+			log.Print(s)
 			continue
 		}
 
 		if nodes[i].IsMissing(r.cfg, time.Now()) {
-			log.Printf("node is missing (nID=%v)", nodes[i].Ident())
+			s := fmt.Sprintf("node is missing: %v", nodes[i].Ident())
+			if c.NodeID != "" {
+				return "", errors.New(s)
+			}
+
+			log.Print(s)
 			continue
 		}
 
