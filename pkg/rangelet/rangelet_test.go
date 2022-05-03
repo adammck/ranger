@@ -27,6 +27,7 @@ type MockNode struct {
 
 	erAddRange error
 	wgAddRange *sync.WaitGroup
+	nAddRange  uint32
 
 	rTake error
 
@@ -40,6 +41,7 @@ func (n *MockNode) PrepareAddRange(m ranje.Meta, p []api.Parent) error {
 }
 
 func (n *MockNode) AddRange(rID ranje.Ident) error {
+	atomic.AddUint32(&n.nAddRange, 1)
 	n.wgAddRange.Wait()
 	return n.erAddRange
 }
@@ -186,7 +188,7 @@ func TestGiveSuccessSlow(t *testing.T) {
 	assert.Equal(t, state.NsPrepared, ri.State)
 }
 
-func TestServe(t *testing.T) {
+func TestServeFast(t *testing.T) {
 	_, r := Setup()
 
 	m := ranje.Meta{Ident: 1}
@@ -211,7 +213,7 @@ func TestServe(t *testing.T) {
 	assert.Equal(t, state.NsReady, ri.State)
 }
 
-func TestSlowServe(t *testing.T) {
+func TestServeSlow(t *testing.T) {
 	n, r := Setup()
 
 	m := ranje.Meta{Ident: 1}
@@ -251,6 +253,75 @@ func TestSlowServe(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
 	assert.Equal(t, state.NsReady, ri.State)
+}
+
+func TestServeErrorFast(t *testing.T) {
+	n, rglt := Setup()
+	n.erAddRange = errors.New("error from AddRange")
+
+	m := ranje.Meta{Ident: 1}
+
+	// Valid state to receive Serve.
+	rglt.info[m.Ident] = &info.RangeInfo{
+		Meta:  m,
+		State: state.NsPrepared,
+	}
+
+	ri, err := rglt.serve(m.Ident)
+	require.NoError(t, err)
+	assert.Equal(t, m, ri.Meta)
+	assert.Equal(t, state.NsReadyingError, ri.State)
+
+	// State was updated.
+	ri, ok := rglt.rangeInfo(m.Ident)
+	require.True(t, ok)
+	assert.Equal(t, state.NsReadyingError, ri.State)
+}
+
+func TestServeErrorSlow(t *testing.T) {
+	n, rglt := Setup()
+
+	m := ranje.Meta{Ident: 1}
+
+	// Valid state to receive Serve.
+	rglt.info[m.Ident] = &info.RangeInfo{
+		Meta:  m,
+		State: state.NsPrepared,
+	}
+
+	// AddRange will block, then return an error.
+	n.erAddRange = errors.New("error from AddRange")
+	n.wgAddRange.Add(1)
+
+	// Try to call serve a few times.
+	// Should be the same response.
+	for i := 0; i < 2; i++ {
+		ri, err := rglt.serve(m.Ident)
+		require.NoError(t, err)
+		assert.Equal(t, m, ri.Meta)
+		assert.Equal(t, state.NsReadying, ri.State)
+	}
+
+	// Subsequent gives should have deduped.
+	called := atomic.LoadUint32(&n.nAddRange)
+	assert.Equal(t, uint32(1), called)
+
+	// AddRange finished.
+	n.wgAddRange.Done()
+
+	// Wait until ReadyingError (because AddRange returned error).
+	require.Eventually(t, func() bool {
+		ri, ok := rglt.rangeInfo(m.Ident)
+		return ok && ri.State == state.NsReadyingError
+	}, waitFor, tick)
+
+	// Send the same request again, this time expecting error.
+	for i := 0; i < 2; i++ {
+		ri, err := rglt.serve(m.Ident)
+		require.Error(t, err)
+		assert.EqualError(t, err, "rpc error: code = InvalidArgument desc = invalid state for Serve: NsReadyingError")
+		assert.Equal(t, state.NsReadyingError, ri.State)
+	}
 }
 
 func TestTake(t *testing.T) {
