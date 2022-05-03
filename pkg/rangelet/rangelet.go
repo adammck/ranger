@@ -15,12 +15,15 @@ import (
 )
 
 type Rangelet struct {
-	info map[ranje.Ident]*info.RangeInfo
-	sync.RWMutex
+	info         map[ranje.Ident]*info.RangeInfo
+	sync.RWMutex // guards info (keys *and* values)
 
 	n Node
 	s Storage
 
+	// TODO: Store abstract "node load" or "node status"? Drain is just a desire
+	//       for all of the ranges to be moved away. Overload is just a desire
+	//       for *some* ranges to be moved.
 	xWantDrain uint32
 
 	srv *NodeServer
@@ -214,6 +217,43 @@ func (r *Rangelet) Len() int {
 	r.RLock()
 	defer r.RUnlock()
 	return len(r.info)
+}
+
+func (r *Rangelet) gatherLoadInfo() error {
+
+	// Can't gather the range IDs in advance and release the lock, because the
+	// GetLoadInfo implementations should be able to expect that rangelet will
+	// never call them with a range which doesn't exist.
+	r.Lock()
+	defer r.Unlock()
+
+	for rID, ri := range r.info {
+		info, err := r.n.GetLoadInfo(rID)
+
+		if err == NotFound {
+			// No problem. The Rangelet knows about this range, but the client
+			// doesn't, for whatever reason. Probably racing PrepareAddRange.
+			log.Printf("GetLoadInfo(%v): NotFound", rID)
+			continue
+
+		} else if err != nil {
+			log.Printf("GetLoadInfo(%v): %v", rID, err)
+			continue
+		}
+
+		//log.Printf("GetLoadInfo(%v): %#v", rID, info)
+		updateLoadInfo(&ri.Info, info)
+	}
+
+	return nil
+}
+
+// updateLoadInfo updates the given roster/info.LoadInfo (which is what we
+// store in Rangelet.info, via roster/info.RangeInfo) with the info from the
+// given rangelet.LoadInfo. This is very nasty and hopefully temporary.
+// TODO: Remove once roster/info import is gone from rangelet.
+func updateLoadInfo(rostLI *info.LoadInfo, rgltLI LoadInfo) {
+	rostLI.Keys = uint64(rgltLI.Keys)
 }
 
 func (r *Rangelet) walk(f func(*info.RangeInfo)) {

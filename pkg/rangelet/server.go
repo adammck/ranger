@@ -137,6 +137,11 @@ func (ns *NodeServer) Drop(ctx context.Context, req *pb.DropRequest) (*pb.DropRe
 }
 
 func (ns *NodeServer) Info(ctx context.Context, req *pb.InfoRequest) (*pb.InfoResponse, error) {
+	err := ns.r.gatherLoadInfo()
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
 	res := &pb.InfoResponse{
 		WantDrain: ns.r.wantDrain(),
 	}

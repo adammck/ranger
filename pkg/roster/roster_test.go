@@ -9,6 +9,8 @@ import (
 	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
 	"github.com/adammck/ranger/pkg/ranje"
+	"github.com/adammck/ranger/pkg/roster/info"
+	"github.com/adammck/ranger/pkg/roster/state"
 	"github.com/adammck/ranger/pkg/test/fake_nodes"
 	"github.com/stretchr/testify/suite"
 )
@@ -93,5 +95,57 @@ func (ts *RosterSuite) TestCandidateByNodeID() {
 	nID, err = ts.rost.Candidate(ts.r, ranje.Constraint{NodeID: "test-ccc"})
 	if ts.NoError(err) {
 		ts.Equal(nID, "test-ccc")
+	}
+}
+
+func (ts *RosterSuite) TestProbeOne() {
+
+	rem := discovery.Remote{
+		Ident: "test-aaa",
+		Host:  "host-aaa",
+		Port:  1,
+	}
+
+	r := &ranje.Range{
+		Meta: ranje.Meta{
+			Ident: 1,
+			Start: ranje.ZeroKey,
+			End:   ranje.Key("ggg"),
+		},
+		State: ranje.RsActive,
+		Placements: []*ranje.Placement{{
+			NodeID: rem.Ident,
+			State:  ranje.PsReady,
+		}},
+	}
+
+	fakeInfos := map[ranje.Ident]*info.RangeInfo{
+		r.Meta.Ident: {
+			Meta:  r.Meta,
+			State: state.NsReady,
+			Info: info.LoadInfo{
+				Keys: 123,
+			},
+		},
+	}
+
+	ts.nodes.Add(ts.ctx, rem, fakeInfos)
+	ts.Init()
+
+	ts.rost.discover()
+
+	// Far as the roster is concerned, this is a real node.
+	rostNode := ts.rost.NodeByIdent("test-aaa")
+	ts.Require().NotNil(rostNode)
+
+	err := ts.rost.probeOne(ts.ctx, rostNode)
+	if ts.NoError(err) {
+		if rostInfo, ok := rostNode.Get(1); ts.True(ok) {
+
+			// The "real" RangeInfo, which we got from the (fake) remote via
+			// gRPC (via bufconn) through its rangelet should match the fake
+			// RangeInfo above.
+			ts.Equal(*fakeInfos[r.Meta.Ident], rostInfo)
+		}
 	}
 }

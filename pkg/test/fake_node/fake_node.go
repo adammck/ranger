@@ -29,6 +29,8 @@ type TestNode struct {
 	Conn *grpc.ClientConn
 	rglt *rangelet.Rangelet
 
+	loadInfos map[ranje.Ident]rangelet.LoadInfo
+
 	// Keep requests sent to this node.
 	// Call RPCs() to fetch and clear.
 	rpcs   []interface{}
@@ -44,15 +46,31 @@ type TestNode struct {
 }
 
 func NewTestNode(ctx context.Context, addr string, rangeInfos map[ranje.Ident]*info.RangeInfo) (*TestNode, func()) {
+
+	// Copy rangeInfos to be loaded (via Storage) into rangelet.
+	// TODO: This allows test to mess with RangeInfo; get rid of the pointers.
 	infos := []*info.RangeInfo{}
 	for _, ri := range rangeInfos {
-		infos = append(infos, ri)
+		infos = append(infos, &info.RangeInfo{
+			Meta:  ri.Meta,
+			State: ri.State,
+		})
+	}
+
+	// Extract LoadInfos to keep in the client (TestNode). Rangelet fetches via
+	// GetLoadInfo.
+	li := map[ranje.Ident]rangelet.LoadInfo{}
+	for _, ri := range rangeInfos {
+		li[ri.Meta.Ident] = rangelet.LoadInfo{
+			Keys: int(ri.Info.Keys),
+		}
 	}
 
 	srv := grpc.NewServer()
 
 	tn := &TestNode{
 		Addr:        addr,
+		loadInfos:   li,
 		gates:       map[string][2]*sync.WaitGroup{},
 		transitions: map[rangeInState]error{},
 	}
@@ -101,6 +119,15 @@ func (n *TestNode) waitUntil(rID ranje.Ident, src state.RemoteState) error {
 		log.Println("zzz...")
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+func (n *TestNode) GetLoadInfo(rID ranje.Ident) (rangelet.LoadInfo, error) {
+	li, ok := n.loadInfos[rID]
+	if !ok {
+		return rangelet.LoadInfo{}, rangelet.NotFound
+	}
+
+	return li, nil
 }
 
 func (n *TestNode) PrepareAddRange(m ranje.Meta, p []rangelet.Parent) error {

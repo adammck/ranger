@@ -58,7 +58,7 @@ func (ps *proxyServer) getClient(k string, write bool) (pbkv.KVClient, roster.Lo
 
 	client, ok := ps.proxy.clients[loc.Node]
 	if !ok {
-		return nil, loc, status.Errorf(codes.FailedPrecondition, "no client for node id %s?", loc)
+		return nil, loc, status.Errorf(codes.FailedPrecondition, "no client for node id %s?", loc.Node)
 	}
 
 	return client, loc, nil

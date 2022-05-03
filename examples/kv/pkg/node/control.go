@@ -12,6 +12,24 @@ import (
 	"github.com/adammck/ranger/pkg/ranje"
 )
 
+func (n *Node) GetLoadInfo(rID ranje.Ident) (rangelet.LoadInfo, error) {
+	n.rangesMu.RLock()
+	defer n.rangesMu.RUnlock()
+
+	r, ok := n.ranges[rID]
+	if !ok {
+		return rangelet.LoadInfo{}, rangelet.NotFound
+	}
+
+	r.dataMu.RLock()
+	defer r.dataMu.RUnlock()
+	keys := len(r.data)
+
+	return rangelet.LoadInfo{
+		Keys: keys,
+	}, nil
+}
+
 // PrepareAddRange: Create the range, but don't do anything with it yet.
 func (n *Node) PrepareAddRange(rm ranje.Meta, parents []rangelet.Parent) error {
 	if err := n.performChaos(); err != nil {

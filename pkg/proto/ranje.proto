@@ -13,6 +13,7 @@ message RangeMeta {
   bytes end = 3; // exclusive
 }
 
+// Sent from the controller when PrepareAddRange.
 // TODO: Should include the placement index in here, so the node can verify that
 //       the controller is talking about the same placement when it sees
 //       duplicates. Just in case the controller has gone mad and is trying to
@@ -22,21 +23,33 @@ message Placement {
   PlacementState state = 2;
 }
 
-message RangeInfo {
-  RangeMeta meta = 1;
-  
-  // The state which the range is currently in, according to the node.
-  RangeNodeState state = 2;
-  
+// Proto of rangelet.LoadInfo and roster.LoadInfo
+message LoadInfo {
   // Number of keys which this range contains.
   // Just for reporting? Not balancing?
-  uint64 keys = 3;
-  
+  uint64 keys = 1;
+
   // TODO: Generic load info? cpu/ram/network/disk?
   // TODO: Extra domain-specific info?
   // TODO: Suggested split point(s)
-  }
+}
 
+// TODO: Rename to RemoteRangeInfo, since this is the view from the remote.
+message RangeInfo {
+  // TODO: Do we need the whole meta here? Maybe ID is enough?
+  //       Nice to confirm range boundaries I guess.
+  RangeMeta meta = 1;
+
+  // The state which the range is currently in, according to the node.
+  RangeNodeState state = 2;
+
+  // LoadInfo informs the controller how much load this range is applying to the
+  // node, relative to the other ranges on that node. The controller will use
+  // this info to rebalance ranges.
+  LoadInfo info = 3;
+ }
+
+ // TODO: Rename to RemoteState, like the non-proto type.
 // Keep synced with RangeState (in node.go for now)
 enum RangeNodeState {
   UNKNOWN = 0;
