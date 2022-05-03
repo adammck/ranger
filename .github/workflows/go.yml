@@ -44,3 +44,6 @@ jobs:
 
     - name: Test
       run: go test -v ./...
+
+    - name: Test with Race Detector
+      run: go test -v -race -count=10 ./...
