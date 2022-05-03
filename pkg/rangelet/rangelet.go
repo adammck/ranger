@@ -83,8 +83,7 @@ func (r *Rangelet) runThenUpdateState(rID ranje.Ident, success state.RemoteState
 
 	ri, ok := r.info[rID]
 	if !ok {
-		// The range has vanished from the map??
-		panic("this should not happen!")
+		panic(fmt.Sprintf("range vanished in runThenUpdateState! (rID=%v, s=%s)", rID, s))
 	}
 
 	log.Printf("state is now %v (rID=%v)", s, rID)

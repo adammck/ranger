@@ -20,52 +20,6 @@ import (
 const waitFor = 500 * time.Millisecond
 const tick = 10 * time.Millisecond
 
-type MockNode struct {
-	erPrepareAddRange error
-	wgPrepareAddRange *sync.WaitGroup
-	nPrepareAddRange  uint32
-
-	erAddRange error
-	wgAddRange *sync.WaitGroup
-	nAddRange  uint32
-
-	erPrepareDropRange error
-	wgPrepareDropRange *sync.WaitGroup
-	nPrepareDropRange  uint32
-
-	erDropRange error
-	wgDropRange *sync.WaitGroup
-	nDropRange  uint32
-}
-
-func (n *MockNode) PrepareAddRange(m ranje.Meta, p []api.Parent) error {
-	atomic.AddUint32(&n.nPrepareAddRange, 1)
-	n.wgPrepareAddRange.Wait()
-	return n.erPrepareAddRange
-}
-
-func (n *MockNode) AddRange(rID ranje.Ident) error {
-	atomic.AddUint32(&n.nAddRange, 1)
-	n.wgAddRange.Wait()
-	return n.erAddRange
-}
-
-func (n *MockNode) PrepareDropRange(rID ranje.Ident) error {
-	atomic.AddUint32(&n.nPrepareDropRange, 1)
-	n.wgPrepareDropRange.Wait()
-	return n.erPrepareDropRange
-}
-
-func (n *MockNode) DropRange(rID ranje.Ident) error {
-	atomic.AddUint32(&n.nDropRange, 1)
-	n.wgDropRange.Wait()
-	return n.erDropRange
-}
-
-func (n *MockNode) GetLoadInfo(rID ranje.Ident) (api.LoadInfo, error) {
-	return api.LoadInfo{}, errors.New("not implemented")
-}
-
 func Setup() (*MockNode, *Rangelet) {
 	n := &MockNode{
 		wgPrepareAddRange:  &sync.WaitGroup{},
@@ -78,6 +32,73 @@ func Setup() (*MockNode, *Rangelet) {
 	rglt := NewRangelet(n, nil, stor)
 	rglt.gracePeriod = 10 * time.Millisecond
 	return n, rglt
+}
+
+func TestGiveFast(t *testing.T) {
+	_, rglt := Setup()
+
+	m := ranje.Meta{Ident: 1}
+	p := []api.Parent{}
+
+	ri, err := rglt.give(m, p)
+	require.NoError(t, err)
+	assert.Equal(t, m, ri.Meta)
+	assert.Equal(t, state.NsPrepared, ri.State)
+
+	// Check range was created.
+	ri, ok := rglt.rangeInfo(m.Ident)
+	require.True(t, ok)
+	assert.Equal(t, state.NsPrepared, ri.State)
+
+	// Check idempotency.
+	ri, err = rglt.give(m, p)
+	require.NoError(t, err)
+	assert.Equal(t, m, ri.Meta)
+	assert.Equal(t, state.NsPrepared, ri.State)
+}
+
+func TestGiveSlow(t *testing.T) {
+	n, rglt := Setup()
+
+	m := ranje.Meta{Ident: 1}
+	p := []api.Parent{}
+
+	// PrepareAddRange will block.
+	n.wgPrepareAddRange.Add(1)
+
+	for i := 0; i < 2; i++ {
+		ri, err := rglt.give(m, p)
+		require.NoError(t, err)
+		assert.Equal(t, ri.Meta, m)
+		assert.Equal(t, state.NsPreparing, ri.State)
+	}
+
+	called := atomic.LoadUint32(&n.nPrepareAddRange)
+	assert.Equal(t, uint32(1), called)
+
+	ri, ok := rglt.rangeInfo(m.Ident)
+	require.True(t, ok)
+	assert.Equal(t, state.NsPreparing, ri.State)
+
+	// Unblock PrepareAddRange.
+	n.wgPrepareAddRange.Done()
+
+	// Wait until range exists.
+	assert.Eventually(t, func() bool {
+		_, ok := rglt.rangeInfo(m.Ident)
+		return ok
+	}, waitFor, tick)
+
+	ri, ok = rglt.rangeInfo(m.Ident)
+	require.True(t, ok)
+	assert.Equal(t, state.NsPrepared, ri.State)
+
+	for i := 0; i < 2; i++ {
+		ri, err := rglt.give(m, p)
+		require.NoError(t, err)
+		assert.Equal(t, ri.Meta, m)
+		assert.Equal(t, state.NsPrepared, ri.State)
+	}
 }
 
 func TestGiveErrorFast(t *testing.T) {
@@ -128,7 +149,7 @@ func TestGiveErrorSlow(t *testing.T) {
 	called := atomic.LoadUint32(&n.nPrepareAddRange)
 	assert.Equal(t, uint32(1), called)
 
-	// PrepareAddRange finished.
+	// Unblock PrepareAddRange.
 	n.wgPrepareAddRange.Done()
 
 	// Wait until PreparingError (because PrepareAddRange returned error)
@@ -137,7 +158,6 @@ func TestGiveErrorSlow(t *testing.T) {
 		return ok && ri.State == state.NsPreparingError
 	}, waitFor, tick)
 
-	// Send the same request again, this time expecting error.
 	for i := 0; i < 2; i++ {
 		ri, err := rglt.give(m, p)
 		require.NoError(t, err)
@@ -146,90 +166,41 @@ func TestGiveErrorSlow(t *testing.T) {
 	}
 }
 
-func TestGiveSuccessFast(t *testing.T) {
+func TestServeFast(t *testing.T) {
 	_, rglt := Setup()
 
 	m := ranje.Meta{Ident: 1}
-	p := []api.Parent{}
 
-	ri, err := rglt.give(m, p)
-	require.NoError(t, err)
-	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsPrepared, ri.State)
-
-	// Check that range was created in the expected state.
-	ri, ok := rglt.rangeInfo(m.Ident)
-	require.True(t, ok)
-	assert.Equal(t, state.NsPrepared, ri.State)
-}
-
-func TestGiveSuccessSlow(t *testing.T) {
-	n, rglt := Setup()
-
-	m := ranje.Meta{Ident: 1}
-	p := []api.Parent{}
-
-	// PrepareAddRange will block.
-	n.wgPrepareAddRange.Add(1)
-
-	// This will wait for grace period then return early.
-	ri, err := rglt.give(m, p)
-	require.NoError(t, err)
-	assert.Equal(t, ri.Meta, m)
-	assert.Equal(t, state.NsPreparing, ri.State)
-
-	// Check range is Preparing (because PrepareAddRange is running)
-	ri, ok := rglt.rangeInfo(m.Ident)
-	require.True(t, ok)
-	assert.Equal(t, state.NsPreparing, ri.State)
-
-	// AddRange finished.
-	n.wgPrepareAddRange.Done()
-
-	// Wait until state becomes Prepared (because PrepareAddRange finished)
-	assert.Eventually(t, func() bool {
-		ri, ok := rglt.rangeInfo(m.Ident)
-		return ok && ri.State == state.NsPrepared
-	}, waitFor, tick)
-
-	// Send the request again.
-	ri, err = rglt.give(m, p)
-	require.NoError(t, err)
-	assert.Equal(t, ri.Meta, m)
-	assert.Equal(t, state.NsPrepared, ri.State)
-}
-
-func TestServeFast(t *testing.T) {
-	_, r := Setup()
-
-	m := ranje.Meta{Ident: 1}
-
-	ri, err := r.serve(m.Ident)
-	assert.EqualError(t, err, "rpc error: code = InvalidArgument desc = can't Serve unknown range: 1")
-
-	// Add a range in ready-to-serve state.
-	r.info[m.Ident] = &info.RangeInfo{
+	// State valid for AddRange.
+	rglt.info[m.Ident] = &info.RangeInfo{
 		Meta:  m,
 		State: state.NsPrepared,
 	}
 
-	ri, err = r.serve(m.Ident)
+	ri, err := rglt.serve(m.Ident)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
 	assert.Equal(t, state.NsReady, ri.State)
 
-	// Check that state was updated.
-	ri, ok := r.rangeInfo(m.Ident)
+	// Check state became NsReady.
+	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
+	assert.Equal(t, state.NsReady, ri.State)
+
+	// Check idempotency.
+	ri, err = rglt.serve(m.Ident)
+	require.NoError(t, err)
+	assert.Equal(t, m, ri.Meta)
 	assert.Equal(t, state.NsReady, ri.State)
 }
 
 func TestServeSlow(t *testing.T) {
-	n, r := Setup()
+	n, rglt := Setup()
 
 	m := ranje.Meta{Ident: 1}
 
-	r.info[m.Ident] = &info.RangeInfo{
+	// State valid for AddRange.
+	rglt.info[m.Ident] = &info.RangeInfo{
 		Meta:  m,
 		State: state.NsPrepared,
 	}
@@ -238,29 +209,39 @@ func TestServeSlow(t *testing.T) {
 	n.wgAddRange.Add(1)
 
 	// This one will give up waiting and return early.
-	ri, err := r.serve(m.Ident)
+	ri, err := rglt.serve(m.Ident)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
 	assert.Equal(t, state.NsReadying, ri.State)
 
 	// Check that state was updated.
-	ri, ok := r.rangeInfo(m.Ident)
+	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
 	assert.Equal(t, state.NsReadying, ri.State)
 
-	// AddRange finished.
+	// Unblock AddRange.
 	n.wgAddRange.Done()
 
 	// Wait until state is updated
 	assert.Eventually(t, func() bool {
-		ri, ok := r.rangeInfo(m.Ident)
+		ri, ok := rglt.rangeInfo(m.Ident)
 		return ok && ri.State == state.NsReady
 	}, waitFor, tick)
 
-	ri, err = r.serve(m.Ident)
-	require.NoError(t, err)
-	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsReady, ri.State)
+	for i := 0; i < 2; i++ {
+		ri, err = rglt.serve(m.Ident)
+		require.NoError(t, err)
+		assert.Equal(t, m, ri.Meta)
+		assert.Equal(t, state.NsReady, ri.State)
+	}
+}
+
+func TestServeUnknown(t *testing.T) {
+	_, rglt := Setup()
+
+	ri, err := rglt.serve(1)
+	require.EqualError(t, err, "rpc error: code = InvalidArgument desc = can't Serve unknown range: 1")
+	assert.Equal(t, info.RangeInfo{}, ri)
 }
 
 func TestServeErrorFast(t *testing.T) {
@@ -269,7 +250,7 @@ func TestServeErrorFast(t *testing.T) {
 
 	m := ranje.Meta{Ident: 1}
 
-	// Valid state to receive Serve.
+	// State valid for AddRange.
 	rglt.info[m.Ident] = &info.RangeInfo{
 		Meta:  m,
 		State: state.NsPrepared,
@@ -291,7 +272,7 @@ func TestServeErrorSlow(t *testing.T) {
 
 	m := ranje.Meta{Ident: 1}
 
-	// Valid state to receive Serve.
+	// State valid for AddRange.
 	rglt.info[m.Ident] = &info.RangeInfo{
 		Meta:  m,
 		State: state.NsPrepared,
@@ -301,8 +282,6 @@ func TestServeErrorSlow(t *testing.T) {
 	n.erAddRange = errors.New("error from AddRange")
 	n.wgAddRange.Add(1)
 
-	// Try to call serve a few times.
-	// Should be the same response.
 	for i := 0; i < 2; i++ {
 		ri, err := rglt.serve(m.Ident)
 		require.NoError(t, err)
@@ -314,7 +293,7 @@ func TestServeErrorSlow(t *testing.T) {
 	called := atomic.LoadUint32(&n.nAddRange)
 	assert.Equal(t, uint32(1), called)
 
-	// AddRange finished.
+	// Unblock AddRange.
 	n.wgAddRange.Done()
 
 	// Wait until ReadyingError (because AddRange returned error).
@@ -323,7 +302,6 @@ func TestServeErrorSlow(t *testing.T) {
 		return ok && ri.State == state.NsReadyingError
 	}, waitFor, tick)
 
-	// Send the same request again, this time expecting error.
 	for i := 0; i < 2; i++ {
 		ri, err := rglt.serve(m.Ident)
 		require.Error(t, err)
@@ -333,31 +311,40 @@ func TestServeErrorSlow(t *testing.T) {
 }
 
 func TestTakeFast(t *testing.T) {
-	_, r := Setup()
+	_, rglt := Setup()
 
 	m := ranje.Meta{Ident: 1}
 
-	r.info[m.Ident] = &info.RangeInfo{
+	// State valid for PrepareDropRange.
+	rglt.info[m.Ident] = &info.RangeInfo{
 		Meta:  m,
 		State: state.NsReady,
 	}
 
-	ri, err := r.take(m.Ident)
+	ri, err := rglt.take(m.Ident)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
 	assert.Equal(t, state.NsTaken, ri.State)
 
-	ri, ok := r.rangeInfo(m.Ident)
+	// Check state became NsTaken.
+	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
+	assert.Equal(t, state.NsTaken, ri.State)
+
+	// Check idempotency.
+	ri, err = rglt.take(m.Ident)
+	require.NoError(t, err)
+	assert.Equal(t, m, ri.Meta)
 	assert.Equal(t, state.NsTaken, ri.State)
 }
 
 func TestTakeSlow(t *testing.T) {
-	n, r := Setup()
+	n, rglt := Setup()
 
 	m := ranje.Meta{Ident: 1}
 
-	r.info[m.Ident] = &info.RangeInfo{
+	// State valid for PrepareDropRange.
+	rglt.info[m.Ident] = &info.RangeInfo{
 		Meta:  m,
 		State: state.NsReady,
 	}
@@ -367,32 +354,40 @@ func TestTakeSlow(t *testing.T) {
 	// Try to call serve a few times.
 	// Should be the same response.
 	for i := 0; i < 2; i++ {
-		ri, err := r.take(m.Ident)
+		ri, err := rglt.take(m.Ident)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
 		assert.Equal(t, state.NsTaking, ri.State)
 	}
 
 	// Check that state was updated.
-	ri, ok := r.rangeInfo(m.Ident)
+	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
 	assert.Equal(t, state.NsTaking, ri.State)
 
-	// PrepareDropRange finished.
+	// Unblock PrepareDropRange.
 	n.wgPrepareDropRange.Done()
 
 	// Wait until state is updated.
 	assert.Eventually(t, func() bool {
-		ri, ok := r.rangeInfo(m.Ident)
+		ri, ok := rglt.rangeInfo(m.Ident)
 		return ok && ri.State == state.NsTaken
 	}, waitFor, tick)
 
 	for i := 0; i < 2; i++ {
-		ri, err := r.take(m.Ident)
+		ri, err := rglt.take(m.Ident)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
 		assert.Equal(t, state.NsTaken, ri.State)
 	}
+}
+
+func TestTakeUnknown(t *testing.T) {
+	_, rglt := Setup()
+
+	ri, err := rglt.take(1)
+	require.EqualError(t, err, "rpc error: code = InvalidArgument desc = can't Take unknown range: 1")
+	assert.Equal(t, info.RangeInfo{}, ri)
 }
 
 func TestTakeErrorFast(t *testing.T) {
@@ -401,7 +396,7 @@ func TestTakeErrorFast(t *testing.T) {
 
 	m := ranje.Meta{Ident: 1}
 
-	// Valid for PrepareDropRange.
+	// State valid for PrepareDropRange.
 	rglt.info[m.Ident] = &info.RangeInfo{
 		Meta:  m,
 		State: state.NsReady,
@@ -423,7 +418,7 @@ func TestDropFast(t *testing.T) {
 
 	m := ranje.Meta{Ident: 1}
 
-	// Valid for DropRange.
+	// State valid for DropRange.
 	rglt.info[m.Ident] = &info.RangeInfo{
 		Meta:  m,
 		State: state.NsTaken,
@@ -436,6 +431,12 @@ func TestDropFast(t *testing.T) {
 
 	// Check range was successfully deleted.
 	assert.NotContains(t, rglt.info, m.Ident)
+
+	// Check idempotency.
+	ri, err = rglt.drop(m.Ident)
+	require.NoError(t, err)
+	assert.Equal(t, m, ri.Meta)
+	assert.Equal(t, state.NsNotFound, ri.State)
 }
 
 func TestDropSlow(t *testing.T) {
@@ -443,7 +444,7 @@ func TestDropSlow(t *testing.T) {
 
 	m := ranje.Meta{Ident: 1}
 
-	// Valid for DropRange.
+	// State valid for DropRange.
 	rglt.info[m.Ident] = &info.RangeInfo{
 		Meta:  m,
 		State: state.NsTaken,
@@ -462,7 +463,7 @@ func TestDropSlow(t *testing.T) {
 	called := atomic.LoadUint32(&n.nDropRange)
 	assert.Equal(t, uint32(1), called)
 
-	// DropRange finished.
+	// Unblock DropRange.
 	n.wgDropRange.Done()
 
 	// Wait until range is dropped.
@@ -479,12 +480,25 @@ func TestDropSlow(t *testing.T) {
 	}
 }
 
+func TestDropUnknown(t *testing.T) {
+	_, rglt := Setup()
+
+	ri, err := rglt.drop(1)
+
+	require.NoError(t, err)
+	assert.Equal(t,
+		info.RangeInfo{
+			Meta:  ranje.Meta{Ident: 1},
+			State: state.NsNotFound,
+		}, ri)
+}
+
 func TestDropErrorSlow(t *testing.T) {
 	n, rglt := Setup()
 
 	m := ranje.Meta{Ident: 1}
 
-	// Valid for DropRange.
+	// State valid for DropRange.
 	rglt.info[m.Ident] = &info.RangeInfo{
 		Meta:  m,
 		State: state.NsTaken,
@@ -504,7 +518,7 @@ func TestDropErrorSlow(t *testing.T) {
 	called := atomic.LoadUint32(&n.nDropRange)
 	assert.Equal(t, uint32(1), called)
 
-	// DropRange finished.
+	// Unblock DropRange.
 	n.wgDropRange.Done()
 
 	// Wait until NsDroppingError (because DropRange returned error).
@@ -519,4 +533,52 @@ func TestDropErrorSlow(t *testing.T) {
 		assert.EqualError(t, err, "rpc error: code = InvalidArgument desc = invalid state for Drop: NsDroppingError")
 		assert.Equal(t, state.NsDroppingError, ri.State)
 	}
+}
+
+// ----
+
+type MockNode struct {
+	erPrepareAddRange error           // error to return
+	wgPrepareAddRange *sync.WaitGroup // wg to wait before returning
+	nPrepareAddRange  uint32          // call counter
+
+	erAddRange error
+	wgAddRange *sync.WaitGroup
+	nAddRange  uint32
+
+	erPrepareDropRange error
+	wgPrepareDropRange *sync.WaitGroup
+	nPrepareDropRange  uint32
+
+	erDropRange error
+	wgDropRange *sync.WaitGroup
+	nDropRange  uint32
+}
+
+func (n *MockNode) PrepareAddRange(m ranje.Meta, p []api.Parent) error {
+	atomic.AddUint32(&n.nPrepareAddRange, 1)
+	n.wgPrepareAddRange.Wait()
+	return n.erPrepareAddRange
+}
+
+func (n *MockNode) AddRange(rID ranje.Ident) error {
+	atomic.AddUint32(&n.nAddRange, 1)
+	n.wgAddRange.Wait()
+	return n.erAddRange
+}
+
+func (n *MockNode) PrepareDropRange(rID ranje.Ident) error {
+	atomic.AddUint32(&n.nPrepareDropRange, 1)
+	n.wgPrepareDropRange.Wait()
+	return n.erPrepareDropRange
+}
+
+func (n *MockNode) DropRange(rID ranje.Ident) error {
+	atomic.AddUint32(&n.nDropRange, 1)
+	n.wgDropRange.Wait()
+	return n.erDropRange
+}
+
+func (n *MockNode) GetLoadInfo(rID ranje.Ident) (api.LoadInfo, error) {
+	return api.LoadInfo{}, errors.New("not implemented")
 }
