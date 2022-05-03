@@ -113,16 +113,10 @@ func TestGiveErrorFast(t *testing.T) {
 	assert.Equal(t, m, ri.Meta)
 	assert.Equal(t, state.NsPreparingError, ri.State)
 
-	// TODO: Remove this! It's totally wrong!
+	// Check that no range was created.
 	ri, ok := rglt.rangeInfo(m.Ident)
-	require.True(t, ok)
-	assert.Equal(t, state.NsPreparingError, ri.State)
-
-	// TODO: This is how it should work!
-	// // Check that no range was created.
-	// ri, ok := rglt.rangeInfo(m.Ident)
-	// assert.False(t, ok)
-	// assert.Equal(t, info.RangeInfo{}, ri)
+	assert.False(t, ok)
+	assert.Equal(t, info.RangeInfo{}, ri)
 }
 
 func TestGiveErrorSlow(t *testing.T) {
@@ -151,10 +145,10 @@ func TestGiveErrorSlow(t *testing.T) {
 	// Unblock PrepareAddRange.
 	n.wgPrepareAddRange.Done()
 
-	// Wait until PreparingError (because PrepareAddRange returned error)
+	// Wait until range vanishes (because PrepareAddRange returned error)
 	require.Eventually(t, func() bool {
-		ri, ok := rglt.rangeInfo(m.Ident)
-		return ok && ri.State == state.NsPreparingError
+		_, ok := rglt.rangeInfo(m.Ident)
+		return !ok
 	}, waitFor, tick)
 
 	for i := 0; i < 2; i++ {

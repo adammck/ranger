@@ -81,6 +81,14 @@ func (r *Rangelet) runThenUpdateState(rID ranje.Ident, success state.RemoteState
 		return
 	}
 
+	// Another special case.
+	// TODO: Maybe we should keep the range around, for...?
+	if s == state.NsPreparingError {
+		delete(r.info, rID)
+		log.Printf("deleting range after failed give: %v", rID)
+		return
+	}
+
 	ri, ok := r.info[rID]
 	if !ok {
 		panic(fmt.Sprintf("range vanished in runThenUpdateState! (rID=%v, s=%s)", rID, s))
@@ -132,8 +140,15 @@ func (r *Rangelet) give(rm ranje.Meta, parents []api.Parent) (info.RangeInfo, er
 	r.Lock()
 	defer r.Unlock()
 	ri, ok = r.info[rID]
+
 	if !ok {
-		panic(fmt.Sprintf("range vanished during Give! (rID=%v)", rID))
+		// The range has vanished, because runThenUpdateState saw that it was
+		// NsPreparingError and special-cased it. Return something tht kind of
+		// looks right, so the controller knows what to do.
+		return info.RangeInfo{
+			Meta:  ranje.Meta{Ident: rID},
+			State: state.NsPreparingError,
+		}, nil
 	}
 
 	return *ri, nil
