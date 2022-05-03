@@ -145,7 +145,6 @@ func TestGiveErrorSlow(t *testing.T) {
 		assert.Equal(t, state.NsPreparing, ri.State)
 	}
 
-	// Subsequent gives should have deduped.
 	called := atomic.LoadUint32(&n.nPrepareAddRange)
 	assert.Equal(t, uint32(1), called)
 
@@ -289,7 +288,6 @@ func TestServeErrorSlow(t *testing.T) {
 		assert.Equal(t, state.NsReadying, ri.State)
 	}
 
-	// Subsequent gives should have deduped.
 	called := atomic.LoadUint32(&n.nAddRange)
 	assert.Equal(t, uint32(1), called)
 
@@ -413,6 +411,48 @@ func TestTakeErrorFast(t *testing.T) {
 	assert.Equal(t, state.NsTakingError, ri.State)
 }
 
+func TestTakeErrorSlow(t *testing.T) {
+	n, rglt := Setup()
+
+	m := ranje.Meta{Ident: 1}
+
+	// State valid for PrepareDropRange.
+	rglt.info[m.Ident] = &info.RangeInfo{
+		Meta:  m,
+		State: state.NsReady,
+	}
+
+	// PrepareDropRange will block, then return an error.
+	n.erPrepareDropRange = errors.New("error from PrepareDropRange")
+	n.wgPrepareDropRange.Add(1)
+
+	for i := 0; i < 2; i++ {
+		ri, err := rglt.take(m.Ident)
+		require.NoError(t, err)
+		assert.Equal(t, m, ri.Meta)
+		assert.Equal(t, state.NsTaking, ri.State)
+	}
+
+	called := atomic.LoadUint32(&n.nPrepareDropRange)
+	assert.Equal(t, uint32(1), called)
+
+	// Unblock PrepareDropRange.
+	n.wgPrepareDropRange.Done()
+
+	// Wait until TakingError (because PrepareDropRange returned error).
+	require.Eventually(t, func() bool {
+		ri, ok := rglt.rangeInfo(m.Ident)
+		return ok && ri.State == state.NsTakingError
+	}, waitFor, tick)
+
+	for i := 0; i < 2; i++ {
+		ri, err := rglt.serve(m.Ident)
+		require.Error(t, err)
+		assert.EqualError(t, err, "rpc error: code = InvalidArgument desc = invalid state for Serve: NsTakingError")
+		assert.Equal(t, state.NsTakingError, ri.State)
+	}
+}
+
 func TestDropFast(t *testing.T) {
 	_, rglt := Setup()
 
@@ -491,6 +531,29 @@ func TestDropUnknown(t *testing.T) {
 			Meta:  ranje.Meta{Ident: 1},
 			State: state.NsNotFound,
 		}, ri)
+}
+
+func TestDropErrorFast(t *testing.T) {
+	n, rglt := Setup()
+	n.erDropRange = errors.New("error from DropRange")
+
+	m := ranje.Meta{Ident: 1}
+
+	// State valid for DropRange.
+	rglt.info[m.Ident] = &info.RangeInfo{
+		Meta:  m,
+		State: state.NsTaken,
+	}
+
+	ri, err := rglt.drop(m.Ident)
+	require.NoError(t, err)
+	assert.Equal(t, m, ri.Meta)
+	assert.Equal(t, state.NsDroppingError, ri.State)
+
+	// Check state was updated.
+	ri, ok := rglt.rangeInfo(m.Ident)
+	require.True(t, ok)
+	assert.Equal(t, state.NsDroppingError, ri.State)
 }
 
 func TestDropErrorSlow(t *testing.T) {
