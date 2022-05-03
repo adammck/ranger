@@ -116,7 +116,6 @@ func (n *TestNode) waitUntil(rID ranje.Ident, src state.RemoteState) error {
 			panic(fmt.Sprintf("test deadlocked waiting for %v to advance past %v on node %v", ris.rID, ris.s, n.Addr))
 		}
 
-		log.Println("zzz...")
 		time.Sleep(10 * time.Millisecond)
 	}
 }
