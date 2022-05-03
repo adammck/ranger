@@ -227,28 +227,50 @@ func (r *Rangelet) take(rID ranje.Ident) (info.RangeInfo, error) {
 
 func (r *Rangelet) drop(rID ranje.Ident) (info.RangeInfo, error) {
 	r.Lock()
-	defer r.Unlock()
 
 	ri, ok := r.info[rID]
 	if !ok {
+		r.Unlock()
 		log.Printf("got redundant Drop (no such range; maybe drop complete)")
-		return info.RangeInfo{}, ErrNotFound
+
+		// Return success! The caller wanted the range to be dropped, and we
+		// don't have the range. So (hopefully) we dropped it already.
+		return notFound(rID), nil
 	}
 
-	switch ri.State {
-	case state.NsTaken:
-		ri.State = state.NsDropping
-		go r.runThenUpdateState(rID, state.NsNotFound, state.NsDroppingError, func() error {
+	if ri.State == state.NsDropping {
+		log.Printf("got redundant Drop (drop in progress)")
+		defer r.Unlock()
+		return *ri, nil
+	}
+
+	if ri.State != state.NsTaken {
+		defer r.Unlock()
+		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Drop: %v", ri.State)
+	}
+
+	// State is NsTaken
+
+	ri.State = state.NsDropping
+	r.Unlock()
+
+	withTimeout(r.gracePeriod, func() {
+		r.runThenUpdateState(rID, state.NsNotFound, state.NsDroppingError, func() error {
 			return r.n.DropRange(rID)
 		})
+	})
 
-	case state.NsDropping:
-		log.Printf("got redundant Drop (drop in progress)")
+	r.Lock()
+	defer r.Unlock()
 
-	default:
-		return info.RangeInfo{}, status.Errorf(codes.InvalidArgument, "invalid state for Drop: %v", ri.State)
+	ri, ok = r.info[rID]
+	if !ok {
+		// As above, the range being gone is success.
+		return notFound(rID), nil
 	}
 
+	// The range is still here.
+	// DropRange is presumably still running.
 	return *ri, nil
 }
 
@@ -345,6 +367,14 @@ func (r *Rangelet) rangeInfo(rID ranje.Ident) (info.RangeInfo, bool) {
 	}
 
 	return info.RangeInfo{}, false
+}
+
+func notFound(rID ranje.Ident) info.RangeInfo {
+	return info.RangeInfo{
+		Meta:  ranje.Meta{Ident: rID},
+		State: state.NsNotFound,
+		Info:  info.LoadInfo{},
+	}
 }
 
 func withTimeout(timeout time.Duration, f func()) bool {

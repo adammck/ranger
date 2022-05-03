@@ -33,7 +33,9 @@ type MockNode struct {
 	wgPrepareDropRange *sync.WaitGroup
 	nPrepareDropRange  uint32
 
-	rDrop error
+	erDropRange error
+	wgDropRange *sync.WaitGroup
+	nDropRange  uint32
 }
 
 func (n *MockNode) PrepareAddRange(m ranje.Meta, p []api.Parent) error {
@@ -55,7 +57,9 @@ func (n *MockNode) PrepareDropRange(rID ranje.Ident) error {
 }
 
 func (n *MockNode) DropRange(rID ranje.Ident) error {
-	return n.rDrop
+	atomic.AddUint32(&n.nDropRange, 1)
+	n.wgDropRange.Wait()
+	return n.erDropRange
 }
 
 func (n *MockNode) GetLoadInfo(rID ranje.Ident) (api.LoadInfo, error) {
@@ -67,6 +71,7 @@ func Setup() (*MockNode, *Rangelet) {
 		wgPrepareAddRange:  &sync.WaitGroup{},
 		wgAddRange:         &sync.WaitGroup{},
 		wgPrepareDropRange: &sync.WaitGroup{},
+		wgDropRange:        &sync.WaitGroup{},
 	}
 
 	stor := fake_storage.NewFakeStorage(nil)
@@ -413,32 +418,105 @@ func TestTakeErrorFast(t *testing.T) {
 	assert.Equal(t, state.NsTakingError, ri.State)
 }
 
-func TestDrop(t *testing.T) {
-	_, r := Setup()
+func TestDropFast(t *testing.T) {
+	_, rglt := Setup()
 
 	m := ranje.Meta{Ident: 1}
 
-	ri, err := r.drop(m.Ident)
-	assert.ErrorIs(t, err, ErrNotFound)
-
-	// correct state to be dropn.
-	r.info[m.Ident] = &info.RangeInfo{
+	// Valid for DropRange.
+	rglt.info[m.Ident] = &info.RangeInfo{
 		Meta:  m,
 		State: state.NsTaken,
 	}
 
-	ri, err = r.drop(m.Ident)
-	if assert.NoError(t, err) {
+	ri, err := rglt.drop(m.Ident)
+	require.NoError(t, err)
+	assert.Equal(t, m, ri.Meta)
+	assert.Equal(t, state.NsNotFound, ri.State)
+
+	// Check range was successfully deleted.
+	assert.NotContains(t, rglt.info, m.Ident)
+}
+
+func TestDropSlow(t *testing.T) {
+	n, rglt := Setup()
+
+	m := ranje.Meta{Ident: 1}
+
+	// Valid for DropRange.
+	rglt.info[m.Ident] = &info.RangeInfo{
+		Meta:  m,
+		State: state.NsTaken,
+	}
+
+	// DropRange will block.
+	n.wgDropRange.Add(1)
+
+	for i := 0; i < 2; i++ {
+		ri, err := rglt.drop(m.Ident)
+		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
 		assert.Equal(t, state.NsDropping, ri.State)
 	}
 
-	// TODO: Noooo
-	time.Sleep(10 * time.Millisecond)
+	called := atomic.LoadUint32(&n.nDropRange)
+	assert.Equal(t, uint32(1), called)
 
-	ri, err = r.drop(m.Ident)
-	if assert.ErrorIs(t, err, ErrNotFound) {
-		// The range was successfully deleted.
-		assert.NotContains(t, r.info, m.Ident)
+	// DropRange finished.
+	n.wgDropRange.Done()
+
+	// Wait until range is dropped.
+	require.Eventually(t, func() bool {
+		_, ok := rglt.rangeInfo(m.Ident)
+		return !ok
+	}, waitFor, tick)
+
+	for i := 0; i < 2; i++ {
+		ri, err := rglt.drop(m.Ident)
+		require.NoError(t, err)
+		assert.Equal(t, m, ri.Meta)
+		assert.Equal(t, state.NsNotFound, ri.State)
+	}
+}
+
+func TestDropErrorSlow(t *testing.T) {
+	n, rglt := Setup()
+
+	m := ranje.Meta{Ident: 1}
+
+	// Valid for DropRange.
+	rglt.info[m.Ident] = &info.RangeInfo{
+		Meta:  m,
+		State: state.NsTaken,
+	}
+
+	// DropRange will block, then return an error.
+	n.erDropRange = errors.New("error from DropRange")
+	n.wgDropRange.Add(1)
+
+	for i := 0; i < 2; i++ {
+		ri, err := rglt.drop(m.Ident)
+		require.NoError(t, err)
+		assert.Equal(t, m, ri.Meta)
+		assert.Equal(t, state.NsDropping, ri.State)
+	}
+
+	called := atomic.LoadUint32(&n.nDropRange)
+	assert.Equal(t, uint32(1), called)
+
+	// DropRange finished.
+	n.wgDropRange.Done()
+
+	// Wait until NsDroppingError (because DropRange returned error).
+	require.Eventually(t, func() bool {
+		ri, ok := rglt.rangeInfo(m.Ident)
+		return ok && ri.State == state.NsDroppingError
+	}, waitFor, tick)
+
+	for i := 0; i < 2; i++ {
+		ri, err := rglt.drop(m.Ident)
+		require.Error(t, err)
+		assert.EqualError(t, err, "rpc error: code = InvalidArgument desc = invalid state for Drop: NsDroppingError")
+		assert.Equal(t, state.NsDroppingError, ri.State)
 	}
 }
