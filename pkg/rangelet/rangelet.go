@@ -185,25 +185,41 @@ func (r *Rangelet) serve(rID ranje.Ident) (info.RangeInfo, error) {
 
 func (r *Rangelet) take(rID ranje.Ident) (info.RangeInfo, error) {
 	r.Lock()
-	defer r.Unlock()
 
 	ri, ok := r.info[rID]
 	if !ok {
+		r.Unlock()
 		return info.RangeInfo{}, status.Errorf(codes.InvalidArgument, "can't Take unknown range: %v", rID)
 	}
 
-	switch ri.State {
-	case state.NsReady:
-		ri.State = state.NsTaking
-		go r.runThenUpdateState(rID, state.NsTaken, state.NsTakingError, func() error {
+	if ri.State == state.NsTaking || ri.State == state.NsTaken {
+		log.Printf("got redundant Take")
+		defer r.Unlock()
+		return *ri, nil
+	}
+
+	if ri.State != state.NsReady {
+		defer r.Unlock()
+		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Take: %v", ri.State)
+	}
+
+	// State is NsReady
+
+	ri.State = state.NsTaking
+	r.Unlock()
+
+	withTimeout(r.gracePeriod, func() {
+		r.runThenUpdateState(rID, state.NsTaken, state.NsTakingError, func() error {
 			return r.n.PrepareDropRange(rID)
 		})
+	})
 
-	case state.NsTaking, state.NsTaken:
-		log.Printf("got redundant Take")
+	r.Lock()
+	defer r.Unlock()
 
-	default:
-		return info.RangeInfo{}, status.Errorf(codes.InvalidArgument, "invalid state for Take: %v", ri.State)
+	ri, ok = r.info[rID]
+	if !ok {
+		panic(fmt.Sprintf("range vanished from infos during take! (rID=%v)", rID))
 	}
 
 	return *ri, nil

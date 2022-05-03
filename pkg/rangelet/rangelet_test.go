@@ -29,7 +29,9 @@ type MockNode struct {
 	wgAddRange *sync.WaitGroup
 	nAddRange  uint32
 
-	rTake error
+	erPrepareDropRange error
+	wgPrepareDropRange *sync.WaitGroup
+	nPrepareDropRange  uint32
 
 	rDrop error
 }
@@ -47,7 +49,9 @@ func (n *MockNode) AddRange(rID ranje.Ident) error {
 }
 
 func (n *MockNode) PrepareDropRange(rID ranje.Ident) error {
-	return n.rTake
+	atomic.AddUint32(&n.nPrepareDropRange, 1)
+	n.wgPrepareDropRange.Wait()
+	return n.erPrepareDropRange
 }
 
 func (n *MockNode) DropRange(rID ranje.Ident) error {
@@ -60,9 +64,11 @@ func (n *MockNode) GetLoadInfo(rID ranje.Ident) (api.LoadInfo, error) {
 
 func Setup() (*MockNode, *Rangelet) {
 	n := &MockNode{
-		wgPrepareAddRange: &sync.WaitGroup{},
-		wgAddRange:        &sync.WaitGroup{},
+		wgPrepareAddRange:  &sync.WaitGroup{},
+		wgAddRange:         &sync.WaitGroup{},
+		wgPrepareDropRange: &sync.WaitGroup{},
 	}
+
 	stor := fake_storage.NewFakeStorage(nil)
 	rglt := NewRangelet(n, nil, stor)
 	rglt.gracePeriod = 10 * time.Millisecond
@@ -218,9 +224,6 @@ func TestServeSlow(t *testing.T) {
 
 	m := ranje.Meta{Ident: 1}
 
-	ri, err := r.serve(m.Ident)
-	require.EqualError(t, err, "rpc error: code = InvalidArgument desc = can't Serve unknown range: 1")
-
 	r.info[m.Ident] = &info.RangeInfo{
 		Meta:  m,
 		State: state.NsPrepared,
@@ -230,7 +233,7 @@ func TestServeSlow(t *testing.T) {
 	n.wgAddRange.Add(1)
 
 	// This one will give up waiting and return early.
-	ri, err = r.serve(m.Ident)
+	ri, err := r.serve(m.Ident)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
 	assert.Equal(t, state.NsReadying, ri.State)
@@ -324,34 +327,90 @@ func TestServeErrorSlow(t *testing.T) {
 	}
 }
 
-func TestTake(t *testing.T) {
+func TestTakeFast(t *testing.T) {
 	_, r := Setup()
 
 	m := ranje.Meta{Ident: 1}
 
-	ri, err := r.take(m.Ident)
-	assert.EqualError(t, err, "rpc error: code = InvalidArgument desc = can't Take unknown range: 1")
-
-	// correct state to be taken.
 	r.info[m.Ident] = &info.RangeInfo{
 		Meta:  m,
 		State: state.NsReady,
 	}
 
-	ri, err = r.take(m.Ident)
-	if assert.NoError(t, err) {
+	ri, err := r.take(m.Ident)
+	require.NoError(t, err)
+	assert.Equal(t, m, ri.Meta)
+	assert.Equal(t, state.NsTaken, ri.State)
+
+	ri, ok := r.rangeInfo(m.Ident)
+	require.True(t, ok)
+	assert.Equal(t, state.NsTaken, ri.State)
+}
+
+func TestTakeSlow(t *testing.T) {
+	n, r := Setup()
+
+	m := ranje.Meta{Ident: 1}
+
+	r.info[m.Ident] = &info.RangeInfo{
+		Meta:  m,
+		State: state.NsReady,
+	}
+
+	n.wgPrepareDropRange.Add(1)
+
+	// Try to call serve a few times.
+	// Should be the same response.
+	for i := 0; i < 2; i++ {
+		ri, err := r.take(m.Ident)
+		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
 		assert.Equal(t, state.NsTaking, ri.State)
 	}
 
-	// TODO: Noooo
-	time.Sleep(10 * time.Millisecond)
+	// Check that state was updated.
+	ri, ok := r.rangeInfo(m.Ident)
+	require.True(t, ok)
+	assert.Equal(t, state.NsTaking, ri.State)
 
-	ri, err = r.take(m.Ident)
-	if assert.NoError(t, err) {
+	// PrepareDropRange finished.
+	n.wgPrepareDropRange.Done()
+
+	// Wait until state is updated.
+	assert.Eventually(t, func() bool {
+		ri, ok := r.rangeInfo(m.Ident)
+		return ok && ri.State == state.NsTaken
+	}, waitFor, tick)
+
+	for i := 0; i < 2; i++ {
+		ri, err := r.take(m.Ident)
+		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
 		assert.Equal(t, state.NsTaken, ri.State)
 	}
+}
+
+func TestTakeErrorFast(t *testing.T) {
+	n, rglt := Setup()
+	n.erPrepareDropRange = errors.New("error from PrepareDropRange")
+
+	m := ranje.Meta{Ident: 1}
+
+	// Valid for PrepareDropRange.
+	rglt.info[m.Ident] = &info.RangeInfo{
+		Meta:  m,
+		State: state.NsReady,
+	}
+
+	ri, err := rglt.take(m.Ident)
+	require.NoError(t, err)
+	assert.Equal(t, m, ri.Meta)
+	assert.Equal(t, state.NsTakingError, ri.State)
+
+	// Check state was updated.
+	ri, ok := rglt.rangeInfo(m.Ident)
+	require.True(t, ok)
+	assert.Equal(t, state.NsTakingError, ri.State)
 }
 
 func TestDrop(t *testing.T) {
