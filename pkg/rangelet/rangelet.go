@@ -93,42 +93,48 @@ func (r *Rangelet) runThenUpdateState(rID ranje.Ident, success state.RemoteState
 
 func (r *Rangelet) give(rm ranje.Meta, parents []api.Parent) (info.RangeInfo, error) {
 	rID := rm.Ident
-
-	// TODO: Release the lock while calling PrepareAddRange.
 	r.Lock()
-	defer r.Unlock()
 
 	ri, ok := r.info[rID]
-	if !ok {
-		ri = &info.RangeInfo{
-			Meta:  rm,
-			State: state.NsPreparing,
+	if ok {
+		defer r.Unlock()
+
+		if ri.State == state.NsPreparing || ri.State == state.NsPrepared {
+			log.Printf("got redundant Give")
+			return *ri, nil
 		}
-		r.info[rID] = ri
 
-		// Copy the info, because it might change sooner than we can return!
-		tmp := *ri
+		// TODO: Allow retry if in PreparingError
+		if ri.State == state.NsPreparingError {
+			log.Printf("got Give in NsPreparingError")
+			return *ri, nil
+		}
 
-		// TODO: Wait for a brief period before returning, so fast clients don't
-		//       have to wait for the next Give to tell the controller they have
-		//       finished preparing.
-		go r.runThenUpdateState(rID, state.NsPrepared, state.NsPreparingError, func() error {
-			return r.n.PrepareAddRange(rm, parents)
-		})
-
-		return tmp, nil
+		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Give: %v", ri.State)
 	}
 
-	switch ri.State {
-	case state.NsPreparing, state.NsPreparingError, state.NsPrepared:
-		// We already know about this range, and it's in one of the states that
-		// indicate a previous Give. This is just a duplicate. Don't change any
-		// state, just return the RangeInfo to let the controller know whether
-		// we need more time or it can advance to Ready.
-		log.Printf("got redundant Give")
+	// Range is not currently known, so can be added.
 
-	default:
-		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for redundant Give: %v", ri.State)
+	ri = &info.RangeInfo{
+		Meta:  rm,
+		State: state.NsPreparing,
+	}
+	r.info[rID] = ri
+	r.Unlock()
+
+	withTimeout(r.gracePeriod, func() {
+		r.runThenUpdateState(rID, state.NsPrepared, state.NsPreparingError, func() error {
+			return r.n.PrepareAddRange(rm, parents)
+		})
+	})
+
+	// PrepareAddRange either completed, or is still running but we don't want
+	// to wait any longer. Fetch infos again to find out.
+	r.Lock()
+	defer r.Unlock()
+	ri, ok = r.info[rID]
+	if !ok {
+		panic(fmt.Sprintf("range vanished during Give! (rID=%v)", rID))
 	}
 
 	return *ri, nil

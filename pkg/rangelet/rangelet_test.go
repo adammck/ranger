@@ -3,6 +3,7 @@ package rangelet
 import (
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,22 +21,27 @@ const waitFor = 500 * time.Millisecond
 const tick = 10 * time.Millisecond
 
 type MockNode struct {
-	rGive   error
-	rServe  error
-	wgServe *sync.WaitGroup
-	rTake   error
-	rDrop   error
+	erPrepareAddRange error
+	wgPrepareAddRange *sync.WaitGroup
+	nPrepareAddRange  uint32
+
+	erAddRange error
+	wgAddRange *sync.WaitGroup
+
+	rTake error
+
+	rDrop error
 }
 
 func (n *MockNode) PrepareAddRange(m ranje.Meta, p []api.Parent) error {
-	return n.rGive
+	atomic.AddUint32(&n.nPrepareAddRange, 1)
+	n.wgPrepareAddRange.Wait()
+	return n.erPrepareAddRange
 }
 
 func (n *MockNode) AddRange(rID ranje.Ident) error {
-	if n.wgServe != nil {
-		n.wgServe.Wait()
-	}
-	return n.rServe
+	n.wgAddRange.Wait()
+	return n.erAddRange
 }
 
 func (n *MockNode) PrepareDropRange(rID ranje.Ident) error {
@@ -51,67 +57,133 @@ func (n *MockNode) GetLoadInfo(rID ranje.Ident) (api.LoadInfo, error) {
 }
 
 func Setup() (*MockNode, *Rangelet) {
-	n := &MockNode{}
+	n := &MockNode{
+		wgPrepareAddRange: &sync.WaitGroup{},
+		wgAddRange:        &sync.WaitGroup{},
+	}
 	stor := fake_storage.NewFakeStorage(nil)
 	rglt := NewRangelet(n, nil, stor)
 	rglt.gracePeriod = 10 * time.Millisecond
 	return n, rglt
 }
 
-func TestGiveError(t *testing.T) {
-	n, r := Setup()
-	n.rGive = errors.New("error from PrepareAddRange")
+func TestGiveErrorFast(t *testing.T) {
+	n, rglt := Setup()
+	n.erPrepareAddRange = errors.New("error from PrepareAddRange")
 
 	m := ranje.Meta{Ident: 1}
 	p := []api.Parent{}
 
-	// Give the range. Even though the client will return error from
-	// PrepareAddRange, this will succeed because we call that method in the
-	// background for now. The controller only learns about the failure (or
-	// success!) next time it gives or probes.
-	ri, err := r.give(m, p)
-	if assert.NoError(t, err) {
+	ri, err := rglt.give(m, p)
+	require.NoError(t, err)
+	assert.Equal(t, m, ri.Meta)
+	assert.Equal(t, state.NsPreparingError, ri.State)
+
+	// TODO: Remove this! It's totally wrong!
+	ri, ok := rglt.rangeInfo(m.Ident)
+	require.True(t, ok)
+	assert.Equal(t, state.NsPreparingError, ri.State)
+
+	// TODO: This is how it should work!
+	// // Check that no range was created.
+	// ri, ok := rglt.rangeInfo(m.Ident)
+	// assert.False(t, ok)
+	// assert.Equal(t, info.RangeInfo{}, ri)
+}
+
+func TestGiveErrorSlow(t *testing.T) {
+	n, rglt := Setup()
+
+	m := ranje.Meta{Ident: 1}
+	p := []api.Parent{}
+
+	// PrepareAddRange will block, then return an error.
+	n.erPrepareAddRange = errors.New("error from PrepareAddRange")
+	n.wgPrepareAddRange.Add(1)
+
+	// Give the range. Even though the client will eventually return error from
+	// PrepareAddRange, the outer call (give succeeds because it will exceed the
+	// grace period and respond with Preparing.
+	for i := 0; i < 2; i++ {
+		ri, err := rglt.give(m, p)
+		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
 		assert.Equal(t, state.NsPreparing, ri.State)
 	}
 
-	// This is just to give the background goroutine (which actually calls
-	// PrepareAddRange) plenty of time to do its thing. Oh dear.
-	//
-	// TODO: Remove this! Change the rangelet to wait for a bit before
-	//       backgrounding the PrepareAddRange (and everything else) so the
-	//       simple/fast case can be synchronous.
-	time.Sleep(10 * time.Millisecond)
+	// Subsequent gives should have deduped.
+	called := atomic.LoadUint32(&n.nPrepareAddRange)
+	assert.Equal(t, uint32(1), called)
 
-	// Send the same request again.
-	ri, err = r.give(m, p)
-	if assert.NoError(t, err) {
+	// PrepareAddRange finished.
+	n.wgPrepareAddRange.Done()
+
+	// Wait until PreparingError (because PrepareAddRange returned error)
+	require.Eventually(t, func() bool {
+		ri, ok := rglt.rangeInfo(m.Ident)
+		return ok && ri.State == state.NsPreparingError
+	}, waitFor, tick)
+
+	// Send the same request again, this time expecting error.
+	for i := 0; i < 2; i++ {
+		ri, err := rglt.give(m, p)
+		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
 		assert.Equal(t, state.NsPreparingError, ri.State)
 	}
 }
 
-func TestGiveSuccess(t *testing.T) {
-	_, r := Setup()
+func TestGiveSuccessFast(t *testing.T) {
+	_, rglt := Setup()
 
 	m := ranje.Meta{Ident: 1}
 	p := []api.Parent{}
 
-	ri, err := r.give(m, p)
-	if assert.NoError(t, err) {
-		assert.Equal(t, ri.Meta, m)
-		assert.Equal(t, ri.State, state.NsPreparing)
-	}
+	ri, err := rglt.give(m, p)
+	require.NoError(t, err)
+	assert.Equal(t, m, ri.Meta)
+	assert.Equal(t, state.NsPrepared, ri.State)
 
-	// TODO: Noooo
-	time.Sleep(10 * time.Millisecond)
+	// Check that range was created in the expected state.
+	ri, ok := rglt.rangeInfo(m.Ident)
+	require.True(t, ok)
+	assert.Equal(t, state.NsPrepared, ri.State)
+}
 
-	// Send the same request again.
-	ri, err = r.give(m, p)
-	if assert.NoError(t, err) {
-		assert.Equal(t, m, ri.Meta)
-		assert.Equal(t, state.NsPrepared, ri.State)
-	}
+func TestGiveSuccessSlow(t *testing.T) {
+	n, rglt := Setup()
+
+	m := ranje.Meta{Ident: 1}
+	p := []api.Parent{}
+
+	// PrepareAddRange will block.
+	n.wgPrepareAddRange.Add(1)
+
+	// This will wait for grace period then return early.
+	ri, err := rglt.give(m, p)
+	require.NoError(t, err)
+	assert.Equal(t, ri.Meta, m)
+	assert.Equal(t, state.NsPreparing, ri.State)
+
+	// Check range is Preparing (because PrepareAddRange is running)
+	ri, ok := rglt.rangeInfo(m.Ident)
+	require.True(t, ok)
+	assert.Equal(t, state.NsPreparing, ri.State)
+
+	// AddRange finished.
+	n.wgPrepareAddRange.Done()
+
+	// Wait until state becomes Prepared (because PrepareAddRange finished)
+	assert.Eventually(t, func() bool {
+		ri, ok := rglt.rangeInfo(m.Ident)
+		return ok && ri.State == state.NsPrepared
+	}, waitFor, tick)
+
+	// Send the request again.
+	ri, err = rglt.give(m, p)
+	require.NoError(t, err)
+	assert.Equal(t, ri.Meta, m)
+	assert.Equal(t, state.NsPrepared, ri.State)
 }
 
 func TestServe(t *testing.T) {
@@ -153,8 +225,7 @@ func TestSlowServe(t *testing.T) {
 	}
 
 	// AddRange will take a long time!
-	n.wgServe = &sync.WaitGroup{}
-	n.wgServe.Add(1)
+	n.wgAddRange.Add(1)
 
 	// This one will give up waiting and return early.
 	ri, err = r.serve(m.Ident)
@@ -168,7 +239,7 @@ func TestSlowServe(t *testing.T) {
 	assert.Equal(t, state.NsReadying, ri.State)
 
 	// AddRange finished.
-	n.wgServe.Done()
+	n.wgAddRange.Done()
 
 	// Wait until state is updated
 	assert.Eventually(t, func() bool {
