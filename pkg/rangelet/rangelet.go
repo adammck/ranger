@@ -2,10 +2,13 @@ package rangelet
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster/info"
 	"github.com/adammck/ranger/pkg/roster/state"
@@ -18,30 +21,37 @@ type Rangelet struct {
 	info         map[ranje.Ident]*info.RangeInfo
 	sync.RWMutex // guards info (keys *and* values)
 
-	n Node
-	s Storage
+	n api.Node
+	s api.Storage
 
 	// TODO: Store abstract "node load" or "node status"? Drain is just a desire
 	//       for all of the ranges to be moved away. Overload is just a desire
 	//       for *some* ranges to be moved.
 	xWantDrain uint32
 
+	gracePeriod time.Duration
+
 	srv *NodeServer
 }
 
-func NewRangelet(n Node, sr grpc.ServiceRegistrar, s Storage) *Rangelet {
+func NewRangelet(n api.Node, sr grpc.ServiceRegistrar, s api.Storage) *Rangelet {
 	r := &Rangelet{
 		info: map[ranje.Ident]*info.RangeInfo{},
 		n:    n,
 		s:    s,
+
+		gracePeriod: 1 * time.Second,
 	}
 
 	for _, ri := range s.Read() {
 		r.info[ri.Meta.Ident] = ri
 	}
 
-	r.srv = NewNodeServer(r)
-	r.srv.Register(sr)
+	// Can't think of any reason this would be useful outside of a test.
+	if sr != nil {
+		r.srv = NewNodeServer(r)
+		r.srv.Register(sr)
+	}
 
 	return r
 }
@@ -71,136 +81,211 @@ func (r *Rangelet) runThenUpdateState(rID ranje.Ident, success state.RemoteState
 		return
 	}
 
+	// Another special case.
+	// TODO: Maybe we should keep the range around, for...?
+	if s == state.NsPreparingError {
+		delete(r.info, rID)
+		log.Printf("deleting range after failed give: %v", rID)
+		return
+	}
+
 	ri, ok := r.info[rID]
 	if !ok {
-		// The range has vanished from the map??
-		panic("this should not happen!")
+		panic(fmt.Sprintf("range vanished in runThenUpdateState! (rID=%v, s=%s)", rID, s))
 	}
 
 	log.Printf("state is now %v (rID=%v)", s, rID)
 	ri.State = s
 }
 
-func (r *Rangelet) give(rm ranje.Meta, parents []Parent) (info.RangeInfo, error) {
+func (r *Rangelet) give(rm ranje.Meta, parents []api.Parent) (info.RangeInfo, error) {
 	rID := rm.Ident
-
-	// TODO: Release the lock while calling PrepareAddRange.
 	r.Lock()
-	defer r.Unlock()
 
 	ri, ok := r.info[rID]
-	if !ok {
-		ri = &info.RangeInfo{
-			Meta:  rm,
-			State: state.NsPreparing,
+	if ok {
+		defer r.Unlock()
+
+		if ri.State == state.NsPreparing || ri.State == state.NsPrepared {
+			log.Printf("got redundant Give")
+			return *ri, nil
 		}
-		r.info[rID] = ri
 
-		// Copy the info, because it might change sooner than we can return!
-		tmp := *ri
+		// TODO: Allow retry if in PreparingError
+		if ri.State == state.NsPreparingError {
+			log.Printf("got Give in NsPreparingError")
+			return *ri, nil
+		}
 
-		// TODO: Wait for a brief period before returning, so fast clients don't
-		//       have to wait for the next Give to tell the controller they have
-		//       finished preparing.
-		go r.runThenUpdateState(rID, state.NsPrepared, state.NsPreparingError, func() error {
-			return r.n.PrepareAddRange(rm, parents)
-		})
-
-		return tmp, nil
+		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Give: %v", ri.State)
 	}
 
-	switch ri.State {
-	case state.NsPreparing, state.NsPreparingError, state.NsPrepared:
-		// We already know about this range, and it's in one of the states that
-		// indicate a previous Give. This is just a duplicate. Don't change any
-		// state, just return the RangeInfo to let the controller know whether
-		// we need more time or it can advance to Ready.
-		log.Printf("got redundant Give")
+	// Range is not currently known, so can be added.
 
-	default:
-		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for redundant Give: %v", ri.State)
+	ri = &info.RangeInfo{
+		Meta:  rm,
+		State: state.NsPreparing,
+	}
+	r.info[rID] = ri
+	r.Unlock()
+
+	withTimeout(r.gracePeriod, func() {
+		r.runThenUpdateState(rID, state.NsPrepared, state.NsPreparingError, func() error {
+			return r.n.PrepareAddRange(rm, parents)
+		})
+	})
+
+	// PrepareAddRange either completed, or is still running but we don't want
+	// to wait any longer. Fetch infos again to find out.
+	r.Lock()
+	defer r.Unlock()
+	ri, ok = r.info[rID]
+
+	if !ok {
+		// The range has vanished, because runThenUpdateState saw that it was
+		// NsPreparingError and special-cased it. Return something tht kind of
+		// looks right, so the controller knows what to do.
+		return info.RangeInfo{
+			Meta:  ranje.Meta{Ident: rID},
+			State: state.NsPreparingError,
+		}, nil
 	}
 
 	return *ri, nil
 }
 
-func (r *Rangelet) serve(rID ranje.Ident) (*info.RangeInfo, error) {
+func (r *Rangelet) serve(rID ranje.Ident) (info.RangeInfo, error) {
 	r.Lock()
-	defer r.Unlock()
 
 	ri, ok := r.info[rID]
 	if !ok {
-		return ri, status.Errorf(codes.InvalidArgument, "can't Serve unknown range: %v", rID)
+		r.Unlock()
+		return info.RangeInfo{}, status.Errorf(codes.InvalidArgument, "can't Serve unknown range: %v", rID)
 	}
 
-	switch ri.State {
-	case state.NsPrepared:
-		ri.State = state.NsReadying
-		go r.runThenUpdateState(rID, state.NsReady, state.NsReadyingError, func() error {
+	if ri.State == state.NsReadying || ri.State == state.NsReady {
+		log.Printf("got redundant Serve")
+		defer r.Unlock()
+		return *ri, nil
+	}
+
+	if ri.State != state.NsPrepared {
+		defer r.Unlock()
+		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Serve: %v", ri.State)
+	}
+
+	// State is NsPrepared
+
+	ri.State = state.NsReadying
+	r.Unlock()
+
+	withTimeout(r.gracePeriod, func() {
+		r.runThenUpdateState(rID, state.NsReady, state.NsReadyingError, func() error {
 			return r.n.AddRange(rID)
 		})
+	})
 
-	case state.NsReadying, state.NsReady:
-		log.Printf("got redundant Serve")
-
-	default:
-		return ri, status.Errorf(codes.InvalidArgument, "invalid state for Serve: %v", ri.State)
-	}
-
-	return ri, nil
-}
-
-func (r *Rangelet) take(rID ranje.Ident) (*info.RangeInfo, error) {
 	r.Lock()
 	defer r.Unlock()
 
-	ri, ok := r.info[rID]
+	// Fetch the current rangeinfo again!
+	ri, ok = r.info[rID]
 	if !ok {
-		return nil, status.Errorf(codes.InvalidArgument, "can't Take unknown range: %v", rID)
+		panic(fmt.Sprintf("range vanished from infos during serve! (rID=%v)", rID))
 	}
 
-	switch ri.State {
-	case state.NsReady:
-		ri.State = state.NsTaking
-		go r.runThenUpdateState(rID, state.NsTaken, state.NsTakingError, func() error {
+	return *ri, nil
+}
+
+func (r *Rangelet) take(rID ranje.Ident) (info.RangeInfo, error) {
+	r.Lock()
+
+	ri, ok := r.info[rID]
+	if !ok {
+		r.Unlock()
+		return info.RangeInfo{}, status.Errorf(codes.InvalidArgument, "can't Take unknown range: %v", rID)
+	}
+
+	if ri.State == state.NsTaking || ri.State == state.NsTaken {
+		log.Printf("got redundant Take")
+		defer r.Unlock()
+		return *ri, nil
+	}
+
+	if ri.State != state.NsReady {
+		defer r.Unlock()
+		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Take: %v", ri.State)
+	}
+
+	// State is NsReady
+
+	ri.State = state.NsTaking
+	r.Unlock()
+
+	withTimeout(r.gracePeriod, func() {
+		r.runThenUpdateState(rID, state.NsTaken, state.NsTakingError, func() error {
 			return r.n.PrepareDropRange(rID)
 		})
+	})
 
-	case state.NsTaking, state.NsTaken:
-		log.Printf("got redundant Take")
-
-	default:
-		return nil, status.Errorf(codes.InvalidArgument, "invalid state for Take: %v", ri.State)
-	}
-
-	return ri, nil
-}
-
-func (r *Rangelet) drop(rID ranje.Ident) (*info.RangeInfo, error) {
 	r.Lock()
 	defer r.Unlock()
 
+	ri, ok = r.info[rID]
+	if !ok {
+		panic(fmt.Sprintf("range vanished from infos during take! (rID=%v)", rID))
+	}
+
+	return *ri, nil
+}
+
+func (r *Rangelet) drop(rID ranje.Ident) (info.RangeInfo, error) {
+	r.Lock()
+
 	ri, ok := r.info[rID]
 	if !ok {
+		r.Unlock()
 		log.Printf("got redundant Drop (no such range; maybe drop complete)")
-		return ri, ErrNotFound
+
+		// Return success! The caller wanted the range to be dropped, and we
+		// don't have the range. So (hopefully) we dropped it already.
+		return notFound(rID), nil
 	}
 
-	switch ri.State {
-	case state.NsTaken:
-		ri.State = state.NsDropping
-		go r.runThenUpdateState(rID, state.NsNotFound, state.NsDroppingError, func() error {
+	if ri.State == state.NsDropping {
+		log.Printf("got redundant Drop (drop in progress)")
+		defer r.Unlock()
+		return *ri, nil
+	}
+
+	if ri.State != state.NsTaken {
+		defer r.Unlock()
+		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Drop: %v", ri.State)
+	}
+
+	// State is NsTaken
+
+	ri.State = state.NsDropping
+	r.Unlock()
+
+	withTimeout(r.gracePeriod, func() {
+		r.runThenUpdateState(rID, state.NsNotFound, state.NsDroppingError, func() error {
 			return r.n.DropRange(rID)
 		})
+	})
 
-	case state.NsDropping:
-		log.Printf("got redundant Drop (drop in progress)")
+	r.Lock()
+	defer r.Unlock()
 
-	default:
-		return nil, status.Errorf(codes.InvalidArgument, "invalid state for Drop: %v", ri.State)
+	ri, ok = r.info[rID]
+	if !ok {
+		// As above, the range being gone is success.
+		return notFound(rID), nil
 	}
 
-	return ri, nil
+	// The range is still here.
+	// DropRange is presumably still running.
+	return *ri, nil
 }
 
 func (r *Rangelet) Find(k ranje.Key) (ranje.Ident, bool) {
@@ -230,7 +315,7 @@ func (r *Rangelet) gatherLoadInfo() error {
 	for rID, ri := range r.info {
 		info, err := r.n.GetLoadInfo(rID)
 
-		if err == NotFound {
+		if err == api.NotFound {
 			// No problem. The Rangelet knows about this range, but the client
 			// doesn't, for whatever reason. Probably racing PrepareAddRange.
 			log.Printf("GetLoadInfo(%v): NotFound", rID)
@@ -252,7 +337,7 @@ func (r *Rangelet) gatherLoadInfo() error {
 // store in Rangelet.info, via roster/info.RangeInfo) with the info from the
 // given rangelet.LoadInfo. This is very nasty and hopefully temporary.
 // TODO: Remove once roster/info import is gone from rangelet.
-func updateLoadInfo(rostLI *info.LoadInfo, rgltLI LoadInfo) {
+func updateLoadInfo(rostLI *info.LoadInfo, rgltLI api.LoadInfo) {
 	rostLI.Keys = uint64(rgltLI.Keys)
 }
 
@@ -284,4 +369,48 @@ func (r *Rangelet) SetWantDrain(b bool) {
 // changes via the Node interface.
 func (r *Rangelet) State(rID ranje.Ident) state.RemoteState {
 	return r.info[rID].State
+}
+
+func (r *Rangelet) rangeInfo(rID ranje.Ident) (info.RangeInfo, bool) {
+	r.Lock()
+	defer r.Unlock()
+
+	ri, ok := r.info[rID]
+	if ok {
+		return *ri, true
+	}
+
+	return info.RangeInfo{}, false
+}
+
+func notFound(rID ranje.Ident) info.RangeInfo {
+	return info.RangeInfo{
+		Meta:  ranje.Meta{Ident: rID},
+		State: state.NsNotFound,
+		Info:  info.LoadInfo{},
+	}
+}
+
+func withTimeout(timeout time.Duration, f func()) bool {
+	ch := make(chan struct{})
+	go func() {
+		f()
+		close(ch)
+	}()
+
+	select {
+	case <-ch:
+		log.Print("finished!")
+		return true
+
+	case <-time.After(timeout):
+		log.Print("timed out")
+		return false
+	}
+}
+
+// Just for tests.
+// TODO: Remove this somehow? Only TestNodes needs it.
+func (r *Rangelet) SetGracePeriod(d time.Duration) {
+	r.gracePeriod = d
 }

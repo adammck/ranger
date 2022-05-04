@@ -10,11 +10,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/adammck/ranger/pkg/api"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/rangelet"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster/info"
 	"github.com/adammck/ranger/pkg/roster/state"
+	"github.com/adammck/ranger/pkg/test/fake_storage"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/test/bufconn"
 )
@@ -29,7 +31,7 @@ type TestNode struct {
 	Conn *grpc.ClientConn
 	rglt *rangelet.Rangelet
 
-	loadInfos map[ranje.Ident]rangelet.LoadInfo
+	loadInfos map[ranje.Ident]api.LoadInfo
 
 	// Keep requests sent to this node.
 	// Call RPCs() to fetch and clear.
@@ -47,47 +49,39 @@ type TestNode struct {
 
 func NewTestNode(ctx context.Context, addr string, rangeInfos map[ranje.Ident]*info.RangeInfo) (*TestNode, func()) {
 
-	// Copy rangeInfos to be loaded (via Storage) into rangelet.
-	// TODO: This allows test to mess with RangeInfo; get rid of the pointers.
-	infos := []*info.RangeInfo{}
-	for _, ri := range rangeInfos {
-		infos = append(infos, &info.RangeInfo{
-			Meta:  ri.Meta,
-			State: ri.State,
-		})
-	}
-
 	// Extract LoadInfos to keep in the client (TestNode). Rangelet fetches via
 	// GetLoadInfo.
-	li := map[ranje.Ident]rangelet.LoadInfo{}
+	li := map[ranje.Ident]api.LoadInfo{}
 	for _, ri := range rangeInfos {
-		li[ri.Meta.Ident] = rangelet.LoadInfo{
+		li[ri.Meta.Ident] = api.LoadInfo{
 			Keys: int(ri.Info.Keys),
 		}
 	}
 
-	srv := grpc.NewServer()
-
-	tn := &TestNode{
+	n := &TestNode{
 		Addr:        addr,
 		loadInfos:   li,
 		gates:       map[string][2]*sync.WaitGroup{},
 		transitions: map[rangeInState]error{},
 	}
 
-	stor := Storage{infos: infos}
-	rglt := rangelet.NewRangelet(tn, srv, &stor)
+	srv := grpc.NewServer()
+	stor := fake_storage.NewFakeStorage(rangeInfos)
+	n.rglt = rangelet.NewRangelet(n, srv, stor)
 
-	// Rangelet has registered the NodeService by now.
-	conn, closer := tn.nodeServer(ctx, srv)
-	tn.Conn = conn
+	// Just for tests.
+	n.rglt.SetGracePeriod(10 * time.Millisecond)
 
-	// TODO: Does the client actually need to talk back to the rangelet other
-	//       than via the callbacks? Probably for to update health of ranges?
-	//       but maybe that can just happen via the rangeinfos.
-	tn.rglt = rglt
+	closer := n.Listen(ctx, srv)
 
-	return tn, closer
+	return n, closer
+}
+
+// Rangelet has registered the NodeService by now.
+func (n *TestNode) Listen(ctx context.Context, srv *grpc.Server) func() {
+	conn, closer := n.nodeServer(ctx, srv)
+	n.Conn = conn
+	return closer
 }
 
 func (n *TestNode) waitUntil(rID ranje.Ident, src state.RemoteState) error {
@@ -120,16 +114,16 @@ func (n *TestNode) waitUntil(rID ranje.Ident, src state.RemoteState) error {
 	}
 }
 
-func (n *TestNode) GetLoadInfo(rID ranje.Ident) (rangelet.LoadInfo, error) {
+func (n *TestNode) GetLoadInfo(rID ranje.Ident) (api.LoadInfo, error) {
 	li, ok := n.loadInfos[rID]
 	if !ok {
-		return rangelet.LoadInfo{}, rangelet.NotFound
+		return api.LoadInfo{}, api.NotFound
 	}
 
 	return li, nil
 }
 
-func (n *TestNode) PrepareAddRange(m ranje.Meta, p []rangelet.Parent) error {
+func (n *TestNode) PrepareAddRange(m ranje.Meta, p []api.Parent) error {
 	return n.waitUntil(m.Ident, state.NsPreparing)
 }
 
@@ -266,13 +260,6 @@ func (n *TestNode) AdvanceTo(t *testing.T, rID ranje.Ident, new state.RemoteStat
 
 	default:
 		t.Fatalf("can't advance to state: %s", new)
-	}
-
-	// Check that current state matches expected state.
-	act := n.rglt.State(rID)
-	if act != exp {
-		t.Fatalf("can't advance to state %s when current state is %s (expected: %s)", new, act, exp)
-		return
 	}
 
 	// Check that an error was given, if one was expected

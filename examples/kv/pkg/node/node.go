@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/reflection"
 
 	pbkv "github.com/adammck/ranger/examples/kv/proto/gen"
+	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
 	consuldisc "github.com/adammck/ranger/pkg/discovery/consul"
@@ -47,7 +48,7 @@ type Node struct {
 func init() {
 	// Ensure that nodeServer implements the NodeServer interface
 	var ns *Node = nil
-	var _ rangelet.Node = ns
+	var _ api.Node = ns
 }
 
 func New(cfg config.Config, addrLis, addrPub string, logReqs bool) (*Node, error) {
