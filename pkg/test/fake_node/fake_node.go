@@ -21,9 +21,10 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 )
 
-type rangeInState struct {
-	rID ranje.Ident
-	s   state.RemoteState
+type stateTransition struct {
+	wg  *sync.WaitGroup
+	src state.RemoteState
+	err error
 }
 
 type TestNode struct {
@@ -43,7 +44,7 @@ type TestNode struct {
 	gates   map[string][2]*sync.WaitGroup
 	gatesMu sync.Mutex
 
-	transitions   map[rangeInState]error
+	transitions   map[ranje.Ident]*stateTransition
 	transitionsMu sync.Mutex
 }
 
@@ -62,7 +63,7 @@ func NewTestNode(ctx context.Context, addr string, rangeInfos map[ranje.Ident]*i
 		Addr:        addr,
 		loadInfos:   li,
 		gates:       map[string][2]*sync.WaitGroup{},
-		transitions: map[rangeInState]error{},
+		transitions: map[ranje.Ident]*stateTransition{},
 	}
 
 	srv := grpc.NewServer()
@@ -84,34 +85,37 @@ func (n *TestNode) Listen(ctx context.Context, srv *grpc.Server) func() {
 	return closer
 }
 
+// waitUntil registers a transition (by rangeID) which we expect will happen
+// in the future, and blocks until AdvanceTo(rID) is called in a different
+// thread. It returns the error inserted into the transition by AdvanceTo.
 func (n *TestNode) waitUntil(rID ranje.Ident, src state.RemoteState) error {
-	ris := rangeInState{
-		rID: rID,
-		s:   src,
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+
+	// Register pending transition, so other thread (where AdvanceTo(rID, src)
+	// will be called) can see that we're waiting, and unblock us.
+
+	n.transitionsMu.Lock()
+	n.transitions[rID] = &stateTransition{
+		err: nil,
+		src: src,
+		wg:  wg,
 	}
+	n.transitionsMu.Unlock()
 
-	t := time.Now().Add(5 * time.Second)
+	// Block until other thread calls wg.Done.
+	log.Printf("waiting on %v", rID)
+	wg.Wait()
+	log.Printf("unblocked %v", rID)
 
-	for {
-		n.transitionsMu.Lock()
-		err, ok := n.transitions[ris]
-		if ok {
-			log.Printf("advancing %v!\n", rID)
-			delete(n.transitions, ris)
-		}
-		n.transitionsMu.Unlock()
-		if ok {
-			return err
-		}
+	// AdvanceTo will have inserted the error that we should return.
+	// Fetch it and clean up the transition.
+	n.transitionsMu.Lock()
+	err := n.transitions[rID].err
+	delete(n.transitions, rID)
+	n.transitionsMu.Unlock()
 
-		// TODO: This is flaky when the race detector is enabled. Replace this
-		//       dumb double-sleeping synchronization with waitgroups.
-		if time.Now().After(t) {
-			panic(fmt.Sprintf("test deadlocked waiting for %v to advance past %v on node %v", ris.rID, ris.s, n.Addr))
-		}
-
-		time.Sleep(10 * time.Millisecond)
-	}
+	return err
 }
 
 func (n *TestNode) GetLoadInfo(rID ranje.Ident) (api.LoadInfo, error) {
@@ -128,6 +132,8 @@ func (n *TestNode) PrepareAddRange(m ranje.Meta, p []api.Parent) error {
 }
 
 func (n *TestNode) AddRange(rID ranje.Ident) error {
+	log.Printf("before waitUntil %v NsReadying", rID)
+	defer log.Printf("after waitUntil %v NsReadying", rID)
 	return n.waitUntil(rID, state.NsReadying)
 }
 
@@ -262,44 +268,52 @@ func (n *TestNode) AdvanceTo(t *testing.T, rID ranje.Ident, new state.RemoteStat
 		t.Fatalf("can't advance to state: %s", new)
 	}
 
-	// Check that an error was given, if one was expected
+	// Check that an error was given, if one was expected.
 	if wantErr && err != nil {
 		t.Fatalf("need error to advance from %s to %s", exp, new)
 		return
-
 	} else if err != nil && !wantErr {
 		t.Fatalf("don't need and error to advance from %s to %s", exp, new)
 		return
 	}
 
-	ris := rangeInState{
-		rID: rID,
-		s:   exp,
-	}
-
-	log.Printf("registering transition: (rID=%v, state=%s)\n", ris.rID, ris.s)
-
+	// Expect that some other thread is waiting on tr.wg in waitUntil. Fail the
+	// whole test if that isn't the case, to avoid waiting forever.
 	n.transitionsMu.Lock()
-	n.transitions[ris] = err
+	tr, ok := n.transitions[rID]
 	n.transitionsMu.Unlock()
-
-	// Now wait until it's gone.
-	// This assumes that some other goroutine is sitting in waitUntil.
-	// TODO: Verify that before registering the transition. Fail the test if
-	//       we try to advance while nobody is waiting.
-	for {
-		n.transitionsMu.Lock()
-		_, ok := n.transitions[ris]
-		n.transitionsMu.Unlock()
-
-		if !ok {
-			break
-		}
-
-		time.Sleep(1 * time.Millisecond)
+	if !ok {
+		t.Fatalf("expected range to be waiting (rID=%v)", rID)
+		return
+	}
+	if tr.src != exp {
+		t.Fatalf("expected src state on waiting range to be %v, but was %v (rID=%v)", exp, tr.src, rID)
+		return
 	}
 
-	log.Println("advanced!")
+	// Register a callback with the rangelet. To return from this helper, we
+	// can't just wait for waitUntil to return, we must wait a little longer
+	// until the rangelet has updated the state for that range. If we return
+	// too soon, a probe might be sent and processed before the other thread as
+	// actually updated the state.
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	n.rglt.OnState(rID, new, func() {
+		wg.Done()
+	})
+
+	// Insert the error (maybe nil) that we want the other thread to return, and
+	// unblock it.
+	n.transitionsMu.Lock()
+	tr.err = err
+	n.transitionsMu.Unlock()
+	tr.wg.Done()
+
+	// Wait for that callback to be called, indicating that the rangelet has
+	// updated the state. After that, we can be sure that probes and such will
+	// see the state that we advanced to.
+	log.Printf("waiting for range to enter state (rID=%v, s=%s)", rID, new)
+	wg.Wait()
 }
 
 func (n *TestNode) Ranges(ctx context.Context, req *pb.RangesRequest) (*pb.RangesResponse, error) {

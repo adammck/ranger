@@ -19,7 +19,7 @@ import (
 
 type Rangelet struct {
 	info         map[ranje.Ident]*info.RangeInfo
-	sync.RWMutex // guards info (keys *and* values)
+	sync.RWMutex // guards info (keys *and* values) and callbacks
 
 	n api.Node
 	s api.Storage
@@ -32,6 +32,15 @@ type Rangelet struct {
 	gracePeriod time.Duration
 
 	srv *NodeServer
+
+	// Holds functions to be called when a specific range enters a state. This
+	// is just for testing. Register callbacks via the OnState method.
+	callbacks map[callback]func()
+}
+
+type callback struct {
+	rID   ranje.Ident
+	state state.RemoteState
 }
 
 func NewRangelet(n api.Node, sr grpc.ServiceRegistrar, s api.Storage) *Rangelet {
@@ -41,6 +50,7 @@ func NewRangelet(n api.Node, sr grpc.ServiceRegistrar, s api.Storage) *Rangelet 
 		s:    s,
 
 		gracePeriod: 1 * time.Second,
+		callbacks:   map[callback]func(){},
 	}
 
 	for _, ri := range s.Read() {
@@ -77,6 +87,7 @@ func (r *Rangelet) runThenUpdateState(rID ranje.Ident, success state.RemoteState
 	// delete them.
 	if s == state.NsNotFound {
 		delete(r.info, rID)
+		r.runCallback(rID, s)
 		log.Printf("range deleted: %v", rID)
 		return
 	}
@@ -85,6 +96,7 @@ func (r *Rangelet) runThenUpdateState(rID ranje.Ident, success state.RemoteState
 	// TODO: Maybe we should keep the range around, for...?
 	if s == state.NsPreparingError {
 		delete(r.info, rID)
+		r.runCallback(rID, s)
 		log.Printf("deleting range after failed give: %v", rID)
 		return
 	}
@@ -94,8 +106,9 @@ func (r *Rangelet) runThenUpdateState(rID ranje.Ident, success state.RemoteState
 		panic(fmt.Sprintf("range vanished in runThenUpdateState! (rID=%v, s=%s)", rID, s))
 	}
 
-	log.Printf("state is now %v (rID=%v)", s, rID)
 	ri.State = s
+	r.runCallback(rID, s)
+	log.Printf("state is now %v (rID=%v)", s, rID)
 }
 
 func (r *Rangelet) give(rm ranje.Meta, parents []api.Parent) (info.RangeInfo, error) {
@@ -364,11 +377,52 @@ func (r *Rangelet) SetWantDrain(b bool) {
 	atomic.StoreUint32(&r.xWantDrain, v)
 }
 
-// State returns the state that the given range is currently in. This should not
-// be used for anything other than sanity-checking. Clients should react to
-// changes via the Node interface.
-func (r *Rangelet) State(rID ranje.Ident) state.RemoteState {
-	return r.info[rID].State
+// State returns the state that the given range is currently in, or NsNotFound
+// if the range doesn't exist. This should not be used for anything other than
+// sanity-checking and testing. Clients should react to changes via the Node
+// interface.
+func (rglt *Rangelet) State(rID ranje.Ident) state.RemoteState {
+	rglt.Lock()
+	defer rglt.Unlock()
+
+	r, ok := rglt.info[rID]
+	if !ok {
+		return state.NsNotFound
+	}
+
+	return r.State
+}
+
+// OnState registers a function which will be called when the given range enters
+// the given state. If the range is already in that state, the func is called
+// immediately and nothing is registered.
+//
+// The function will only be called once, not every time the range enters that
+// state. This should probably only be used for testing.
+func (rglt *Rangelet) OnState(rID ranje.Ident, s state.RemoteState, f func()) {
+	rglt.Lock()
+	defer rglt.Unlock()
+
+	r, ok := rglt.info[rID]
+	if ok && r.State == s {
+		f()
+		return
+	}
+
+	rglt.callbacks[callback{rID: rID, state: s}] = f
+}
+
+// Caller must hold lock.
+func (rglt *Rangelet) runCallback(rID ranje.Ident, s state.RemoteState) {
+	cb := callback{rID: rID, state: s}
+
+	f, ok := rglt.callbacks[cb]
+	if !ok {
+		return
+	}
+
+	delete(rglt.callbacks, cb)
+	f()
 }
 
 func (r *Rangelet) rangeInfo(rID ranje.Ident) (info.RangeInfo, bool) {
