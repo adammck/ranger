@@ -17,5 +17,6 @@ type Parent struct {
 
 // Same as roster/info.LoadInfo, to avoid circular import.
 type LoadInfo struct {
-	Keys int
+	Keys   int
+	Splits []ranje.Key
 }
