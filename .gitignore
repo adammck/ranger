@@ -1,5 +1,6 @@
 # binaries
 __debug_bin
+/cmd/dumbbal/dumbbal
 /cmd/rangerctl/rangerctl
 /cmd/rangerd/rangerd
 /examples/kv/kv
