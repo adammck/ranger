@@ -301,8 +301,21 @@ func (r *Rangelet) drop(rID ranje.Ident) (info.RangeInfo, error) {
 	return *ri, nil
 }
 
+// TODO: This method should be able to return multiple ranges. Might be called
+//       during an operation where both src and dest are on this node. Currently
+//       just returns the first one it finds.
 func (r *Rangelet) Find(k ranje.Key) (ranje.Ident, bool) {
 	for _, ri := range r.info {
+
+		// Play dumb in some cases: a range can be known to the rangelet but
+		// unknown to the client, in these states. (Find might have been called
+		// before PrepareAddShard has returned, or while DropShard is still in
+		// progress.) The client should check the state anyway, but this makes
+		// the contract simpler.
+		if ri.State == state.NsPreparing || ri.State == state.NsDropping || ri.State == state.NsDroppingError {
+			continue
+		}
+
 		if ri.Meta.Contains(k) {
 			return ri.Meta.Ident, true
 		}
