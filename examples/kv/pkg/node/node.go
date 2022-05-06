@@ -43,6 +43,7 @@ type Node struct {
 
 	// Options
 	logReqs bool
+	chaos   bool
 }
 
 func init() {
@@ -51,7 +52,7 @@ func init() {
 	var _ api.Node = ns
 }
 
-func New(cfg config.Config, addrLis, addrPub string, logReqs bool) (*Node, error) {
+func New(cfg config.Config, addrLis, addrPub string, logReqs bool, chaos bool) (*Node, error) {
 	var opts []grpc.ServerOption
 	srv := grpc.NewServer(opts...)
 
@@ -73,6 +74,7 @@ func New(cfg config.Config, addrLis, addrPub string, logReqs bool) (*Node, error
 		disc:    disc,
 
 		logReqs: logReqs,
+		chaos:   chaos,
 	}
 
 	rglt := rangelet.NewRangelet(n, srv, &null.NullStorage{})

@@ -126,10 +126,15 @@ func (n *Node) DropRange(rID ranje.Ident) error {
 	return nil
 }
 
-// performChaos sleeps for a random amount of time between zero and 5000ms,
-// biased towards zero. Then returns an error 5% of the time. This is of course
-// intended to make our testing a little more chaotic.
+// performChaos optionally (if chaos is enabled, via the -chaos flag) sleeps for
+// a random amount of time between zero and 5000ms, biased towards zero. Then
+// returns an error 5% of the time. This is of course intended to make our
+// manual testing a little more chaotic.
 func (n *Node) performChaos() error {
+	if !n.chaos {
+		return nil
+	}
+
 	ms := int(3000 * math.Pow(rand.Float64(), 2))
 	d := time.Duration(ms) * time.Millisecond
 	log.Printf("Sleeping %v", d)
