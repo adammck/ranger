@@ -116,16 +116,13 @@ func main() {
 		var maxSplit string
 
 		for _, p := range r.placements {
-
-			// Skip placements with no suggested splits.
-			if len(p.info.Splits) == 0 {
-				continue
-			}
-
 			s := p.info.Keys
 			if s > maxScore {
 				maxScore = s
-				maxSplit = p.info.Splits[0]
+
+				if len(p.info.Splits) > 0 {
+					maxSplit = p.info.Splits[0]
+				}
 			}
 		}
 
@@ -136,11 +133,14 @@ func main() {
 		}
 	}
 
-	// -- Find any ranges higher than the threshold, in descending order
+	// -- Find any ranges higher than the threshold, having splits, in descending order
 
 	splits := []int{}
 
 	for i, r := range scores {
+		if r.split == "" {
+			continue
+		}
 		if r.score > *splitScore {
 			splits = append(splits, i)
 		}
