@@ -5,6 +5,7 @@ import (
 	"log"
 	"math"
 	"math/rand"
+	"sort"
 	"sync/atomic"
 	"time"
 
@@ -21,12 +22,27 @@ func (n *Node) GetLoadInfo(rID ranje.Ident) (api.LoadInfo, error) {
 		return api.LoadInfo{}, api.NotFound
 	}
 
-	r.dataMu.RLock()
-	defer r.dataMu.RUnlock()
-	keys := len(r.data)
+	keys := []string{}
+
+	// Find mid-point in an extremely inefficient manner.
+	// While holding the lock, no less.
+	func() {
+		r.dataMu.RLock()
+		defer r.dataMu.RUnlock()
+		for k := range r.data {
+			keys = append(keys, k)
+		}
+	}()
+
+	var split ranje.Key
+	if len(keys) > 2 {
+		sort.Strings(keys)
+		split = ranje.Key(keys[len(keys)/2])
+	}
 
 	return api.LoadInfo{
-		Keys: keys,
+		Keys:   len(keys),
+		Splits: []ranje.Key{split},
 	}, nil
 }
 
