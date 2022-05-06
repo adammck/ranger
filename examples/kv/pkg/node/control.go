@@ -63,10 +63,9 @@ func (n *Node) AddRange(rID ranje.Ident) error {
 		return err
 	}
 
-	n.rangesMu.Lock()
-	defer n.rangesMu.Unlock()
-
+	n.rangesMu.RLock()
 	r, ok := n.ranges[rID]
+	n.rangesMu.RUnlock()
 	if !ok {
 		panic("rangelet called AddRange with unknown range!")
 	}
