@@ -58,7 +58,7 @@ func newFetcher(rm ranje.Meta, parents []api.Parent) *fetcher {
 
 func (f *fetcher) Fetch(dest *Range) error {
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	// Fetch each source range in parallel.
