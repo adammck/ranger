@@ -116,6 +116,12 @@ func main() {
 		var maxSplit string
 
 		for _, p := range r.placements {
+
+			// Skip placements with no suggested splits.
+			if len(p.info.Splits) == 0 {
+				continue
+			}
+
 			s := p.info.Keys
 			if s > maxScore {
 				maxScore = s
