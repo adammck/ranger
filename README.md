@@ -30,6 +30,50 @@ This is a Go interface, but it's all gRPC+protobufs under the hood. There are no
 other implementations today, but it's a goal to avoid doing anything which would
 make it difficult to implement Rangelets in other languages.
 
+## Design
+
+![ranger-diagram-v1](https://user-images.githubusercontent.com/19543/167534758-82124dab-c12e-4920-869c-63165160dffb.png)
+
+Here's how it works, at a high level.  
+The main components are:
+
+- **Keyspace**: Stores the desired state of ranges and placements. Provides an
+  interface to create new ranges by splitting and joining. (Ranges cannot
+  currently be destroyed; only obsoleted, in case the history is needed.)
+  Provides an interface to create and destroy placements, in order to designate
+  which node(s) each range should be placed on.
+- **Roster**: Watches (external) service discovery to maintain a list of nodes
+  (on which ranges can be placed). Relays messages from other components (e.g.
+  the orchestrator) to the nodes. Periodically probes those nodes to monitor
+  their health, and the state of the ranges placed on them. For now, provides an
+  interface for other components to find a node suitable for range placement.
+- **Orchestrator**: Reconciles the difference between the desired state (from
+  the keyspace) and the current state (from the roster), somewhat like a
+  Kubernetes controller.
+- **Rangelet**: Runs inside of nodes. Receives RPCs from the roster, and calls
+  methods of the rangelet.Node interface to notify nodes of changes to the set
+  of ranges placed on them. Provides some useful helper methods to simplify node
+  development.
+- **Balancer**: External component. Simple implementation(s) provided, but can
+  be replaced for more complex services. Fetches state of nodes, ranges, and
+  placements from orchestrator, and sends split and join RPCs in order to spread
+  ranges evenly across nodes.
+
+Both **Persister** and **Discovery** are simple interfaces to pluggable storage
+systems. Only Consul is supported by either for now, but adding support for
+other systems (e.g. ZooKeeper, etcd) should be easy enough in future.
+
+The **green boxes** are storage nodes. These are implemented entirely (except
+the rangelet) by the service owner, to perform the _actual work_ that Ranger is
+so helpfully sharding and balancing. Services may receive their data via HTTP or
+RPC, and so may provide a client library to route requests to the appropriate
+node(s), or may forward requests between themselves. (Ranger doesn't provide any
+help with that part today, but likely will in future.) Alternatively, services
+may pull relevant work from e.g. a message queue.
+
+For example node implementations, see the [examples](/examples) directory.  
+For more complex examples, read the _Slicer_ and _Shard Manager_ papers.
+
 ## Client
 
 Ranger includes a command line client, `rangerctl`, which is a thin wrapper
@@ -55,10 +99,6 @@ Flags:
   -request
         print gRPC request instead of sending it
 ```
-
-## Design
-
-TODO
 
 ## State Machines
 
