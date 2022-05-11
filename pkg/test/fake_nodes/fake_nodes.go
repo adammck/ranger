@@ -50,9 +50,9 @@ func (tn *TestNodes) Get(nID string) *fake_node.TestNode {
 	return n
 }
 
-func (tn *TestNodes) SetBlockTransitions(b bool) {
+func (tn *TestNodes) SetStrictTransitions(b bool) {
 	for _, n := range tn.nodes {
-		n.SetBlockTransitions(b)
+		n.SetStrictTransitions(b)
 	}
 }
 

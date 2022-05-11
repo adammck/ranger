@@ -39,9 +39,11 @@ type TestNode struct {
 	rpcs   []interface{}
 	rpcsMu sync.Mutex
 
-	blockTransitions bool
-	transitions      map[ranje.Ident]*stateTransition
-	transitionsMu    sync.Mutex
+	transitions   map[ranje.Ident]*stateTransition
+	transitionsMu sync.Mutex
+
+	// Panic unless a transition was registred.
+	strictTransitions bool
 }
 
 func NewTestNode(ctx context.Context, addr string, rangeInfos map[ranje.Ident]*info.RangeInfo) (*TestNode, func()) {
@@ -107,7 +109,7 @@ func (n *TestNode) waitUntil(rID ranje.Ident, src state.RemoteState) error {
 
 	// No transition was registered, so we will either return no error, or
 	// block.
-	if !n.blockTransitions {
+	if !n.strictTransitions {
 		n.transitionsMu.Unlock()
 		return nil
 	}
@@ -209,6 +211,8 @@ func (n *TestNode) withTestInterceptor() grpc.DialOption {
 	return grpc.WithUnaryInterceptor(n.testInterceptor)
 }
 
+// TODO: Allow this to be called without returning (and using) a barrier, to
+//       inject errors without blocking.
 func (n *TestNode) Expect(t *testing.T, rID ranje.Ident, src state.RemoteState, err error) *barrier {
 	bar := NewBarrier(1)
 	st := &stateTransition{
@@ -221,8 +225,8 @@ func (n *TestNode) Expect(t *testing.T, rID ranje.Ident, src state.RemoteState, 
 	defer n.transitionsMu.Unlock()
 
 	// Don't allow overwrites. It's confusing.
-	if _, ok := n.transitions[rID]; ok {
-		t.Fatalf("already have pending state transition (rID=%v)", rID)
+	if tr, ok := n.transitions[rID]; ok {
+		t.Fatalf("already have pending state transition (addr=%s, rID=%v, src=%v)", n.Addr, rID, tr.src)
 		return nil
 	}
 
@@ -370,8 +374,8 @@ func (n *TestNode) SetWantDrain(b bool) {
 	n.rglt.SetWantDrain(b)
 }
 
-func (n *TestNode) SetBlockTransitions(b bool) {
-	n.blockTransitions = b
+func (n *TestNode) SetStrictTransitions(b bool) {
+	n.strictTransitions = b
 }
 
 func (n *TestNode) SetGracePeriod(d time.Duration) {
