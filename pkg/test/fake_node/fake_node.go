@@ -92,8 +92,8 @@ func (n *TestNode) waitUntil(rID ranje.Ident, src state.RemoteState) error {
 	// can return early without waiting.
 	tr, ok := n.transitions[rID]
 	if ok {
-		defer n.transitionsMu.Unlock()
 		delete(n.transitions, rID)
+		n.transitionsMu.Unlock()
 
 		if tr.src != src {
 			// TODO: Hang on to t.Testing in NewTestNode, so we can access it
@@ -114,7 +114,7 @@ func (n *TestNode) waitUntil(rID ranje.Ident, src state.RemoteState) error {
 		return nil
 	}
 
-	bar := NewBarrier(1)
+	bar := NewBarrier(1, func() {})
 
 	// Register pending transition, so other thread (where AdvanceTo(rID, src)
 	// will be called) can see that we're waiting, and unblock us.
@@ -214,7 +214,9 @@ func (n *TestNode) withTestInterceptor() grpc.DialOption {
 // TODO: Allow this to be called without returning (and using) a barrier, to
 //       inject errors without blocking.
 func (n *TestNode) Expect(t *testing.T, rID ranje.Ident, src state.RemoteState, err error) *barrier {
-	bar := NewBarrier(1)
+	wg := &sync.WaitGroup{}
+
+	bar := NewBarrier(1, wg.Wait)
 	st := &stateTransition{
 		src: src,
 		err: err,
@@ -230,98 +232,15 @@ func (n *TestNode) Expect(t *testing.T, rID ranje.Ident, src state.RemoteState, 
 		return nil
 	}
 
-	n.transitions[rID] = st
-
-	return bar
-}
-
-func (n *TestNode) AdvanceTo(t *testing.T, rID ranje.Ident, new state.RemoteState, err error) {
-	var exp state.RemoteState
-	var wantErr bool
-
-	switch new {
-	case state.NsPrepared:
-		exp = state.NsPreparing
-		wantErr = false
-
-	case state.NsPreparingError:
-		exp = state.NsPreparing
-		wantErr = true
-
-	case state.NsReady:
-		exp = state.NsReadying
-		wantErr = false
-
-	case state.NsReadyingError:
-		exp = state.NsReadying
-		wantErr = true
-
-	case state.NsTaken:
-		exp = state.NsTaking
-		wantErr = false
-
-	case state.NsTakingError:
-		exp = state.NsTaking
-		wantErr = true
-
-	case state.NsNotFound:
-		exp = state.NsDropping
-		wantErr = false
-
-	case state.NsDroppingError:
-		exp = state.NsDropping
-		wantErr = true
-
-	default:
-		t.Fatalf("can't advance to state: %s", new)
-	}
-
-	// Check that an error was given, if one was expected.
-	if wantErr && err != nil {
-		t.Fatalf("need error to advance from %s to %s", exp, new)
-		return
-	} else if err != nil && !wantErr {
-		t.Fatalf("don't need error to advance from %s to %s", exp, new)
-		return
-	}
-
-	// Expect that some other thread is waiting on tr.wg in waitUntil. Fail the
-	// whole test if that isn't the case, to avoid waiting forever.
-	n.transitionsMu.Lock()
-	tr, ok := n.transitions[rID]
-	n.transitionsMu.Unlock()
-	if !ok {
-		t.Fatalf("expected range to be waiting (rID=%v)", rID)
-		return
-	}
-	if tr.src != exp {
-		t.Fatalf("expected src state on waiting range to be %v, but was %v (rID=%v)", exp, tr.src, rID)
-		return
-	}
-
-	// Register a callback with the rangelet. To return from this helper, we
-	// can't just wait for waitUntil to return, we must wait a little longer
-	// until the rangelet has updated the state for that range. If we return
-	// too soon, a probe might be sent and processed before the other thread as
-	// actually updated the state.
-	wg := &sync.WaitGroup{}
 	wg.Add(1)
-	n.rglt.OnState(rID, new, func() {
+
+	n.rglt.OnLeaveState(rID, src, func() {
 		wg.Done()
 	})
 
-	// Insert the error (maybe nil) that we want the other thread to return, and
-	// unblock it.
-	n.transitionsMu.Lock()
-	tr.err = err
-	n.transitionsMu.Unlock()
-	tr.bar.Release()
+	n.transitions[rID] = st
 
-	// Wait for that callback to be called, indicating that the rangelet has
-	// updated the state. After that, we can be sure that probes and such will
-	// see the state that we advanced to.
-	log.Printf("waiting for range to enter state (rID=%v, s=%s)", rID, new)
-	wg.Wait()
+	return bar
 }
 
 func (n *TestNode) Ranges(ctx context.Context, req *pb.RangesRequest) (*pb.RangesResponse, error) {

@@ -286,6 +286,7 @@ func (ts *OrchestratorSuite) TestPlacementSlow() {
 
 	par := ts.nodes.Get("test-aaa").Expect(ts.T(), 1, state.NsPreparing, nil)
 	ts.tickWait()
+	par.Wait()
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
 			ts.ProtoEqual(&pb.GiveRequest{
@@ -346,6 +347,7 @@ func (ts *OrchestratorSuite) TestPlacementSlow() {
 
 	ar := ts.nodes.Get("test-aaa").Expect(ts.T(), 1, state.NsReadying, nil)
 	ts.tickWait()
+	ar.Wait()
 	ts.Len(RPCs(ts.nodes.RPCs()), 1) // redundant Serve
 	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsPrepared}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsReadying]}", ts.rost.TestString())
@@ -721,6 +723,8 @@ func (ts *OrchestratorSuite) TestSplit() {
 	a2PAR := ts.nodes.Get("test-aaa").Expect(ts.T(), 2, state.NsPreparing, nil)
 	a3PAR := ts.nodes.Get("test-aaa").Expect(ts.T(), 3, state.NsPreparing, nil)
 	ts.tickWait()
+	a2PAR.Wait()
+	a3PAR.Wait()
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 2) {
 			ts.ProtoEqual(&pb.GiveRequest{
@@ -822,6 +826,7 @@ func (ts *OrchestratorSuite) TestSplit() {
 
 	a1PDR := ts.nodes.Get("test-aaa").Expect(ts.T(), 1, state.NsTaking, nil)
 	ts.tickWait()
+	a1PDR.Wait()
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
 			ts.ProtoEqual(&pb.TakeRequest{Range: 1}, aaa[0])
@@ -843,6 +848,8 @@ func (ts *OrchestratorSuite) TestSplit() {
 	a2AR := ts.nodes.Get("test-aaa").Expect(ts.T(), 2, state.NsReadying, nil)
 	a3AR := ts.nodes.Get("test-aaa").Expect(ts.T(), 3, state.NsReadying, nil)
 	ts.tickWait()
+	a2AR.Wait()
+	a3AR.Wait()
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 2) {
 			ts.ProtoEqual(&pb.ServeRequest{Range: 2}, aaa[0])
@@ -880,6 +887,7 @@ func (ts *OrchestratorSuite) TestSplit() {
 
 	a1DR := ts.nodes.Get("test-aaa").Expect(ts.T(), 1, state.NsDropping, nil)
 	ts.tickWait()
+	a1DR.Wait()
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
 			ts.ProtoEqual(&pb.DropRequest{Range: 1}, aaa[0])
