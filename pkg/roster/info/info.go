@@ -25,18 +25,31 @@ type NodeInfo struct {
 // TODO: Would be nice to just use a rangelet.LoadInfo here, but circular
 //       import! Remove roster/info import from rangelet, then resolve this.
 type LoadInfo struct {
-	Keys uint64
+	Keys   uint64
+	Splits []ranje.Key
 }
 
 func (li *LoadInfo) ToProto() *pb.LoadInfo {
+	splits := make([]string, len(li.Splits))
+	for i := range li.Splits {
+		splits[i] = string(li.Splits[i])
+	}
+
 	return &pb.LoadInfo{
-		Keys: li.Keys,
+		Keys:   li.Keys,
+		Splits: splits,
 	}
 }
 
 func LoadInfoFromProto(pbli *pb.LoadInfo) LoadInfo {
+	splits := make([]ranje.Key, len(pbli.Splits))
+	for i := range pbli.Splits {
+		splits[i] = ranje.Key(pbli.Splits[i])
+	}
+
 	return LoadInfo{
-		Keys: pbli.Keys,
+		Keys:   pbli.Keys,
+		Splits: splits,
 	}
 }
 

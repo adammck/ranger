@@ -365,6 +365,10 @@ func (r *Rangelet) gatherLoadInfo() error {
 // TODO: Remove once roster/info import is gone from rangelet.
 func updateLoadInfo(rostLI *info.LoadInfo, rgltLI api.LoadInfo) {
 	rostLI.Keys = uint64(rgltLI.Keys)
+	rostLI.Splits = make([]ranje.Key, len(rgltLI.Splits))
+	for i, s := range rgltLI.Splits {
+		rostLI.Splits[i] = s
+	}
 }
 
 func (r *Rangelet) walk(f func(*info.RangeInfo)) {

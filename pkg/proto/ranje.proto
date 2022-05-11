@@ -29,9 +29,13 @@ message LoadInfo {
   // Just for reporting? Not balancing?
   uint64 keys = 1;
 
+  // Where the node would suggest that this range be split, in order for the
+  // resulting ranges to be evenly loaded. Otherwise the mid-point between start
+  // and end keys will be used, which is probably not an even split.
+  repeated string splits = 2;
+ 
   // TODO: Generic load info? cpu/ram/network/disk?
   // TODO: Extra domain-specific info?
-  // TODO: Suggested split point(s)
 }
 
 // TODO: Rename to RemoteRangeInfo, since this is the view from the remote.
