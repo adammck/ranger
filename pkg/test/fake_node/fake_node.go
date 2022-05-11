@@ -22,9 +22,9 @@ import (
 )
 
 type stateTransition struct {
-	wg  *sync.WaitGroup
 	src state.RemoteState
 	err error
+	bar *barrier
 }
 
 type TestNode struct {
@@ -38,11 +38,6 @@ type TestNode struct {
 	// Call RPCs() to fetch and clear.
 	rpcs   []interface{}
 	rpcsMu sync.Mutex
-
-	// Allow requests to be blocked by method name.
-	// (This is to test what happens when RPCs span ticks.)
-	gates   map[string][2]*sync.WaitGroup
-	gatesMu sync.Mutex
 
 	blockTransitions bool
 	transitions      map[ranje.Ident]*stateTransition
@@ -63,7 +58,6 @@ func NewTestNode(ctx context.Context, addr string, rangeInfos map[ranje.Ident]*i
 	n := &TestNode{
 		Addr:        addr,
 		loadInfos:   li,
-		gates:       map[string][2]*sync.WaitGroup{},
 		transitions: map[ranje.Ident]*stateTransition{},
 	}
 
@@ -105,6 +99,9 @@ func (n *TestNode) waitUntil(rID ranje.Ident, src state.RemoteState) error {
 			panic(fmt.Sprintf("expected src state on waiting range to be %v, but was %v (rID=%v)", src, tr.src, rID))
 		}
 
+		// Note that we've arrived, and wait for testing thread to unblock us.
+		tr.bar.Arrive()
+
 		return tr.err
 	}
 
@@ -115,8 +112,7 @@ func (n *TestNode) waitUntil(rID ranje.Ident, src state.RemoteState) error {
 		return nil
 	}
 
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
+	bar := NewBarrier(1)
 
 	// Register pending transition, so other thread (where AdvanceTo(rID, src)
 	// will be called) can see that we're waiting, and unblock us.
@@ -124,13 +120,13 @@ func (n *TestNode) waitUntil(rID ranje.Ident, src state.RemoteState) error {
 	n.transitions[rID] = &stateTransition{
 		err: nil,
 		src: src,
-		wg:  wg,
+		bar: bar,
 	}
 
 	// Block until other thread calls wg.Done.
 	log.Printf("waiting on %v", rID)
 	n.transitionsMu.Unlock()
-	wg.Wait()
+	bar.Arrive()
 	log.Printf("unblocked %v", rID)
 
 	// AdvanceTo will have inserted the error that we should return.
@@ -204,22 +200,6 @@ func (n *TestNode) testInterceptor(
 		n.rpcsMu.Unlock()
 	}
 
-	// Gate
-
-	n.gatesMu.Lock()
-	wgs, ok := n.gates[method]
-	if ok {
-		delete(n.gates, method)
-	}
-	n.gatesMu.Unlock()
-
-	if ok {
-		// TODO: Allow errors to be injected here.
-		log.Printf("Gating RPC: method=%s", method)
-		wgs[1].Done()
-		wgs[0].Wait()
-	}
-
 	err := invoker(ctx, method, req, res, cc, opts...)
 	log.Printf("RPC: method=%s; Error=%v", method, err)
 	return err
@@ -229,25 +209,26 @@ func (n *TestNode) withTestInterceptor() grpc.DialOption {
 	return grpc.WithUnaryInterceptor(n.testInterceptor)
 }
 
-func (n *TestNode) GateRPC(t *testing.T, method string) [2]*sync.WaitGroup {
-
-	one := &sync.WaitGroup{}
-	two := &sync.WaitGroup{}
-	wgs := [2]*sync.WaitGroup{one, two}
-
-	n.gatesMu.Lock()
-	defer n.gatesMu.Unlock()
-
-	if _, ok := n.gates[method]; ok {
-		t.Fatalf("tried to add gate when one already exists: addr=%s, method=%s", n.Addr, method)
-		return wgs
+func (n *TestNode) Expect(t *testing.T, rID ranje.Ident, src state.RemoteState, err error) *barrier {
+	bar := NewBarrier(1)
+	st := &stateTransition{
+		src: src,
+		err: err,
+		bar: bar,
 	}
 
-	wgs[0].Add(1)
+	n.transitionsMu.Lock()
+	defer n.transitionsMu.Unlock()
 
-	log.Printf("Added gate: addr=%s, method=%s", n.Addr, method)
-	n.gates[method] = wgs
-	return wgs
+	// Don't allow overwrites. It's confusing.
+	if _, ok := n.transitions[rID]; ok {
+		t.Fatalf("already have pending state transition (rID=%v)", rID)
+		return nil
+	}
+
+	n.transitions[rID] = st
+
+	return bar
 }
 
 func (n *TestNode) AdvanceTo(t *testing.T, rID ranje.Ident, new state.RemoteState, err error) {
@@ -330,7 +311,7 @@ func (n *TestNode) AdvanceTo(t *testing.T, rID ranje.Ident, new state.RemoteStat
 	n.transitionsMu.Lock()
 	tr.err = err
 	n.transitionsMu.Unlock()
-	tr.wg.Done()
+	tr.bar.Release()
 
 	// Wait for that callback to be called, indicating that the rangelet has
 	// updated the state. After that, we can be sure that probes and such will
@@ -391,4 +372,8 @@ func (n *TestNode) SetWantDrain(b bool) {
 
 func (n *TestNode) SetBlockTransitions(b bool) {
 	n.blockTransitions = b
+}
+
+func (n *TestNode) SetGracePeriod(d time.Duration) {
+	n.rglt.SetGracePeriod(d)
 }

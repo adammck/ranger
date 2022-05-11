@@ -1190,6 +1190,7 @@ func (ts *OrchestratorSuite) TestSlowRPC() {
 
 	ts.Init([]*ranje.Range{r1})
 	ts.nodes.Add(ts.ctx, na, map[ranje.Ident]*info.RangeInfo{})
+	ts.nodes.Get(na.Ident).SetGracePeriod(3 * time.Second)
 
 	ts.rost.Tick()
 	ts.Equal("{1 [-inf, +inf] RsActive}", ts.ks.LogString())
@@ -1197,18 +1198,14 @@ func (ts *OrchestratorSuite) TestSlowRPC() {
 
 	// -------------------------------------------------------------------------
 
-	// Block any RPCs heading for node aaa. They will still be logged (and so
-	// returned by RPCs()), but will not complete until the waitgroup is Done.
-	wgs := ts.nodes.Get("test-aaa").GateRPC(ts.T(), "/ranger.Node/Give")
-	wgs[1].Add(1) // expecting one RPC
+	bar := ts.nodes.Get("test-aaa").Expect(ts.T(), 1, state.NsPreparing, nil)
 
-	// No WaitRPCs()!
+	// No WaitRPCs() this time! But we do stil have to wait until our one
+	// expected RPC reaches the barrier (via PrepareAddRange). Otherwise, Tick
+	// without WaitRPCs will likely return before the RPC has even started, let
+	// alone gotten to the barrier.
 	ts.orch.Tick()
-
-	// Block until all of the gated RPCs (all one of them) have arrived at the
-	// gate. Otherwise the RPC might not have been sent yet, and we won't be
-	// able to assert it (below).
-	wgs[1].Wait()
+	bar.Wait()
 
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
@@ -1240,7 +1237,7 @@ func (ts *OrchestratorSuite) TestSlowRPC() {
 	ts.Equal("{test-aaa []}", ts.rost.TestString())
 
 	// Give RPC finally completes! Roster is updated.
-	wgs[0].Done()
+	bar.Release()
 	ts.orch.WaitRPCs()
 	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsPrepared]}", ts.rost.TestString())
