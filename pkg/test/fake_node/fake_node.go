@@ -44,8 +44,9 @@ type TestNode struct {
 	gates   map[string][2]*sync.WaitGroup
 	gatesMu sync.Mutex
 
-	transitions   map[ranje.Ident]*stateTransition
-	transitionsMu sync.Mutex
+	blockTransitions bool
+	transitions      map[ranje.Ident]*stateTransition
+	transitionsMu    sync.Mutex
 }
 
 func NewTestNode(ctx context.Context, addr string, rangeInfos map[ranje.Ident]*info.RangeInfo) (*TestNode, func()) {
@@ -89,22 +90,46 @@ func (n *TestNode) Listen(ctx context.Context, srv *grpc.Server) func() {
 // in the future, and blocks until AdvanceTo(rID) is called in a different
 // thread. It returns the error inserted into the transition by AdvanceTo.
 func (n *TestNode) waitUntil(rID ranje.Ident, src state.RemoteState) error {
+	n.transitionsMu.Lock()
+
+	// Check whether a transition is already pending for this range. If so, we
+	// can return early without waiting.
+	tr, ok := n.transitions[rID]
+	if ok {
+		defer n.transitionsMu.Unlock()
+		delete(n.transitions, rID)
+
+		if tr.src != src {
+			// TODO: Hang on to t.Testing in NewTestNode, so we can access it
+			//       here and fail the test rather than panicking.
+			panic(fmt.Sprintf("expected src state on waiting range to be %v, but was %v (rID=%v)", src, tr.src, rID))
+		}
+
+		return tr.err
+	}
+
+	// No transition was registered, so we will either return no error, or
+	// block.
+	if !n.blockTransitions {
+		n.transitionsMu.Unlock()
+		return nil
+	}
+
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 
 	// Register pending transition, so other thread (where AdvanceTo(rID, src)
 	// will be called) can see that we're waiting, and unblock us.
 
-	n.transitionsMu.Lock()
 	n.transitions[rID] = &stateTransition{
 		err: nil,
 		src: src,
 		wg:  wg,
 	}
-	n.transitionsMu.Unlock()
 
 	// Block until other thread calls wg.Done.
 	log.Printf("waiting on %v", rID)
+	n.transitionsMu.Unlock()
 	wg.Wait()
 	log.Printf("unblocked %v", rID)
 
@@ -132,8 +157,6 @@ func (n *TestNode) PrepareAddRange(m ranje.Meta, p []api.Parent) error {
 }
 
 func (n *TestNode) AddRange(rID ranje.Ident) error {
-	log.Printf("before waitUntil %v NsReadying", rID)
-	defer log.Printf("after waitUntil %v NsReadying", rID)
 	return n.waitUntil(rID, state.NsReadying)
 }
 
@@ -273,7 +296,7 @@ func (n *TestNode) AdvanceTo(t *testing.T, rID ranje.Ident, new state.RemoteStat
 		t.Fatalf("need error to advance from %s to %s", exp, new)
 		return
 	} else if err != nil && !wantErr {
-		t.Fatalf("don't need and error to advance from %s to %s", exp, new)
+		t.Fatalf("don't need error to advance from %s to %s", exp, new)
 		return
 	}
 
@@ -364,4 +387,8 @@ func (n *TestNode) RPCs() []interface{} {
 
 func (n *TestNode) SetWantDrain(b bool) {
 	n.rglt.SetWantDrain(b)
+}
+
+func (n *TestNode) SetBlockTransitions(b bool) {
+	n.blockTransitions = b
 }

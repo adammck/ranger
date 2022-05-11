@@ -144,8 +144,7 @@ func (ts *OrchestratorSuite) TestJunk() {
 	ts.Equal(0, len(r.Placements), "range should be born with no placements")
 }
 
-func (ts *OrchestratorSuite) TestPlacement() {
-
+func initTestPlacement(ts *OrchestratorSuite) {
 	na := discovery.Remote{
 		Ident: "test-aaa",
 		Host:  "host-aaa",
@@ -166,8 +165,124 @@ func (ts *OrchestratorSuite) TestPlacement() {
 	ts.rost.Tick()
 	ts.Equal("{1 [-inf, +inf] RsActive}", ts.ks.LogString())
 	ts.Equal("{test-aaa []}", ts.rost.TestString())
+}
 
-	// -------------------------------------------------------------------------
+func tickUntilStable(ts *OrchestratorSuite) {
+	var ksPrev, rostPrev string
+	var ticks, same int
+
+	for {
+		ts.tickWait()
+		ts.rost.Tick()
+
+		ksNow := ts.ks.LogString()
+		rostNow := ts.rost.TestString()
+
+		// Changed since last time? Keep ticking.
+		if ksPrev != ksNow || rostPrev != rostNow {
+			same = 0
+		} else {
+			same += 1
+		}
+
+		ksPrev = ksNow
+		rostPrev = rostNow
+
+		// Stable for a few ticks? We're done.
+		if same >= 2 {
+			break
+		}
+
+		ticks += 1
+		if ticks > 50 {
+			ts.FailNow("didn't stablize after 50 ticks")
+			return
+		}
+	}
+}
+
+func (ts *OrchestratorSuite) TestPlacementFast() {
+	initTestPlacement(ts)
+	tickUntilStable(ts)
+
+	ts.Equal("{test-aaa [1:NsReady]}", ts.rost.TestString())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}", ts.ks.LogString())
+}
+
+func (ts *OrchestratorSuite) TestPlacementMedium() {
+	initTestPlacement(ts)
+
+	// First tick: Placement created, Give RPC sent to node and returned
+	// successfully. Remote state is updated in roster, but not keyspace.
+
+	ts.tickWait()
+	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
+		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
+			ts.ProtoEqual(&pb.GiveRequest{
+				Range: &pb.RangeMeta{
+					Ident: 1,
+					Start: []byte(ranje.ZeroKey),
+					End:   []byte(ranje.ZeroKey),
+				},
+				// TODO: It's weird and kind of useless for this to be in here.
+				Parents: []*pb.Parent{
+					{
+						Range: &pb.RangeMeta{
+							Ident: 1,
+							Start: []byte(ranje.ZeroKey),
+							End:   []byte(ranje.ZeroKey),
+						},
+						Parent: []uint64{},
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-aaa:1",
+								State: pb.PlacementState_PS_PENDING,
+							},
+						},
+					},
+				},
+			}, aaa[0])
+		}
+	}
+
+	ts.Equal("{test-aaa [1:NsPrepared]}", ts.rost.TestString())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", ts.ks.LogString())
+
+	// Second tick: Keyspace is updated with state from roster. No RPCs sent.
+
+	ts.tickWait()
+	ts.Empty(ts.nodes.RPCs())
+	ts.Equal("{test-aaa [1:NsPrepared]}", ts.rost.TestString())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsPrepared}", ts.ks.LogString())
+
+	// Third: Serve RPC is sent, to advance to ready. Returns success, and
+	// roster is updated. Keyspace is not.
+
+	ts.tickWait()
+	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
+		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
+			ts.ProtoEqual(&pb.ServeRequest{Range: 1}, aaa[0])
+		}
+	}
+
+	ts.Equal("{test-aaa [1:NsReady]}", ts.rost.TestString())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsPrepared}", ts.ks.LogString())
+
+	// Forth: Keyspace is updated with ready state from roster. No RPCs sent.
+
+	ts.tickWait()
+	ts.Empty(ts.nodes.RPCs())
+	ts.Equal("{test-aaa [1:NsReady]}", ts.rost.TestString())
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}", ts.ks.LogString())
+
+	// No more changes. This is steady state.
+
+	ts.EnsureStable()
+}
+
+func (ts *OrchestratorSuite) TestPlacementSlow() {
+	initTestPlacement(ts)
+	ts.nodes.SetBlockTransitions(true)
 
 	ts.tickWait()
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
@@ -259,6 +374,7 @@ func (ts *OrchestratorSuite) TestMissingPlacement() {
 		Port:  1,
 	}
 	ts.nodes.Add(ts.ctx, na, map[ranje.Ident]*info.RangeInfo{})
+	ts.nodes.SetBlockTransitions(true)
 
 	// One range, which the controller thinks should be on that node.
 	r1 := &ranje.Range{
@@ -371,6 +487,7 @@ func (ts *OrchestratorSuite) TestMove() {
 		},
 	})
 	ts.nodes.Add(ts.ctx, nb, map[ranje.Ident]*info.RangeInfo{})
+	ts.nodes.SetBlockTransitions(true)
 
 	// Probe to verify initial state.
 
@@ -559,6 +676,7 @@ func (ts *OrchestratorSuite) TestSplit() {
 			State: state.NsReady,
 		},
 	})
+	ts.nodes.SetBlockTransitions(true)
 
 	// Probe the fake nodes.
 	ts.rost.Tick()
@@ -865,6 +983,7 @@ func (ts *OrchestratorSuite) TestJoin() {
 		},
 	})
 	ts.nodes.Add(ts.ctx, nc, map[ranje.Ident]*info.RangeInfo{})
+	ts.nodes.SetBlockTransitions(true)
 
 	// Probe the fake nodes to verify the setup.
 
@@ -1120,19 +1239,17 @@ func (ts *OrchestratorSuite) TestSlowRPC() {
 	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", ts.ks.LogString())
 	ts.Equal("{test-aaa []}", ts.rost.TestString())
 
-	// Give RPC finally completes!
+	// Give RPC finally completes! Roster is updated.
 	wgs[0].Done()
 	ts.orch.WaitRPCs()
-
-	ts.tickWait()
-	ts.Len(RPCs(ts.nodes.RPCs()), 1) // redundant Give
 	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", ts.ks.LogString())
-	ts.Equal("{test-aaa [1:NsPreparing]}", ts.rost.TestString())
+	ts.Equal("{test-aaa [1:NsPrepared]}", ts.rost.TestString())
 
-	ts.tickWait()
-	ts.Len(RPCs(ts.nodes.RPCs()), 1) // redundant Give
-	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", ts.ks.LogString())
-	ts.Equal("{test-aaa [1:NsPreparing]}", ts.rost.TestString())
+	// Subsequent ticks continue the placement as usual. No need to verify the
+	// details in this test.
+	tickUntilStable(ts)
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsReady]}", ts.rost.TestString())
 }
 
 func TestExampleTestSuite(t *testing.T) {
