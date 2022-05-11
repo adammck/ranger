@@ -1030,7 +1030,9 @@ func (ts *OrchestratorSuite) TestJoin() {
 	ts.Equal("{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsReady} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsReady} {3 [-inf, +inf] RsActive p0=test-ccc:PsPending}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsReady]} {test-bbb [2:NsReady]} {test-ccc []}", ts.rost.TestString())
 
+	c3PAR := ts.nodes.Get("test-ccc").Expect(ts.T(), 3, state.NsPreparing, nil)
 	ts.tickWait()
+	c3PAR.Wait()
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-ccc"}, nIDs(rpcs)) {
 		if ccc := rpcs["test-ccc"]; ts.Len(ccc, 1) {
 			ts.ProtoEqual(&pb.GiveRequest{
@@ -1083,7 +1085,7 @@ func (ts *OrchestratorSuite) TestJoin() {
 
 	// 2. New range finishes preparing.
 
-	ts.nodes.Get("test-ccc").AdvanceTo(ts.T(), 3, state.NsPrepared, nil)
+	c3PAR.Release()
 	ts.rost.Tick()
 	ts.Equal("{test-aaa [1:NsReady]} {test-bbb [2:NsReady]} {test-ccc [3:NsPrepared]}", ts.rost.TestString())
 
@@ -1094,7 +1096,11 @@ func (ts *OrchestratorSuite) TestJoin() {
 	ts.Equal("{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsReady} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsReady} {3 [-inf, +inf] RsActive p0=test-ccc:PsPrepared}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsReady]} {test-bbb [2:NsReady]} {test-ccc [3:NsPrepared]}", ts.rost.TestString())
 
+	a1PDR := ts.nodes.Get("test-aaa").Expect(ts.T(), 1, state.NsTaking, nil)
+	b2PDR := ts.nodes.Get("test-bbb").Expect(ts.T(), 2, state.NsTaking, nil)
 	ts.tickWait()
+	a1PDR.Wait()
+	b2PDR.Wait()
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa", "test-bbb"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
 			ts.ProtoEqual(&pb.TakeRequest{Range: 1}, aaa[0])
@@ -1109,12 +1115,14 @@ func (ts *OrchestratorSuite) TestJoin() {
 
 	// 4. Old ranges becomes taken.
 
-	ts.nodes.Get("test-aaa").AdvanceTo(ts.T(), 1, state.NsTaken, nil)
-	ts.nodes.Get("test-bbb").AdvanceTo(ts.T(), 2, state.NsTaken, nil)
+	a1PDR.Release()
+	b2PDR.Release()
 	ts.rost.Tick()
 	ts.Equal("{test-aaa [1:NsTaken]} {test-bbb [2:NsTaken]} {test-ccc [3:NsPrepared]}", ts.rost.TestString())
 
+	c3AR := ts.nodes.Get("test-ccc").Expect(ts.T(), 3, state.NsReadying, nil)
 	ts.tickWait()
+	c3AR.Wait()
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-ccc"}, nIDs(rpcs)) {
 		if ccc := rpcs["test-ccc"]; ts.Len(ccc, 1) {
 			ts.ProtoEqual(&pb.ServeRequest{Range: 3}, ccc[0])
@@ -1126,7 +1134,7 @@ func (ts *OrchestratorSuite) TestJoin() {
 
 	// 5. New range becomes ready.
 
-	ts.nodes.Get("test-ccc").AdvanceTo(ts.T(), 3, state.NsReady, nil)
+	c3AR.Release()
 	ts.rost.Tick()
 	ts.Equal("{test-aaa [1:NsTaken]} {test-bbb [2:NsTaken]} {test-ccc [3:NsReady]}", ts.rost.TestString())
 
@@ -1135,7 +1143,11 @@ func (ts *OrchestratorSuite) TestJoin() {
 	ts.Equal("{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsTaken} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsTaken} {3 [-inf, +inf] RsActive p0=test-ccc:PsReady}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsTaken]} {test-bbb [2:NsTaken]} {test-ccc [3:NsReady]}", ts.rost.TestString())
 
+	a1DR := ts.nodes.Get("test-aaa").Expect(ts.T(), 1, state.NsDropping, nil)
+	b2DR := ts.nodes.Get("test-bbb").Expect(ts.T(), 2, state.NsDropping, nil)
 	ts.tickWait()
+	a1DR.Wait()
+	b2DR.Wait()
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa", "test-bbb"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
 			ts.ProtoEqual(&pb.DropRequest{Range: 1}, aaa[0])
@@ -1149,8 +1161,8 @@ func (ts *OrchestratorSuite) TestJoin() {
 	ts.Equal("{test-aaa [1:NsDropping]} {test-bbb [2:NsDropping]} {test-ccc [3:NsReady]}", ts.rost.TestString())
 
 	// Drops finish.
-	ts.nodes.Get("test-aaa").AdvanceTo(ts.T(), 1, state.NsNotFound, nil)
-	ts.nodes.Get("test-bbb").AdvanceTo(ts.T(), 2, state.NsNotFound, nil)
+	a1DR.Release()
+	b2DR.Release()
 	ts.rost.Tick()
 	ts.Equal("{test-aaa []} {test-bbb []} {test-ccc [3:NsReady]}", ts.rost.TestString())
 
