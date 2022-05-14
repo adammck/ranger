@@ -23,6 +23,10 @@ func (b *barrier) Wait() {
 	b.arrival.Wait()
 }
 
+// Release is called in tests to unblock a state transition, which is currently
+// blocked in Arrive. Before returning, as a convenience, it calls the callback
+// (which is probably a WaitGroup on the rangelet changing state) so the caller
+// doesn't have to wait for that itself.
 func (b *barrier) Release() {
 	b.release.Done()
 	b.cb()

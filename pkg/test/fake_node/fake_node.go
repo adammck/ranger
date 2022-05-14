@@ -82,9 +82,6 @@ func (n *TestNode) Listen(ctx context.Context, srv *grpc.Server) func() {
 	return closer
 }
 
-// waitUntil registers a transition (by rangeID) which we expect will happen
-// in the future, and blocks until AdvanceTo(rID) is called in a different
-// thread. It returns the error inserted into the transition by AdvanceTo.
 func (n *TestNode) waitUntil(rID ranje.Ident, src state.RemoteState) error {
 	n.transitionsMu.Lock()
 
@@ -107,38 +104,13 @@ func (n *TestNode) waitUntil(rID ranje.Ident, src state.RemoteState) error {
 		return tr.err
 	}
 
-	// No transition was registered, so we will either return no error, or
-	// block.
-	if !n.strictTransitions {
-		n.transitionsMu.Unlock()
-		return nil
-	}
-
-	bar := NewBarrier(1, func() {})
-
-	// Register pending transition, so other thread (where AdvanceTo(rID, src)
-	// will be called) can see that we're waiting, and unblock us.
-
-	n.transitions[rID] = &stateTransition{
-		err: nil,
-		src: src,
-		bar: bar,
-	}
-
-	// Block until other thread calls wg.Done.
-	log.Printf("waiting on %v", rID)
-	n.transitionsMu.Unlock()
-	bar.Arrive()
-	log.Printf("unblocked %v", rID)
-
-	// AdvanceTo will have inserted the error that we should return.
-	// Fetch it and clean up the transition.
-	n.transitionsMu.Lock()
-	err := n.transitions[rID].err
-	delete(n.transitions, rID)
 	n.transitionsMu.Unlock()
 
-	return err
+	if n.strictTransitions {
+		panic(fmt.Sprintf("no transition registered for range while strict transitions enabled (rID=%v)", rID))
+	}
+
+	return nil
 }
 
 func (n *TestNode) GetLoadInfo(rID ranje.Ident) (api.LoadInfo, error) {

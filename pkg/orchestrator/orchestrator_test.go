@@ -120,12 +120,24 @@ func (ts *OrchestratorSuite) TearDownTest() {
 	}
 }
 
-// tickWait performs a Tick and then waits for any pending RPCs to complete.
-// This allows us to ignore RPCs which span multiple ticks in order to make
-// tests more deterministic without repeating ourselves so much.
-func (ts *OrchestratorSuite) tickWait() {
+type Waiter interface {
+	Wait()
+}
+
+// tickWait performs a Tick, then waits for any pending RPCs to complete, then
+// waits for any give Waiters (which are probably fake_node.Barrier instances)
+// to return.
+//
+// This allows us to pretend that Ticks will never begin while RPCs scheduled
+// during the previous tick are still in flight, without sleeping or anything
+// like that.
+func (ts *OrchestratorSuite) tickWait(waiters ...Waiter) {
 	ts.orch.Tick()
 	ts.orch.WaitRPCs()
+
+	for _, w := range waiters {
+		w.Wait()
+	}
 }
 
 func (ts *OrchestratorSuite) TestJunk() {
@@ -285,8 +297,7 @@ func (ts *OrchestratorSuite) TestPlacementSlow() {
 	ts.nodes.SetStrictTransitions(true)
 
 	par := ts.nodes.Get("test-aaa").Expect(ts.T(), 1, state.NsPreparing, nil)
-	ts.tickWait()
-	par.Wait()
+	ts.tickWait(par)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
 			ts.ProtoEqual(&pb.GiveRequest{
@@ -346,8 +357,7 @@ func (ts *OrchestratorSuite) TestPlacementSlow() {
 	ts.Equal("{test-aaa [1:NsPrepared]}", ts.rost.TestString())
 
 	ar := ts.nodes.Get("test-aaa").Expect(ts.T(), 1, state.NsReadying, nil)
-	ts.tickWait()
-	ar.Wait()
+	ts.tickWait(ar)
 	ts.Len(RPCs(ts.nodes.RPCs()), 1) // redundant Serve
 	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsPrepared}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsReadying]}", ts.rost.TestString())
@@ -378,7 +388,7 @@ func (ts *OrchestratorSuite) TestMissingPlacement() {
 		Port:  1,
 	}
 	ts.nodes.Add(ts.ctx, na, map[ranje.Ident]*info.RangeInfo{})
-	ts.nodes.SetStrictTransitions(true)
+	ts.nodes.SetStrictTransitions(false)
 
 	// One range, which the controller thinks should be on that node.
 	r1 := &ranje.Range{
@@ -410,9 +420,9 @@ func (ts *OrchestratorSuite) TestMissingPlacement() {
 	ts.Equal("{test-aaa []}", ts.rost.TestString())
 	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsGiveUp}", ts.ks.LogString())
 
-	// Orchestrator advances to drop the placement, but (unlike when moving) doesn't
-	// bother to notify the node via RPC. It has already told us that it doesn't
-	// have the range.
+	// Orchestrator advances to drop the placement, but (unlike when moving)
+	// doesn't bother to notify the node via RPC. It has already told us that it
+	// doesn't have the range.
 
 	ts.tickWait()
 	ts.Empty(ts.nodes.RPCs())
@@ -453,7 +463,7 @@ func (ts *OrchestratorSuite) TestMissingPlacement() {
 	}
 
 	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", ts.ks.LogString())
-	ts.Equal("{test-aaa [1:NsPreparing]}", ts.rost.TestString())
+	ts.Equal("{test-aaa [1:NsPrepared]}", ts.rost.TestString())
 }
 
 func (ts *OrchestratorSuite) TestMove() {
@@ -503,8 +513,6 @@ func (ts *OrchestratorSuite) TestMove() {
 
 	// -------------------------------------------------------------------------
 
-	bPAR := ts.nodes.Get("test-bbb").Expect(ts.T(), 1, state.NsPreparing, nil)
-
 	func() {
 		ts.orch.opMovesMu.Lock()
 		defer ts.orch.opMovesMu.Unlock()
@@ -516,8 +524,8 @@ func (ts *OrchestratorSuite) TestMove() {
 		})
 	}()
 
-	ts.tickWait()
-	bPAR.Wait()
+	bPAR := ts.nodes.Get("test-bbb").Expect(ts.T(), 1, state.NsPreparing, nil)
+	ts.tickWait(bPAR)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-bbb"}, nIDs(rpcs)) {
 		if bbb := rpcs["test-bbb"]; ts.Len(bbb, 1) {
 			ts.ProtoEqual(&pb.GiveRequest{
@@ -567,8 +575,7 @@ func (ts *OrchestratorSuite) TestMove() {
 	ts.Equal("{test-aaa [1:NsReady]} {test-bbb [1:NsPrepared]}", ts.rost.TestString())
 
 	aPDR := ts.nodes.Get("test-aaa").Expect(ts.T(), 1, state.NsTaking, nil)
-	ts.tickWait()
-	aPDR.Wait()
+	ts.tickWait(aPDR)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
 			ts.ProtoEqual(&pb.TakeRequest{Range: 1}, aaa[0])
@@ -590,8 +597,7 @@ func (ts *OrchestratorSuite) TestMove() {
 	ts.Equal("{test-aaa [1:NsTaken]} {test-bbb [1:NsPrepared]}", ts.rost.TestString())
 
 	bAR := ts.nodes.Get("test-bbb").Expect(ts.T(), 1, state.NsReadying, nil)
-	ts.tickWait()
-	bAR.Wait()
+	ts.tickWait(bAR)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-bbb"}, nIDs(rpcs)) {
 		if bbb := rpcs["test-bbb"]; ts.Len(bbb, 1) {
 			ts.ProtoEqual(&pb.ServeRequest{Range: 1}, bbb[0])
@@ -618,8 +624,7 @@ func (ts *OrchestratorSuite) TestMove() {
 	ts.Equal("{test-aaa [1:NsTaken]} {test-bbb [1:NsReady]}", ts.rost.TestString())
 
 	aDR := ts.nodes.Get("test-aaa").Expect(ts.T(), 1, state.NsDropping, nil)
-	ts.tickWait()
-	aDR.Wait()
+	ts.tickWait(aDR)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
 			ts.ProtoEqual(&pb.DropRequest{Range: 1}, aaa[0])
@@ -722,9 +727,7 @@ func (ts *OrchestratorSuite) TestSplit() {
 
 	a2PAR := ts.nodes.Get("test-aaa").Expect(ts.T(), 2, state.NsPreparing, nil)
 	a3PAR := ts.nodes.Get("test-aaa").Expect(ts.T(), 3, state.NsPreparing, nil)
-	ts.tickWait()
-	a2PAR.Wait()
-	a3PAR.Wait()
+	ts.tickWait(a2PAR, a3PAR)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 2) {
 			ts.ProtoEqual(&pb.GiveRequest{
@@ -825,8 +828,7 @@ func (ts *OrchestratorSuite) TestSplit() {
 	// 4. Controller takes placements in parent range.
 
 	a1PDR := ts.nodes.Get("test-aaa").Expect(ts.T(), 1, state.NsTaking, nil)
-	ts.tickWait()
-	a1PDR.Wait()
+	ts.tickWait(a1PDR)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
 			ts.ProtoEqual(&pb.TakeRequest{Range: 1}, aaa[0])
@@ -847,9 +849,7 @@ func (ts *OrchestratorSuite) TestSplit() {
 	// 5. Controller instructs both child ranges to become Ready.
 	a2AR := ts.nodes.Get("test-aaa").Expect(ts.T(), 2, state.NsReadying, nil)
 	a3AR := ts.nodes.Get("test-aaa").Expect(ts.T(), 3, state.NsReadying, nil)
-	ts.tickWait()
-	a2AR.Wait()
-	a3AR.Wait()
+	ts.tickWait(a2AR, a3AR)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 2) {
 			ts.ProtoEqual(&pb.ServeRequest{Range: 2}, aaa[0])
@@ -886,8 +886,7 @@ func (ts *OrchestratorSuite) TestSplit() {
 	// 6. Orchestrator instructs parent range to drop placements.
 
 	a1DR := ts.nodes.Get("test-aaa").Expect(ts.T(), 1, state.NsDropping, nil)
-	ts.tickWait()
-	a1DR.Wait()
+	ts.tickWait(a1DR)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
 			ts.ProtoEqual(&pb.DropRequest{Range: 1}, aaa[0])
@@ -1039,8 +1038,7 @@ func (ts *OrchestratorSuite) TestJoin() {
 	ts.Equal("{test-aaa [1:NsReady]} {test-bbb [2:NsReady]} {test-ccc []}", ts.rost.TestString())
 
 	c3PAR := ts.nodes.Get("test-ccc").Expect(ts.T(), 3, state.NsPreparing, nil)
-	ts.tickWait()
-	c3PAR.Wait()
+	ts.tickWait(c3PAR)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-ccc"}, nIDs(rpcs)) {
 		if ccc := rpcs["test-ccc"]; ts.Len(ccc, 1) {
 			ts.ProtoEqual(&pb.GiveRequest{
@@ -1106,9 +1104,7 @@ func (ts *OrchestratorSuite) TestJoin() {
 
 	a1PDR := ts.nodes.Get("test-aaa").Expect(ts.T(), 1, state.NsTaking, nil)
 	b2PDR := ts.nodes.Get("test-bbb").Expect(ts.T(), 2, state.NsTaking, nil)
-	ts.tickWait()
-	a1PDR.Wait()
-	b2PDR.Wait()
+	ts.tickWait(a1PDR, b2PDR)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa", "test-bbb"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
 			ts.ProtoEqual(&pb.TakeRequest{Range: 1}, aaa[0])
@@ -1153,9 +1149,7 @@ func (ts *OrchestratorSuite) TestJoin() {
 
 	a1DR := ts.nodes.Get("test-aaa").Expect(ts.T(), 1, state.NsDropping, nil)
 	b2DR := ts.nodes.Get("test-bbb").Expect(ts.T(), 2, state.NsDropping, nil)
-	ts.tickWait()
-	a1DR.Wait()
-	b2DR.Wait()
+	ts.tickWait(a1DR, b2DR)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa", "test-bbb"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
 			ts.ProtoEqual(&pb.DropRequest{Range: 1}, aaa[0])
