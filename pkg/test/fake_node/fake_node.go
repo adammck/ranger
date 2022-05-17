@@ -22,9 +22,13 @@ import (
 )
 
 type stateTransition struct {
-	wg  *sync.WaitGroup
 	src state.RemoteState
-	err error
+	bar *barrier
+}
+
+type ErrKey struct {
+	rID ranje.Ident
+	src state.RemoteState
 }
 
 type TestNode struct {
@@ -39,13 +43,18 @@ type TestNode struct {
 	rpcs   []interface{}
 	rpcsMu sync.Mutex
 
-	// Allow requests to be blocked by method name.
-	// (This is to test what happens when RPCs span ticks.)
-	gates   map[string][2]*sync.WaitGroup
-	gatesMu sync.Mutex
+	// Barriers to block on in the middle of range state changes. This allows
+	// tests to control exactly how long the interface methods (PrepareAddRange,
+	// AddRange, etc) take to return.
+	barriers map[ranje.Ident]*stateTransition
+	muBar    sync.Mutex
 
-	transitions   map[ranje.Ident]*stateTransition
-	transitionsMu sync.Mutex
+	// Errors (or nils) which should be injected into range state changes.
+	errors map[ErrKey]error
+	muErr  sync.Mutex
+
+	// Panic unless a transition was registred.
+	strictTransitions bool
 }
 
 func NewTestNode(ctx context.Context, addr string, rangeInfos map[ranje.Ident]*info.RangeInfo) (*TestNode, func()) {
@@ -60,10 +69,10 @@ func NewTestNode(ctx context.Context, addr string, rangeInfos map[ranje.Ident]*i
 	}
 
 	n := &TestNode{
-		Addr:        addr,
-		loadInfos:   li,
-		gates:       map[string][2]*sync.WaitGroup{},
-		transitions: map[ranje.Ident]*stateTransition{},
+		Addr:      addr,
+		loadInfos: li,
+		barriers:  map[ranje.Ident]*stateTransition{},
+		errors:    map[ErrKey]error{},
 	}
 
 	srv := grpc.NewServer()
@@ -85,37 +94,35 @@ func (n *TestNode) Listen(ctx context.Context, srv *grpc.Server) func() {
 	return closer
 }
 
-// waitUntil registers a transition (by rangeID) which we expect will happen
-// in the future, and blocks until AdvanceTo(rID) is called in a different
-// thread. It returns the error inserted into the transition by AdvanceTo.
-func (n *TestNode) waitUntil(rID ranje.Ident, src state.RemoteState) error {
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
+func (n *TestNode) transition(rID ranje.Ident, src state.RemoteState) error {
+	n.muBar.Lock()
 
-	// Register pending transition, so other thread (where AdvanceTo(rID, src)
-	// will be called) can see that we're waiting, and unblock us.
-
-	n.transitionsMu.Lock()
-	n.transitions[rID] = &stateTransition{
-		err: nil,
+	ek := ErrKey{
+		rID: rID,
 		src: src,
-		wg:  wg,
 	}
-	n.transitionsMu.Unlock()
 
-	// Block until other thread calls wg.Done.
-	log.Printf("waiting on %v", rID)
-	wg.Wait()
-	log.Printf("unblocked %v", rID)
+	n.muErr.Lock()
+	e := n.errors[ek] // Might be nil; that's okay.
+	n.muErr.Unlock()
 
-	// AdvanceTo will have inserted the error that we should return.
-	// Fetch it and clean up the transition.
-	n.transitionsMu.Lock()
-	err := n.transitions[rID].err
-	delete(n.transitions, rID)
-	n.transitionsMu.Unlock()
+	// Check whether a transition is already pending for this range. If so, we
+	// can return early without waiting.
+	tr, ok := n.barriers[rID]
+	if ok {
+		delete(n.barriers, rID)
+		n.muBar.Unlock()
+		tr.bar.Arrive()
+		return e
+	}
 
-	return err
+	n.muBar.Unlock()
+
+	if n.strictTransitions {
+		panic(fmt.Sprintf("no transition registered for range while strict transitions enabled (rID=%v)", rID))
+	}
+
+	return e
 }
 
 func (n *TestNode) GetLoadInfo(rID ranje.Ident) (api.LoadInfo, error) {
@@ -128,21 +135,19 @@ func (n *TestNode) GetLoadInfo(rID ranje.Ident) (api.LoadInfo, error) {
 }
 
 func (n *TestNode) PrepareAddRange(m ranje.Meta, p []api.Parent) error {
-	return n.waitUntil(m.Ident, state.NsPreparing)
+	return n.transition(m.Ident, state.NsPreparing)
 }
 
 func (n *TestNode) AddRange(rID ranje.Ident) error {
-	log.Printf("before waitUntil %v NsReadying", rID)
-	defer log.Printf("after waitUntil %v NsReadying", rID)
-	return n.waitUntil(rID, state.NsReadying)
+	return n.transition(rID, state.NsReadying)
 }
 
 func (n *TestNode) PrepareDropRange(rID ranje.Ident) error {
-	return n.waitUntil(rID, state.NsTaking)
+	return n.transition(rID, state.NsTaking)
 }
 
 func (n *TestNode) DropRange(rID ranje.Ident) error {
-	return n.waitUntil(rID, state.NsDropping)
+	return n.transition(rID, state.NsDropping)
 }
 
 // From: https://harrigan.xyz/blog/testing-go-grpc-server-using-an-in-memory-buffer-with-bufconn/
@@ -181,22 +186,6 @@ func (n *TestNode) testInterceptor(
 		n.rpcsMu.Unlock()
 	}
 
-	// Gate
-
-	n.gatesMu.Lock()
-	wgs, ok := n.gates[method]
-	if ok {
-		delete(n.gates, method)
-	}
-	n.gatesMu.Unlock()
-
-	if ok {
-		// TODO: Allow errors to be injected here.
-		log.Printf("Gating RPC: method=%s", method)
-		wgs[1].Done()
-		wgs[0].Wait()
-	}
-
 	err := invoker(ctx, method, req, res, cc, opts...)
 	log.Printf("RPC: method=%s; Error=%v", method, err)
 	return err
@@ -206,114 +195,36 @@ func (n *TestNode) withTestInterceptor() grpc.DialOption {
 	return grpc.WithUnaryInterceptor(n.testInterceptor)
 }
 
-func (n *TestNode) GateRPC(t *testing.T, method string) [2]*sync.WaitGroup {
-
-	one := &sync.WaitGroup{}
-	two := &sync.WaitGroup{}
-	wgs := [2]*sync.WaitGroup{one, two}
-
-	n.gatesMu.Lock()
-	defer n.gatesMu.Unlock()
-
-	if _, ok := n.gates[method]; ok {
-		t.Fatalf("tried to add gate when one already exists: addr=%s, method=%s", n.Addr, method)
-		return wgs
+func (n *TestNode) SetReturnValue(t *testing.T, rID ranje.Ident, src state.RemoteState, err error) {
+	ek := ErrKey{
+		rID: rID,
+		src: src,
 	}
 
-	wgs[0].Add(1)
+	n.muErr.Lock()
+	defer n.muErr.Unlock()
 
-	log.Printf("Added gate: addr=%s, method=%s", n.Addr, method)
-	n.gates[method] = wgs
-	return wgs
+	n.errors[ek] = err
 }
 
-func (n *TestNode) AdvanceTo(t *testing.T, rID ranje.Ident, new state.RemoteState, err error) {
-	var exp state.RemoteState
-	var wantErr bool
-
-	switch new {
-	case state.NsPrepared:
-		exp = state.NsPreparing
-		wantErr = false
-
-	case state.NsPreparingError:
-		exp = state.NsPreparing
-		wantErr = true
-
-	case state.NsReady:
-		exp = state.NsReadying
-		wantErr = false
-
-	case state.NsReadyingError:
-		exp = state.NsReadying
-		wantErr = true
-
-	case state.NsTaken:
-		exp = state.NsTaking
-		wantErr = false
-
-	case state.NsTakingError:
-		exp = state.NsTaking
-		wantErr = true
-
-	case state.NsNotFound:
-		exp = state.NsDropping
-		wantErr = false
-
-	case state.NsDroppingError:
-		exp = state.NsDropping
-		wantErr = true
-
-	default:
-		t.Fatalf("can't advance to state: %s", new)
-	}
-
-	// Check that an error was given, if one was expected.
-	if wantErr && err != nil {
-		t.Fatalf("need error to advance from %s to %s", exp, new)
-		return
-	} else if err != nil && !wantErr {
-		t.Fatalf("don't need and error to advance from %s to %s", exp, new)
-		return
-	}
-
-	// Expect that some other thread is waiting on tr.wg in waitUntil. Fail the
-	// whole test if that isn't the case, to avoid waiting forever.
-	n.transitionsMu.Lock()
-	tr, ok := n.transitions[rID]
-	n.transitionsMu.Unlock()
-	if !ok {
-		t.Fatalf("expected range to be waiting (rID=%v)", rID)
-		return
-	}
-	if tr.src != exp {
-		t.Fatalf("expected src state on waiting range to be %v, but was %v (rID=%v)", exp, tr.src, rID)
-		return
-	}
-
-	// Register a callback with the rangelet. To return from this helper, we
-	// can't just wait for waitUntil to return, we must wait a little longer
-	// until the rangelet has updated the state for that range. If we return
-	// too soon, a probe might be sent and processed before the other thread as
-	// actually updated the state.
+func (n *TestNode) AddBarrier(t *testing.T, rID ranje.Ident, src state.RemoteState) *barrier {
 	wg := &sync.WaitGroup{}
+
 	wg.Add(1)
-	n.rglt.OnState(rID, new, func() {
+	n.rglt.OnLeaveState(rID, src, func() {
 		wg.Done()
 	})
 
-	// Insert the error (maybe nil) that we want the other thread to return, and
-	// unblock it.
-	n.transitionsMu.Lock()
-	tr.err = err
-	n.transitionsMu.Unlock()
-	tr.wg.Done()
+	st := &stateTransition{
+		src: src,
+		bar: NewBarrier(1, wg.Wait),
+	}
 
-	// Wait for that callback to be called, indicating that the rangelet has
-	// updated the state. After that, we can be sure that probes and such will
-	// see the state that we advanced to.
-	log.Printf("waiting for range to enter state (rID=%v, s=%s)", rID, new)
-	wg.Wait()
+	n.muBar.Lock()
+	n.barriers[rID] = st
+	n.muBar.Unlock()
+
+	return st.bar
 }
 
 func (n *TestNode) Ranges(ctx context.Context, req *pb.RangesRequest) (*pb.RangesResponse, error) {
@@ -364,4 +275,12 @@ func (n *TestNode) RPCs() []interface{} {
 
 func (n *TestNode) SetWantDrain(b bool) {
 	n.rglt.SetWantDrain(b)
+}
+
+func (n *TestNode) SetStrictTransitions(b bool) {
+	n.strictTransitions = b
+}
+
+func (n *TestNode) SetGracePeriod(d time.Duration) {
+	n.rglt.SetGracePeriod(d)
 }

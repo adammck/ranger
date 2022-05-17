@@ -50,6 +50,12 @@ func (tn *TestNodes) Get(nID string) *fake_node.TestNode {
 	return n
 }
 
+func (tn *TestNodes) SetStrictTransitions(b bool) {
+	for _, n := range tn.nodes {
+		n.SetStrictTransitions(b)
+	}
+}
+
 // RPCs returns a map of NodeID to the (protos) requests which have been
 // received by any node since the last time this method was called.
 func (tn *TestNodes) RPCs() map[string][]interface{} {

@@ -33,8 +33,8 @@ type Rangelet struct {
 
 	srv *NodeServer
 
-	// Holds functions to be called when a specific range enters a state. This
-	// is just for testing. Register callbacks via the OnState method.
+	// Holds functions to be called when a specific range leaves a state. This
+	// is just for testing. Register callbacks via the OnLeaveState method.
 	callbacks map[callback]func()
 }
 
@@ -68,7 +68,7 @@ func NewRangelet(n api.Node, sr grpc.ServiceRegistrar, s api.Storage) *Rangelet 
 
 var ErrNotFound = errors.New("not found")
 
-func (r *Rangelet) runThenUpdateState(rID ranje.Ident, success state.RemoteState, failure state.RemoteState, f func() error) {
+func (r *Rangelet) runThenUpdateState(rID ranje.Ident, old state.RemoteState, success state.RemoteState, failure state.RemoteState, f func() error) {
 	err := f()
 
 	var s state.RemoteState
@@ -87,16 +87,17 @@ func (r *Rangelet) runThenUpdateState(rID ranje.Ident, success state.RemoteState
 	// delete them.
 	if s == state.NsNotFound {
 		delete(r.info, rID)
-		r.runCallback(rID, s)
+		r.runCallback(rID, old, s)
 		log.Printf("range deleted: %v", rID)
 		return
 	}
 
 	// Another special case.
-	// TODO: Maybe we should keep the range around, for...?
+	// TODO: Remove this, so the controller sees the same version of the state
+	//       whether updated by probe or by response from RPC.
 	if s == state.NsPreparingError {
 		delete(r.info, rID)
-		r.runCallback(rID, s)
+		r.runCallback(rID, old, s)
 		log.Printf("deleting range after failed give: %v", rID)
 		return
 	}
@@ -107,7 +108,7 @@ func (r *Rangelet) runThenUpdateState(rID ranje.Ident, success state.RemoteState
 	}
 
 	ri.State = s
-	r.runCallback(rID, s)
+	r.runCallback(rID, old, s)
 	log.Printf("state is now %v (rID=%v)", s, rID)
 }
 
@@ -143,7 +144,7 @@ func (r *Rangelet) give(rm ranje.Meta, parents []api.Parent) (info.RangeInfo, er
 	r.Unlock()
 
 	withTimeout(r.gracePeriod, func() {
-		r.runThenUpdateState(rID, state.NsPrepared, state.NsPreparingError, func() error {
+		r.runThenUpdateState(rID, state.NsPreparing, state.NsPrepared, state.NsPreparingError, func() error {
 			return r.n.PrepareAddRange(rm, parents)
 		})
 	})
@@ -158,6 +159,10 @@ func (r *Rangelet) give(rm ranje.Meta, parents []api.Parent) (info.RangeInfo, er
 		// The range has vanished, because runThenUpdateState saw that it was
 		// NsPreparingError and special-cased it. Return something tht kind of
 		// looks right, so the controller knows what to do.
+		//
+		// TODO: Remove this (and return PreparingError directly), so the
+		//       controller sees the same version of the state whether updated
+		//       by probe or by response from RPC.
 		return info.RangeInfo{
 			Meta:  ranje.Meta{Ident: rID},
 			State: state.NsPreparingError,
@@ -193,7 +198,7 @@ func (r *Rangelet) serve(rID ranje.Ident) (info.RangeInfo, error) {
 	r.Unlock()
 
 	withTimeout(r.gracePeriod, func() {
-		r.runThenUpdateState(rID, state.NsReady, state.NsReadyingError, func() error {
+		r.runThenUpdateState(rID, state.NsReadying, state.NsReady, state.NsReadyingError, func() error {
 			return r.n.AddRange(rID)
 		})
 	})
@@ -236,7 +241,7 @@ func (r *Rangelet) take(rID ranje.Ident) (info.RangeInfo, error) {
 	r.Unlock()
 
 	withTimeout(r.gracePeriod, func() {
-		r.runThenUpdateState(rID, state.NsTaken, state.NsTakingError, func() error {
+		r.runThenUpdateState(rID, state.NsTaking, state.NsTaken, state.NsTakingError, func() error {
 			return r.n.PrepareDropRange(rID)
 		})
 	})
@@ -282,7 +287,7 @@ func (r *Rangelet) drop(rID ranje.Ident) (info.RangeInfo, error) {
 	r.Unlock()
 
 	withTimeout(r.gracePeriod, func() {
-		r.runThenUpdateState(rID, state.NsNotFound, state.NsDroppingError, func() error {
+		r.runThenUpdateState(rID, state.NsDropping, state.NsNotFound, state.NsDroppingError, func() error {
 			return r.n.DropRange(rID)
 		})
 	})
@@ -410,28 +415,17 @@ func (rglt *Rangelet) State(rID ranje.Ident) state.RemoteState {
 	return r.State
 }
 
-// OnState registers a function which will be called when the given range enters
-// the given state. If the range is already in that state, the func is called
-// immediately and nothing is registered.
-//
-// The function will only be called once, not every time the range enters that
-// state. This should probably only be used for testing.
-func (rglt *Rangelet) OnState(rID ranje.Ident, s state.RemoteState, f func()) {
+// OnLeaveState registers a callback function which will be called when the
+// given range transitions out of the given state. This is just for testing.
+func (rglt *Rangelet) OnLeaveState(rID ranje.Ident, s state.RemoteState, f func()) {
 	rglt.Lock()
 	defer rglt.Unlock()
-
-	r, ok := rglt.info[rID]
-	if ok && r.State == s {
-		f()
-		return
-	}
-
 	rglt.callbacks[callback{rID: rID, state: s}] = f
 }
 
 // Caller must hold lock.
-func (rglt *Rangelet) runCallback(rID ranje.Ident, s state.RemoteState) {
-	cb := callback{rID: rID, state: s}
+func (rglt *Rangelet) runCallback(rID ranje.Ident, old, new state.RemoteState) {
+	cb := callback{rID: rID, state: old}
 
 	f, ok := rglt.callbacks[cb]
 	if !ok {
