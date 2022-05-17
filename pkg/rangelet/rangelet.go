@@ -93,7 +93,8 @@ func (r *Rangelet) runThenUpdateState(rID ranje.Ident, old state.RemoteState, su
 	}
 
 	// Another special case.
-	// TODO: Maybe we should keep the range around, for...?
+	// TODO: Remove this, so the controller sees the same version of the state
+	//       whether updated by probe or by response from RPC.
 	if s == state.NsPreparingError {
 		delete(r.info, rID)
 		r.runCallback(rID, old, s)
@@ -158,6 +159,10 @@ func (r *Rangelet) give(rm ranje.Meta, parents []api.Parent) (info.RangeInfo, er
 		// The range has vanished, because runThenUpdateState saw that it was
 		// NsPreparingError and special-cased it. Return something tht kind of
 		// looks right, so the controller knows what to do.
+		//
+		// TODO: Remove this (and return PreparingError directly), so the
+		//       controller sees the same version of the state whether updated
+		//       by probe or by response from RPC.
 		return info.RangeInfo{
 			Meta:  ranje.Meta{Ident: rID},
 			State: state.NsPreparingError,
@@ -410,16 +415,11 @@ func (rglt *Rangelet) State(rID ranje.Ident) state.RemoteState {
 	return r.State
 }
 
+// OnLeaveState registers a callback function which will be called when the
+// given range transitions out of the given state. This is just for testing.
 func (rglt *Rangelet) OnLeaveState(rID ranje.Ident, s state.RemoteState, f func()) {
 	rglt.Lock()
 	defer rglt.Unlock()
-
-	r, ok := rglt.info[rID]
-	if ok && r.State == s {
-		f()
-		return
-	}
-
 	rglt.callbacks[callback{rID: rID, state: s}] = f
 }
 

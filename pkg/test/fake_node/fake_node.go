@@ -43,6 +43,9 @@ type TestNode struct {
 	rpcs   []interface{}
 	rpcsMu sync.Mutex
 
+	// Barriers to block on in the middle of range state changes. This allows
+	// tests to control exactly how long the interface methods (PrepareAddRange,
+	// AddRange, etc) take to return.
 	barriers map[ranje.Ident]*stateTransition
 	muBar    sync.Mutex
 
@@ -205,15 +208,6 @@ func (n *TestNode) SetReturnValue(t *testing.T, rID ranje.Ident, src state.Remot
 }
 
 func (n *TestNode) AddBarrier(t *testing.T, rID ranje.Ident, src state.RemoteState) *barrier {
-	n.muBar.Lock()
-	defer n.muBar.Unlock()
-
-	// Don't allow overwrites. It's confusing.
-	if tr, ok := n.barriers[rID]; ok {
-		t.Fatalf("already have pending state transition (addr=%s, rID=%v, src=%v)", n.Addr, rID, tr.src)
-		return nil
-	}
-
 	wg := &sync.WaitGroup{}
 
 	wg.Add(1)
@@ -226,7 +220,9 @@ func (n *TestNode) AddBarrier(t *testing.T, rID ranje.Ident, src state.RemoteSta
 		bar: NewBarrier(1, wg.Wait),
 	}
 
+	n.muBar.Lock()
 	n.barriers[rID] = st
+	n.muBar.Unlock()
 
 	return st.bar
 }
