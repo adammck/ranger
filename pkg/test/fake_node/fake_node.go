@@ -23,8 +23,12 @@ import (
 
 type stateTransition struct {
 	src state.RemoteState
-	err error
 	bar *barrier
+}
+
+type ErrKey struct {
+	rID ranje.Ident
+	src state.RemoteState
 }
 
 type TestNode struct {
@@ -39,8 +43,12 @@ type TestNode struct {
 	rpcs   []interface{}
 	rpcsMu sync.Mutex
 
-	transitions   map[ranje.Ident]*stateTransition
-	transitionsMu sync.Mutex
+	barriers map[ranje.Ident]*stateTransition
+	muBar    sync.Mutex
+
+	// Errors (or nils) which should be injected into range state changes.
+	errors map[ErrKey]error
+	muErr  sync.Mutex
 
 	// Panic unless a transition was registred.
 	strictTransitions bool
@@ -58,9 +66,10 @@ func NewTestNode(ctx context.Context, addr string, rangeInfos map[ranje.Ident]*i
 	}
 
 	n := &TestNode{
-		Addr:        addr,
-		loadInfos:   li,
-		transitions: map[ranje.Ident]*stateTransition{},
+		Addr:      addr,
+		loadInfos: li,
+		barriers:  map[ranje.Ident]*stateTransition{},
+		errors:    map[ErrKey]error{},
 	}
 
 	srv := grpc.NewServer()
@@ -82,35 +91,35 @@ func (n *TestNode) Listen(ctx context.Context, srv *grpc.Server) func() {
 	return closer
 }
 
-func (n *TestNode) waitUntil(rID ranje.Ident, src state.RemoteState) error {
-	n.transitionsMu.Lock()
+func (n *TestNode) transition(rID ranje.Ident, src state.RemoteState) error {
+	n.muBar.Lock()
+
+	ek := ErrKey{
+		rID: rID,
+		src: src,
+	}
+
+	n.muErr.Lock()
+	e := n.errors[ek] // Might be nil; that's okay.
+	n.muErr.Unlock()
 
 	// Check whether a transition is already pending for this range. If so, we
 	// can return early without waiting.
-	tr, ok := n.transitions[rID]
+	tr, ok := n.barriers[rID]
 	if ok {
-		delete(n.transitions, rID)
-		n.transitionsMu.Unlock()
-
-		if tr.src != src {
-			// TODO: Hang on to t.Testing in NewTestNode, so we can access it
-			//       here and fail the test rather than panicking.
-			panic(fmt.Sprintf("expected src state on waiting range to be %v, but was %v (rID=%v)", src, tr.src, rID))
-		}
-
-		// Note that we've arrived, and wait for testing thread to unblock us.
+		delete(n.barriers, rID)
+		n.muBar.Unlock()
 		tr.bar.Arrive()
-
-		return tr.err
+		return e
 	}
 
-	n.transitionsMu.Unlock()
+	n.muBar.Unlock()
 
 	if n.strictTransitions {
 		panic(fmt.Sprintf("no transition registered for range while strict transitions enabled (rID=%v)", rID))
 	}
 
-	return nil
+	return e
 }
 
 func (n *TestNode) GetLoadInfo(rID ranje.Ident) (api.LoadInfo, error) {
@@ -123,19 +132,19 @@ func (n *TestNode) GetLoadInfo(rID ranje.Ident) (api.LoadInfo, error) {
 }
 
 func (n *TestNode) PrepareAddRange(m ranje.Meta, p []api.Parent) error {
-	return n.waitUntil(m.Ident, state.NsPreparing)
+	return n.transition(m.Ident, state.NsPreparing)
 }
 
 func (n *TestNode) AddRange(rID ranje.Ident) error {
-	return n.waitUntil(rID, state.NsReadying)
+	return n.transition(rID, state.NsReadying)
 }
 
 func (n *TestNode) PrepareDropRange(rID ranje.Ident) error {
-	return n.waitUntil(rID, state.NsTaking)
+	return n.transition(rID, state.NsTaking)
 }
 
 func (n *TestNode) DropRange(rID ranje.Ident) error {
-	return n.waitUntil(rID, state.NsDropping)
+	return n.transition(rID, state.NsDropping)
 }
 
 // From: https://harrigan.xyz/blog/testing-go-grpc-server-using-an-in-memory-buffer-with-bufconn/
@@ -183,36 +192,43 @@ func (n *TestNode) withTestInterceptor() grpc.DialOption {
 	return grpc.WithUnaryInterceptor(n.testInterceptor)
 }
 
-// TODO: Allow this to be called without returning (and using) a barrier, to
-//       inject errors without blocking.
-func (n *TestNode) Expect(t *testing.T, rID ranje.Ident, src state.RemoteState, err error) *barrier {
-	wg := &sync.WaitGroup{}
-
-	bar := NewBarrier(1, wg.Wait)
-	st := &stateTransition{
+func (n *TestNode) SetReturnValue(t *testing.T, rID ranje.Ident, src state.RemoteState, err error) {
+	ek := ErrKey{
+		rID: rID,
 		src: src,
-		err: err,
-		bar: bar,
 	}
 
-	n.transitionsMu.Lock()
-	defer n.transitionsMu.Unlock()
+	n.muErr.Lock()
+	defer n.muErr.Unlock()
+
+	n.errors[ek] = err
+}
+
+func (n *TestNode) AddBarrier(t *testing.T, rID ranje.Ident, src state.RemoteState) *barrier {
+	n.muBar.Lock()
+	defer n.muBar.Unlock()
 
 	// Don't allow overwrites. It's confusing.
-	if tr, ok := n.transitions[rID]; ok {
+	if tr, ok := n.barriers[rID]; ok {
 		t.Fatalf("already have pending state transition (addr=%s, rID=%v, src=%v)", n.Addr, rID, tr.src)
 		return nil
 	}
 
-	wg.Add(1)
+	wg := &sync.WaitGroup{}
 
+	wg.Add(1)
 	n.rglt.OnLeaveState(rID, src, func() {
 		wg.Done()
 	})
 
-	n.transitions[rID] = st
+	st := &stateTransition{
+		src: src,
+		bar: NewBarrier(1, wg.Wait),
+	}
 
-	return bar
+	n.barriers[rID] = st
+
+	return st.bar
 }
 
 func (n *TestNode) Ranges(ctx context.Context, req *pb.RangesRequest) (*pb.RangesResponse, error) {
