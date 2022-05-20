@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"fmt"
+	"log"
 	"sort"
 	"testing"
 	"time"
@@ -71,15 +72,8 @@ func (ts *OrchestratorSuite) GetRange(rID uint64) *ranje.Range {
 
 // Init should be called at the top of each test to define the state of the
 // world. Nothing will work until this method is called.
-func (ts *OrchestratorSuite) Init(ranges []*ranje.Range) {
-	pers := &FakePersister{ranges: ranges}
-
-	var err error
-	ts.ks, err = keyspace.New(ts.cfg, pers)
-	if err != nil {
-		ts.T().Fatalf("keyspace.New: %s", err)
-	}
-
+func (ts *OrchestratorSuite) Init(ks *keyspace.Keyspace) {
+	ts.ks = ks
 	srv := grpc.NewServer() // TODO: Allow this to be nil.
 	ts.orch = New(ts.cfg, ts.ks, ts.rost, srv)
 }
@@ -141,23 +135,26 @@ func tickWait(orch *Orchestrator, waiters ...Waiter) {
 }
 
 func tickUntilStable(ts *OrchestratorSuite) {
-	var ksPrev string
-	var ticks, same int
+	var ksPrev string // previous value of ks.LogString
+	var stable int    // ticks since keyspace changed or rpc sent
+	var ticks int     // total ticks waited
 
 	for {
+		log.Print("Tick")
 		tickWait(ts.orch)
+		rpcs := len(ts.nodes.RPCs())
 
-		// Changed since last time? Keep ticking.
+		// Keyspace changed since last tick, or RPCs sent? Keep ticking.
 		ksNow := ts.ks.LogString()
-		if ksPrev != ksNow {
+		if ksPrev != ksNow || rpcs > 0 {
 			ksPrev = ksNow
-			same = 0
+			stable = 0
 		} else {
-			same += 1
+			stable += 1
 		}
 
 		// Stable for a few ticks? We're done.
-		if same >= 3 {
+		if stable >= 2 {
 			break
 		}
 
@@ -175,9 +172,9 @@ func tickUntilStable(ts *OrchestratorSuite) {
 	ts.rost.Tick()
 }
 
+// TODO: Move to keyspace tests.
 func (ts *OrchestratorSuite) TestJunk() {
-	// TODO: Move to keyspace tests.
-	ts.Init(nil)
+	ts.Init(keyspaceFactory(ts.T(), ts.cfg, nil))
 
 	// TODO: Remove
 	ts.Equal("{1 [-inf, +inf] RsActive}", ts.ks.LogString())
@@ -197,6 +194,47 @@ func (ts *OrchestratorSuite) TestPlacementFast() {
 
 	ts.Equal("{test-aaa [1:NsReady]}", ts.rost.TestString())
 	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}", ts.ks.LogString())
+}
+
+func (ts *OrchestratorSuite) TestPlacementReadyError() {
+	na, nb := remoteFactoryTwo("aaa", "bbb")
+	ts.Init(keyspaceFactory(ts.T(), ts.cfg, nil))
+	nodeFactory(ts.ctx, ts.nodes, nodeStub{na, nil}, nodeStub{nb, nil})
+
+	ts.rost.Tick()
+	ts.Equal("{1 [-inf, +inf] RsActive}", ts.ks.LogString())
+	ts.Equal("{test-aaa []} {test-bbb []}", ts.rost.TestString())
+
+	// Node aaa will always fail to become ready.
+	ts.nodes.Get("test-aaa").SetReturnValue(ts.T(), 1, state.NsReadying, fmt.Errorf("can't get ready!"))
+
+	// ----
+
+	tickUntilStable(ts)
+
+	// TODO: This is not a good state! The controller has discarded the
+	//       placement on aaa, but the node will remember it forever. That's the
+	//       only way that it ended up on bbb, which I think is also buggy.
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-bbb:PsReady}", ts.ks.LogString())
+	ts.Equal("{test-aaa [1:NsReadyingError]} {test-bbb [1:NsReady]}", ts.rost.TestString())
+}
+
+func (ts *OrchestratorSuite) TestPlacementWithFailures() {
+	na, nb := remoteFactoryTwo("aaa", "bbb")
+	ts.Init(keyspaceFactory(ts.T(), ts.cfg, nil))
+	nodeFactory(ts.ctx, ts.nodes, nodeStub{na, nil}, nodeStub{nb, nil})
+
+	ts.rost.Tick()
+	ts.Equal("{1 [-inf, +inf] RsActive}", ts.ks.LogString())
+	ts.Equal("{test-aaa []} {test-bbb []}", ts.rost.TestString())
+
+	// ----
+
+	ts.nodes.Get("test-aaa").SetReturnValue(ts.T(), 1, state.NsPreparing, fmt.Errorf("something went wrong"))
+
+	tickUntilStable(ts)
+	ts.Equal("{1 [-inf, +inf] RsActive p0=test-bbb:PsReady}", ts.ks.LogString())
+	ts.Equal("{test-aaa []} {test-bbb [1:NsReady]}", ts.rost.TestString())
 }
 
 func (ts *OrchestratorSuite) TestPlacementMedium() {
@@ -360,27 +398,13 @@ func (ts *OrchestratorSuite) TestPlacementSlow() {
 func (ts *OrchestratorSuite) TestMissingPlacement() {
 
 	// One node claiming that it's empty.
-	na := discovery.Remote{
-		Ident: "test-aaa",
-		Host:  "host-aaa",
-		Port:  1,
-	}
-	ts.nodes.Add(ts.ctx, na, map[ranje.Ident]*info.RangeInfo{})
+	na := remoteFactory("aaa")
+	nodeFactory(ts.ctx, ts.nodes, nodeStub{na, nil})
 	ts.nodes.SetStrictTransitions(false)
 
 	// One range, which the controller thinks should be on that node.
-	r1 := &ranje.Range{
-		Meta: ranje.Meta{
-			Ident: 1,
-			Start: ranje.ZeroKey,
-		},
-		State: ranje.RsActive,
-		Placements: []*ranje.Placement{{
-			NodeID: na.Ident, // <--
-			State:  ranje.PsReady,
-		}},
-	}
-	ts.Init([]*ranje.Range{r1})
+	ks := keyspaceFactory(ts.T(), ts.cfg, []rangeStub{{"", na.Ident}})
+	ts.Init(ks)
 
 	// Probe to verify initial state.
 
@@ -1088,22 +1112,9 @@ func (ts *OrchestratorSuite) TestSlowRPC() {
 
 	// One node, one range, unplaced.
 
-	na := discovery.Remote{
-		Ident: "test-aaa",
-		Host:  "host-aaa",
-		Port:  1,
-	}
-
-	r1 := &ranje.Range{
-		Meta: ranje.Meta{
-			Ident: 1,
-			Start: ranje.ZeroKey,
-		},
-		State: ranje.RsActive,
-	}
-
-	ts.Init([]*ranje.Range{r1})
-	ts.nodes.Add(ts.ctx, na, map[ranje.Ident]*info.RangeInfo{})
+	na := remoteFactory("aaa")
+	ts.Init(keyspaceFactory(ts.T(), ts.cfg, nil))
+	nodeFactory(ts.ctx, ts.nodes, nodeStub{na, nil})
 	ts.nodes.Get(na.Ident).SetGracePeriod(3 * time.Second)
 
 	ts.rost.Tick()
@@ -1169,22 +1180,9 @@ func TestOrchestratorSuite(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func initTestPlacement(ts *OrchestratorSuite) {
-	na := discovery.Remote{
-		Ident: "test-aaa",
-		Host:  "host-aaa",
-		Port:  1,
-	}
-
-	r1 := &ranje.Range{
-		Meta: ranje.Meta{
-			Ident: 1,
-			Start: ranje.ZeroKey,
-		},
-		State: ranje.RsActive,
-	}
-
-	ts.Init([]*ranje.Range{r1})
-	ts.nodes.Add(ts.ctx, na, map[ranje.Ident]*info.RangeInfo{})
+	na := remoteFactory("aaa")
+	ts.Init(keyspaceFactory(ts.T(), ts.cfg, nil))
+	nodeFactory(ts.ctx, ts.nodes, nodeStub{na, nil})
 
 	ts.rost.Tick()
 	ts.Equal("{1 [-inf, +inf] RsActive}", ts.ks.LogString())
@@ -1194,37 +1192,12 @@ func initTestPlacement(ts *OrchestratorSuite) {
 // initTestMove spawns two hosts (aaa, bbb), one range (1), and one placement
 // (range 1 is on aaa in PsReady), and returns the range.
 func initTestMove(ts *OrchestratorSuite, strict bool) *ranje.Range {
-	na := discovery.Remote{
-		Ident: "test-aaa",
-		Host:  "host-aaa",
-		Port:  1,
-	}
-	nb := discovery.Remote{
-		Ident: "test-bbb",
-		Host:  "host-bbb",
-		Port:  1,
-	}
+	na, nb := remoteFactoryTwo("aaa", "bbb")
+	ks := keyspaceFactory(ts.T(), ts.cfg, []rangeStub{{"", na.Ident}})
+	r1 := mustGetRange(ts.T(), ks, 1)
+	ts.Init(ks)
 
-	r1 := &ranje.Range{
-		Meta: ranje.Meta{
-			Ident: 1,
-			Start: ranje.ZeroKey,
-		},
-		State: ranje.RsActive,
-		Placements: []*ranje.Placement{{
-			NodeID: na.Ident,
-			State:  ranje.PsReady,
-		}},
-	}
-	ts.Init([]*ranje.Range{r1})
-
-	ts.nodes.Add(ts.ctx, na, map[ranje.Ident]*info.RangeInfo{
-		r1.Meta.Ident: {
-			Meta:  r1.Meta,
-			State: state.NsReady,
-		},
-	})
-	ts.nodes.Add(ts.ctx, nb, map[ranje.Ident]*info.RangeInfo{})
+	nodeFactory(ts.ctx, ts.nodes, nodeStub{na, []ranje.Meta{r1.Meta}}, nodeStub{nb, nil})
 	ts.nodes.SetStrictTransitions(strict)
 
 	ts.rost.Tick()
@@ -1237,34 +1210,17 @@ func initTestMove(ts *OrchestratorSuite, strict bool) *ranje.Range {
 func initTestSplit(ts *OrchestratorSuite, strict bool) *ranje.Range {
 
 	// Nodes
-	na := discovery.Remote{
-		Ident: "test-aaa",
-		Host:  "host-aaa",
-		Port:  1,
-	}
+	na := remoteFactory("aaa")
 
 	// Controller-side
-	r1 := &ranje.Range{
-		Meta: ranje.Meta{
-			Ident: 1,
-		},
-		State: ranje.RsActive,
-		// TODO: Test that controller-side placements are repaired when a node
-		//       shows up claiming to have a (valid) placement.
-		Placements: []*ranje.Placement{{
-			NodeID: na.Ident,
-			State:  ranje.PsReady,
-		}},
-	}
-	ts.Init([]*ranje.Range{r1})
+	// TODO: Test that controller-side placements are repaired when a node
+	//       shows up claiming to have a (valid) placement.
+	ks := keyspaceFactory(ts.T(), ts.cfg, []rangeStub{{"", na.Ident}})
+	r1 := mustGetRange(ts.T(), ks, 1)
+	ts.Init(ks)
 
 	// Nodes-side
-	ts.nodes.Add(ts.ctx, na, map[ranje.Ident]*info.RangeInfo{
-		r1.Meta.Ident: {
-			Meta:  r1.Meta,
-			State: state.NsReady,
-		},
-	})
+	nodeFactory(ts.ctx, ts.nodes, nodeStub{na, []ranje.Meta{r1.Meta}})
 	ts.nodes.SetStrictTransitions(strict)
 
 	// Probe the fake nodes.
@@ -1284,64 +1240,16 @@ func initTestSplit(ts *OrchestratorSuite, strict bool) *ranje.Range {
 // the two ranges.
 func initTestJoin(ts *OrchestratorSuite, strict bool) (*ranje.Range, *ranje.Range) {
 
-	// Start with two ranges (which togeter cover the whole keyspace) assigned
+	// Start with two ranges (which together cover the whole keyspace) assigned
 	// to two of three nodes. The ranges will be joined onto the third node.
 
-	na := discovery.Remote{
-		Ident: "test-aaa",
-		Host:  "host-aaa",
-		Port:  1,
-	}
-	nb := discovery.Remote{
-		Ident: "test-bbb",
-		Host:  "host-bbb",
-		Port:  1,
-	}
-	nc := discovery.Remote{
-		Ident: "test-ccc",
-		Host:  "host-ccc",
-		Port:  1,
-	}
+	na, nb, nc := remoteFactoryThree("aaa", "bbb", "ccc")
+	ks := keyspaceFactory(ts.T(), ts.cfg, []rangeStub{{"", na.Ident}, {"ggg", nb.Ident}})
+	r1 := mustGetRange(ts.T(), ks, 1)
+	r2 := mustGetRange(ts.T(), ks, 2)
+	ts.Init(ks)
 
-	r1 := &ranje.Range{
-		Meta: ranje.Meta{
-			Ident: 1,
-			Start: ranje.ZeroKey,
-			End:   ranje.Key("ggg"),
-		},
-		State: ranje.RsActive,
-		Placements: []*ranje.Placement{{
-			NodeID: na.Ident,
-			State:  ranje.PsReady,
-		}},
-	}
-	r2 := &ranje.Range{
-		Meta: ranje.Meta{
-			Ident: 2,
-			Start: ranje.Key("ggg"),
-			End:   ranje.ZeroKey,
-		},
-		State: ranje.RsActive,
-		Placements: []*ranje.Placement{{
-			NodeID: nb.Ident,
-			State:  ranje.PsReady,
-		}},
-	}
-	ts.Init([]*ranje.Range{r1, r2})
-
-	ts.nodes.Add(ts.ctx, na, map[ranje.Ident]*info.RangeInfo{
-		r1.Meta.Ident: {
-			Meta:  r1.Meta,
-			State: state.NsReady,
-		},
-	})
-	ts.nodes.Add(ts.ctx, nb, map[ranje.Ident]*info.RangeInfo{
-		r2.Meta.Ident: {
-			Meta:  r2.Meta,
-			State: state.NsReady,
-		},
-	})
-	ts.nodes.Add(ts.ctx, nc, map[ranje.Ident]*info.RangeInfo{})
+	nodeFactory(ts.ctx, ts.nodes, nodeStub{na, []ranje.Meta{r1.Meta}}, nodeStub{nb, []ranje.Meta{r2.Meta}}, nodeStub{nc, nil})
 	ts.nodes.SetStrictTransitions(strict)
 
 	// Probe the fake nodes to verify the setup.
@@ -1351,6 +1259,86 @@ func initTestJoin(ts *OrchestratorSuite, strict bool) (*ranje.Range, *ranje.Rang
 	ts.Equal("{test-aaa [1:NsReady]} {test-bbb [2:NsReady]} {test-ccc []}", ts.rost.TestString())
 
 	return r1, r2
+}
+
+type nodeStub struct {
+	node discovery.Remote
+	m    []ranje.Meta
+}
+
+func nodeFactory(ctx context.Context, nodes *fake_nodes.TestNodes, stubs ...nodeStub) {
+	for i := range stubs {
+
+		ri := map[ranje.Ident]*info.RangeInfo{}
+		for _, m := range stubs[i].m {
+			ri[m.Ident] = &info.RangeInfo{
+				Meta:  m,
+				State: state.NsReady,
+			}
+		}
+
+		nodes.Add(ctx, stubs[i].node, ri)
+	}
+}
+
+func remoteFactory(suffix string) discovery.Remote {
+	return discovery.Remote{
+		Ident: fmt.Sprintf("test-%s", suffix),
+		Host:  fmt.Sprintf("host-%s", suffix),
+		Port:  1,
+	}
+}
+
+func remoteFactoryTwo(s1, s2 string) (discovery.Remote, discovery.Remote) {
+	return remoteFactory(s1), remoteFactory(s2)
+}
+
+func remoteFactoryThree(s1, s2, s3 string) (discovery.Remote, discovery.Remote, discovery.Remote) {
+	return remoteFactory(s1), remoteFactory(s2), remoteFactory(s3)
+}
+
+type rangeStub struct {
+	startKey string
+	nodeID   string
+}
+
+// TODO: Remove config param. Config was a mistake.
+func keyspaceFactory(t *testing.T, cfg config.Config, stubs []rangeStub) *keyspace.Keyspace {
+	ranges := make([]*ranje.Range, len(stubs))
+	for i := range stubs {
+		r := ranje.NewRange(ranje.Ident(i + 1))
+		r.State = ranje.RsActive
+
+		if i > 0 {
+			r.Meta.Start = ranje.Key(stubs[i].startKey)
+			ranges[i-1].Meta.End = ranje.Key(stubs[i].startKey)
+		}
+
+		r.Placements = []*ranje.Placement{{
+			NodeID: stubs[i].nodeID,
+			State:  ranje.PsReady,
+		}}
+
+		ranges[i] = r
+	}
+
+	pers := &FakePersister{ranges: ranges}
+
+	var err error
+	ks, err := keyspace.New(cfg, pers)
+	if err != nil {
+		t.Fatalf("keyspace.New: %s", err)
+	}
+
+	return ks
+}
+
+func mustGetRange(t *testing.T, ks *keyspace.Keyspace, rID int) *ranje.Range {
+	r, err := ks.Get(ranje.Ident(rID))
+	if err != nil {
+		t.Fatalf("ks.Get(%d): %v", rID, err)
+	}
+	return r
 }
 
 // -----------------------------------------------------------------------------

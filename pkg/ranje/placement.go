@@ -22,6 +22,11 @@ type Placement struct {
 	// TODO: Change this to some kind of uuid.
 	IsReplacing string `json:",omitempty"` // NodeID
 
+	// How many times has this placement failed to advance to the next state?
+	// Orchestrator uses this to determine whether to give up or try again.
+	// Reset by ToState.
+	ErrorCount int
+
 	// Not persisted.
 	replaceDone func()
 	onReady     func()
@@ -103,6 +108,7 @@ func (p *Placement) ToState(new PlacementState) error {
 	}
 
 	p.State = new
+	p.ErrorCount = 0
 	p.rang.dirty = true
 
 	// TODO: Make this less weird

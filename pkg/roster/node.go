@@ -15,6 +15,11 @@ import (
 	"google.golang.org/grpc"
 )
 
+type PlacementFailure struct {
+	rID  ranje.Ident
+	when time.Time
+}
+
 type Node struct {
 	Remote discovery.Remote
 
@@ -29,9 +34,15 @@ type Node struct {
 	// actually up and healthy enough to respond.
 	whenLastProbed time.Time
 
+	// Keep track of when placements are attempted but fail, so that we can try
+	// placement on a different node rather than the same one again. Note that
+	// this is (currently) volatile, and is forgotten when the controller restarts.
+	placementFailures []PlacementFailure
+	muPF              sync.RWMutex
+
+	// The gRPC connection to the actual remote node.
 	conn   *grpc.ClientConn
 	client pb.NodeClient
-	muConn sync.RWMutex
 
 	// Populated by probeOne
 	wantDrain bool
@@ -41,12 +52,14 @@ type Node struct {
 
 func NewNode(remote discovery.Remote, conn *grpc.ClientConn) *Node {
 	return &Node{
-		Remote:       remote,
-		init:         time.Now(),
-		whenLastSeen: time.Time{}, // never
-		conn:         conn,
-		client:       pb.NewNodeClient(conn),
-		ranges:       make(map[ranje.Ident]*info.RangeInfo),
+		Remote:            remote,
+		init:              time.Now(),
+		whenLastSeen:      time.Time{}, // never
+		whenLastProbed:    time.Time{}, // never
+		placementFailures: []PlacementFailure{},
+		conn:              conn,
+		client:            pb.NewNodeClient(conn),
+		ranges:            make(map[ranje.Ident]*info.RangeInfo),
 	}
 }
 
@@ -136,4 +149,29 @@ func (n *Node) HasRange(rID ranje.Ident) bool {
 	defer n.muRanges.RUnlock()
 	_, ok := n.ranges[rID]
 	return ok
+}
+
+func (n *Node) PlacementFailed(rID ranje.Ident, t time.Time) {
+	n.muPF.Lock()
+	defer n.muPF.Unlock()
+	n.placementFailures = append(n.placementFailures, PlacementFailure{rID: rID, when: t})
+}
+
+func (n *Node) PlacementFailures(rID ranje.Ident, after time.Time) int {
+	n.muPF.RLock()
+	defer n.muPF.RUnlock()
+
+	c := 0
+	for _, pf := range n.placementFailures {
+		if rID != ranje.ZeroRange && pf.rID != rID {
+			continue
+		}
+		if pf.when.Before(after) {
+			continue
+		}
+
+		c += 1
+	}
+
+	return c
 }

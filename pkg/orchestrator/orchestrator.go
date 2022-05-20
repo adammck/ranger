@@ -16,8 +16,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-type RpcIdent struct {
-}
+const maxPlacementFailures = 3
 
 type Orchestrator struct {
 	cfg  config.Config
@@ -475,6 +474,21 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 			case state.NsPreparing:
 				log.Printf("node %s still preparing %s", n.Ident(), p.Range().Meta.Ident)
 
+<<<<<<< HEAD
+=======
+			case state.NsPreparingError:
+				// TODO: Pass back more information from the node, here. It's
+				//       not an RPC error, but there was some failure which we
+				//       can log or handle here.
+				p.ErrorCount += 1
+				log.Printf("error placing %s on %s (attempts=%d)", p.Range().Meta.Ident, n.Ident(), p.ErrorCount)
+				if p.ErrorCount > maxPlacementFailures {
+					b.ks.PlacementToState(p, ranje.PsGiveUp)
+					n.PlacementFailed(p.Range().Meta.Ident, time.Now())
+					return
+				}
+
+>>>>>>> d252386 (tmp)
 			case state.NsPrepared:
 				b.ks.PlacementToState(p, ranje.PsPrepared)
 				return
@@ -520,8 +534,6 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 		case state.NsReady:
 			b.ks.PlacementToState(p, ranje.PsReady)
 			return
-
-		// TODO: state.NsReadyError?
 
 		default:
 			log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)

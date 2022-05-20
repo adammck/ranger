@@ -196,6 +196,10 @@ func (n *TestNode) withTestInterceptor() grpc.DialOption {
 }
 
 func (n *TestNode) SetReturnValue(t *testing.T, rID ranje.Ident, src state.RemoteState, err error) {
+	if src != state.NsPreparing && src != state.NsReadying && src != state.NsTaking && src != state.NsDropping {
+		t.Fatalf("unsupported src state: %v", src)
+	}
+
 	ek := ErrKey{
 		rID: rID,
 		src: src,
