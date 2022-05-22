@@ -398,56 +398,48 @@ func (ts *OrchestratorSuite) TestPlacementSlow() {
 	requireStable(ts.T(), ts.orch)
 }
 
-func (ts *OrchestratorSuite) TestMissingPlacement() {
+func TestMissingPlacement(t *testing.T) {
+	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}"
+	rosStr := "{test-aaa []}"
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig())
+	nodes.SetStrictTransitions(false)
 
-	// One node claiming that it's empty.
-	na := remoteFactory("aaa")
-	nodeFactory(ts.ctx, ts.nodes, nodeStub{na, nil})
-	ts.nodes.SetStrictTransitions(false)
-
-	// One range, which the controller thinks should be on that node.
-	//ks := keyspaceFactory(ts.T(), ts.cfg, []rangeStub{{"", na.Ident}})
-	ks := keyspaceFactory(ts.T(), ts.cfg, nil)
-	ts.Init(ks)
-
-	// Probe to verify initial state.
-
-	ts.rost.Tick()
-	ts.Equal("{test-aaa []}", ts.rost.TestString())
-	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}", ts.ks.LogString())
+	orch.rost.Tick()
+	assert.Equal(t, ksStr, orch.ks.LogString())
+	assert.Equal(t, rosStr, orch.rost.TestString())
 
 	// -------------------------------------------------------------------------
 
 	// Orchestrator notices that the node doesn't have the range, so marks the
 	// placement as abandoned.
 
-	tickWait(ts.orch)
-	ts.Empty(ts.nodes.RPCs())
-	ts.Equal("{test-aaa []}", ts.rost.TestString())
-	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsGiveUp}", ts.ks.LogString())
+	tickWait(orch)
+	assert.Empty(t, nodes.RPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsGiveUp}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa []}", orch.rost.TestString())
 
 	// Orchestrator advances to drop the placement, but (unlike when moving)
 	// doesn't bother to notify the node via RPC. It has already told us that it
 	// doesn't have the range.
 
-	tickWait(ts.orch)
-	ts.Empty(ts.nodes.RPCs())
-	ts.Equal("{test-aaa []}", ts.rost.TestString())
-	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsDropped}", ts.ks.LogString())
+	tickWait(orch)
+	assert.Empty(t, nodes.RPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsDropped}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa []}", orch.rost.TestString())
 
 	// The placement is destroyed.
 
-	tickWait(ts.orch)
-	ts.Empty(ts.nodes.RPCs())
-	ts.Equal("{test-aaa []}", ts.rost.TestString())
-	ts.Equal("{1 [-inf, +inf] RsActive}", ts.ks.LogString())
+	tickWait(orch)
+	assert.Empty(t, nodes.RPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsActive}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa []}", orch.rost.TestString())
 
 	// From here we continue as usual. No need to repeat TestPlacement.
 
-	tickWait(ts.orch)
-	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
-		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
-			ProtoEqual(ts.T(), &pb.GiveRequest{
+	tickWait(orch)
+	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
+		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 1) {
+			ProtoEqual(t, &pb.GiveRequest{
 				Range: &pb.RangeMeta{
 					Ident: 1,
 				},
@@ -458,7 +450,7 @@ func (ts *OrchestratorSuite) TestMissingPlacement() {
 						},
 						Placements: []*pb.Placement{
 							{
-								Node:  "host-aaa:1",
+								Node:  "host-test-aaa:1",
 								State: pb.PlacementState_PS_PENDING,
 							},
 						},
@@ -468,8 +460,8 @@ func (ts *OrchestratorSuite) TestMissingPlacement() {
 		}
 	}
 
-	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", ts.ks.LogString())
-	ts.Equal("{test-aaa [1:NsPrepared]}", ts.rost.TestString())
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsPrepared]}", orch.rost.TestString())
 }
 
 func (ts *OrchestratorSuite) TestMoveFast() {
@@ -1413,8 +1405,9 @@ func parseRoster(t *testing.T, s string) []nodeStub2 {
 	return ns
 }
 
-func nodesFactory2(t *testing.T, ctx context.Context, ks *keyspace.Keyspace, stubs []nodeStub2) (*fake_nodes.TestNodes, *roster.Roster) {
+func nodesFactory2(t *testing.T, cfg config.Config, ctx context.Context, ks *keyspace.Keyspace, stubs []nodeStub2) (*fake_nodes.TestNodes, *roster.Roster) {
 	nodes := fake_nodes.NewTestNodes()
+	rost := roster.New(cfg, nodes.Discovery(), nil, nil, nil)
 
 	for i := range stubs {
 
@@ -1442,17 +1435,16 @@ func nodesFactory2(t *testing.T, ctx context.Context, ks *keyspace.Keyspace, stu
 		nodes.Add(ctx, rem, ri)
 	}
 
-	rost := roster.New(config.Config{}, nodes.Discovery(), nil, nil, nil)
 	rost.NodeConnFactory = nodes.NodeConnFactory
 	return nodes, rost
 }
 
-func orchFactory(t *testing.T, sKS, sRos string, cfg config.Config) *Orchestrator {
-	ks := keyspaceFactory(t, config.Config{}, parseKeyspace(t, sKS))
-	_, ros := nodesFactory2(t, context.TODO(), ks, parseRoster(t, sRos))
+func orchFactory(t *testing.T, sKS, sRos string, cfg config.Config) (*Orchestrator, *fake_nodes.TestNodes) {
+	ks := keyspaceFactory(t, cfg, parseKeyspace(t, sKS))
+	nodes, ros := nodesFactory2(t, cfg, context.TODO(), ks, parseRoster(t, sRos))
 	srv := grpc.NewServer() // TODO: Allow this to be nil.
 	orch := New(cfg, ks, ros, srv)
-	return orch
+	return orch, nodes
 }
 
 func TestParseRoster(t *testing.T) {
@@ -1462,7 +1454,7 @@ func TestParseRoster(t *testing.T) {
 
 	rosStr := "{test-aaa [1:NsReady 2:NsReady]} {test-bbb []} {test-ccc []}"
 	fmt.Printf("%v\n", parseRoster(t, rosStr))
-	_, ros := nodesFactory2(t, context.TODO(), ks, parseRoster(t, rosStr))
+	_, ros := nodesFactory2(t, testConfig(), context.TODO(), ks, parseRoster(t, rosStr))
 
 	ros.Tick()
 	assert.Equal(t, rosStr, ros.TestString())
@@ -1471,7 +1463,7 @@ func TestParseRoster(t *testing.T) {
 func TestOrchFactory(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsReady p1=test-bbb:PsReady} {2 (ggg, +inf] RsActive}"
 	rosStr := "{test-aaa [1:NsReady 2:NsReady]} {test-bbb []} {test-ccc []}"
-	orch := orchFactory(t, ksStr, rosStr, testConfig())
+	orch, _ := orchFactory(t, ksStr, rosStr, testConfig())
 	orch.rost.Tick()
 
 	assert.Equal(t, ksStr, orch.ks.LogString())
