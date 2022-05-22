@@ -176,19 +176,24 @@ func tickUntilStable(ts *OrchestratorSuite) {
 }
 
 // TODO: Move to keyspace tests.
-func (ts *OrchestratorSuite) TestJunk() {
-	ts.Init(keyspaceFactory(ts.T(), ts.cfg, nil))
+func TestJunk(t *testing.T) {
+	ksStr := ""
+	rosStr := ""
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig())
+	nodes.SetStrictTransitions(false)
 
-	// TODO: Remove
-	ts.Equal("{1 [-inf, +inf] RsActive}", ts.ks.LogString())
-	// End
+	orch.rost.Tick()
+	assert.Equal(t, "{1 [-inf, +inf] RsActive}", orch.ks.LogString())
+	assert.Equal(t, rosStr, orch.rost.TestString())
 
-	r := mustGetRange(ts.T(), ts.ks, 1)
-	ts.NotNil(r)
-	ts.Equal(ranje.ZeroKey, r.Meta.Start, "range should start at ZeroKey")
-	ts.Equal(ranje.ZeroKey, r.Meta.End, "range should end at ZeroKey")
-	ts.Equal(ranje.RsActive, r.State, "range should be born active")
-	ts.Equal(0, len(r.Placements), "range should be born with no placements")
+	// -------------------------------------------------------------------------
+
+	r := mustGetRange(t, orch.ks, 1)
+	assert.NotNil(t, r)
+	assert.Equal(t, ranje.ZeroKey, r.Meta.Start, "range should start at ZeroKey")
+	assert.Equal(t, ranje.ZeroKey, r.Meta.End, "range should end at ZeroKey")
+	assert.Equal(t, ranje.RsActive, r.State, "range should be born active")
+	assert.Equal(t, 0, len(r.Placements), "range should be born with no placements")
 }
 
 func (ts *OrchestratorSuite) TestPlacementFast() {
@@ -1285,9 +1290,6 @@ func parseKeyspace(t *testing.T, keyspace string) []rangeStub {
 
 	r := regexp.MustCompile(`{[^{}]*}`)
 	x := r.FindAllString(keyspace, -1)
-	if x == nil {
-		t.Fatalf("invalid keyspace string: %v", keyspace)
-	}
 
 	sr := make([]rangeStub, len(x))
 	for i := range x {
@@ -1362,9 +1364,6 @@ func parseRoster(t *testing.T, s string) []nodeStub2 {
 	r3 := regexp.MustCompile(`^` + `(\d+)` + `:` + `(Ns\w+)` + `$`)
 
 	x := r1.FindAllString(s, -1)
-	if x == nil {
-		t.Fatalf("invalid roster string: %v", s)
-	}
 
 	ns := make([]nodeStub2, len(x))
 	for i := range x {
