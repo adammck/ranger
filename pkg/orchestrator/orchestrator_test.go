@@ -23,6 +23,7 @@ import (
 	"github.com/adammck/ranger/pkg/test/fake_nodes"
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/testing/protocmp"
@@ -39,9 +40,9 @@ type OrchestratorSuite struct {
 }
 
 // ProtoEqual is a helper to compare two slices of protobufs. It's not great.
-func (ts *OrchestratorSuite) ProtoEqual(expected, actual interface{}) {
+func ProtoEqual(t *testing.T, expected, actual interface{}) {
 	if diff := cmp.Diff(expected, actual, protocmp.Transform()); diff != "" {
-		ts.Fail(fmt.Sprintf("Not equal (-want +got):\n%s\n", diff))
+		t.Errorf(fmt.Sprintf("Not equal (-want +got):\n%s\n", diff))
 	}
 }
 
@@ -65,13 +66,6 @@ func RPCs(obj map[string][]interface{}) []interface{} {
 	}
 
 	return ret
-}
-
-// GetRange returns a range from the test's keyspace or fails the test.
-func (ts *OrchestratorSuite) GetRange(rID uint64) *ranje.Range {
-	r, err := ts.ks.Get(ranje.Ident(rID))
-	ts.Require().NoError(err)
-	return r
 }
 
 // Init should be called at the top of each test to define the state of the
@@ -104,18 +98,19 @@ func (ts *OrchestratorSuite) SetupTest() {
 	ts.rost.NodeConnFactory = ts.nodes.NodeConnFactory
 }
 
-func (ts *OrchestratorSuite) EnsureStable() {
-	ksLog := ts.ks.LogString()
-	rostLog := ts.rost.TestString()
+func requireStable(t *testing.T, orch *Orchestrator) {
+	ksLog := orch.ks.LogString()
+	rostLog := orch.rost.TestString()
 	for i := 0; i < 2; i++ {
-		tickWait(ts.orch)
-		ts.rost.Tick()
+		tickWait(orch)
+		orch.rost.Tick()
 		// Use require (vs assert) since spamming the same error doesn't help.
-		ts.Require().Equal(ksLog, ts.ks.LogString())
-		ts.Require().Equal(rostLog, ts.rost.TestString())
+		require.Equal(t, ksLog, orch.ks.LogString())
+		require.Equal(t, rostLog, orch.rost.TestString())
 	}
 }
 
+// TODO: Return a function to do this from OrchFactory.
 func (ts *OrchestratorSuite) TearDownTest() {
 	if ts.nodes != nil {
 		ts.nodes.Close()
@@ -188,7 +183,7 @@ func (ts *OrchestratorSuite) TestJunk() {
 	ts.Equal("{1 [-inf, +inf] RsActive}", ts.ks.LogString())
 	// End
 
-	r := ts.GetRange(1)
+	r := mustGetRange(ts.T(), ts.ks, 1)
 	ts.NotNil(r)
 	ts.Equal(ranje.ZeroKey, r.Meta.Start, "range should start at ZeroKey")
 	ts.Equal(ranje.ZeroKey, r.Meta.End, "range should end at ZeroKey")
@@ -254,7 +249,7 @@ func (ts *OrchestratorSuite) TestPlacementMedium() {
 	tickWait(ts.orch)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
-			ts.ProtoEqual(&pb.GiveRequest{
+			ProtoEqual(ts.T(), &pb.GiveRequest{
 				Range: &pb.RangeMeta{
 					Ident: 1,
 					Start: []byte(ranje.ZeroKey),
@@ -297,7 +292,7 @@ func (ts *OrchestratorSuite) TestPlacementMedium() {
 	tickWait(ts.orch)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
-			ts.ProtoEqual(&pb.ServeRequest{Range: 1}, aaa[0])
+			ProtoEqual(ts.T(), &pb.ServeRequest{Range: 1}, aaa[0])
 		}
 	}
 
@@ -313,7 +308,7 @@ func (ts *OrchestratorSuite) TestPlacementMedium() {
 
 	// No more changes. This is steady state.
 
-	ts.EnsureStable()
+	requireStable(ts.T(), ts.orch)
 }
 
 func (ts *OrchestratorSuite) TestPlacementSlow() {
@@ -324,7 +319,7 @@ func (ts *OrchestratorSuite) TestPlacementSlow() {
 	tickWait(ts.orch, par)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
-			ts.ProtoEqual(&pb.GiveRequest{
+			ProtoEqual(ts.T(), &pb.GiveRequest{
 				Range: &pb.RangeMeta{
 					Ident: 1,
 					Start: []byte(ranje.ZeroKey),
@@ -400,7 +395,7 @@ func (ts *OrchestratorSuite) TestPlacementSlow() {
 	ts.Equal("{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}", ts.ks.LogString())
 	ts.Equal("{test-aaa [1:NsReady]}", ts.rost.TestString())
 
-	ts.EnsureStable()
+	requireStable(ts.T(), ts.orch)
 }
 
 func (ts *OrchestratorSuite) TestMissingPlacement() {
@@ -452,7 +447,7 @@ func (ts *OrchestratorSuite) TestMissingPlacement() {
 	tickWait(ts.orch)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
-			ts.ProtoEqual(&pb.GiveRequest{
+			ProtoEqual(ts.T(), &pb.GiveRequest{
 				Range: &pb.RangeMeta{
 					Ident: 1,
 				},
@@ -479,7 +474,7 @@ func (ts *OrchestratorSuite) TestMissingPlacement() {
 
 func (ts *OrchestratorSuite) TestMoveFast() {
 	r1 := initTestMove(ts, false)
-	ts.EnsureStable()
+	requireStable(ts.T(), ts.orch)
 
 	func() {
 		ts.orch.opMovesMu.Lock()
@@ -500,7 +495,7 @@ func (ts *OrchestratorSuite) TestMoveFast() {
 
 func (ts *OrchestratorSuite) TestMoveSlow() {
 	r1 := initTestMove(ts, true)
-	ts.EnsureStable()
+	requireStable(ts.T(), ts.orch)
 
 	func() {
 		ts.orch.opMovesMu.Lock()
@@ -516,7 +511,7 @@ func (ts *OrchestratorSuite) TestMoveSlow() {
 	tickWait(ts.orch, bPAR)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-bbb"}, nIDs(rpcs)) {
 		if bbb := rpcs["test-bbb"]; ts.Len(bbb, 1) {
-			ts.ProtoEqual(&pb.GiveRequest{
+			ProtoEqual(ts.T(), &pb.GiveRequest{
 				Range: &pb.RangeMeta{
 					Ident: 1,
 					Start: []byte(ranje.ZeroKey),
@@ -566,7 +561,7 @@ func (ts *OrchestratorSuite) TestMoveSlow() {
 	tickWait(ts.orch, aPDR)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
-			ts.ProtoEqual(&pb.TakeRequest{Range: 1}, aaa[0])
+			ProtoEqual(ts.T(), &pb.TakeRequest{Range: 1}, aaa[0])
 		}
 	}
 
@@ -588,7 +583,7 @@ func (ts *OrchestratorSuite) TestMoveSlow() {
 	tickWait(ts.orch, bAR)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-bbb"}, nIDs(rpcs)) {
 		if bbb := rpcs["test-bbb"]; ts.Len(bbb, 1) {
-			ts.ProtoEqual(&pb.ServeRequest{Range: 1}, bbb[0])
+			ProtoEqual(ts.T(), &pb.ServeRequest{Range: 1}, bbb[0])
 		}
 	}
 
@@ -615,7 +610,7 @@ func (ts *OrchestratorSuite) TestMoveSlow() {
 	tickWait(ts.orch, aDR)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
-			ts.ProtoEqual(&pb.DropRequest{Range: 1}, aaa[0])
+			ProtoEqual(ts.T(), &pb.DropRequest{Range: 1}, aaa[0])
 		}
 	}
 
@@ -647,12 +642,12 @@ func (ts *OrchestratorSuite) TestMoveSlow() {
 	ts.Equal("{1 [-inf, +inf] RsActive p0=test-bbb:PsReady}", ts.ks.LogString())
 	ts.Equal("{test-aaa []} {test-bbb [1:NsReady]}", ts.rost.TestString())
 
-	ts.EnsureStable()
+	requireStable(ts.T(), ts.orch)
 }
 
 func (ts *OrchestratorSuite) TestSplitFast() {
 	r1 := initTestSplit(ts, false)
-	ts.EnsureStable()
+	requireStable(ts.T(), ts.orch)
 
 	op := OpSplit{
 		Range: r1.Meta.Ident,
@@ -698,7 +693,7 @@ func (ts *OrchestratorSuite) TestSplitSlow() {
 	tickWait(ts.orch, a2PAR, a3PAR)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 2) {
-			ts.ProtoEqual(&pb.GiveRequest{
+			ProtoEqual(ts.T(), &pb.GiveRequest{
 				Range: &pb.RangeMeta{
 					Ident: 2,
 					Start: []byte(ranje.ZeroKey),
@@ -731,7 +726,7 @@ func (ts *OrchestratorSuite) TestSplitSlow() {
 					},
 				},
 			}, aaa[0])
-			ts.ProtoEqual(&pb.GiveRequest{
+			ProtoEqual(ts.T(), &pb.GiveRequest{
 				Range: &pb.RangeMeta{
 					Ident: 3,
 					Start: []byte("ccc"),
@@ -799,7 +794,7 @@ func (ts *OrchestratorSuite) TestSplitSlow() {
 	tickWait(ts.orch, a1PDR)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
-			ts.ProtoEqual(&pb.TakeRequest{Range: 1}, aaa[0])
+			ProtoEqual(ts.T(), &pb.TakeRequest{Range: 1}, aaa[0])
 		}
 	}
 
@@ -820,8 +815,8 @@ func (ts *OrchestratorSuite) TestSplitSlow() {
 	tickWait(ts.orch, a2AR, a3AR)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 2) {
-			ts.ProtoEqual(&pb.ServeRequest{Range: 2}, aaa[0])
-			ts.ProtoEqual(&pb.ServeRequest{Range: 3}, aaa[1])
+			ProtoEqual(ts.T(), &pb.ServeRequest{Range: 2}, aaa[0])
+			ProtoEqual(ts.T(), &pb.ServeRequest{Range: 3}, aaa[1])
 		}
 	}
 
@@ -857,7 +852,7 @@ func (ts *OrchestratorSuite) TestSplitSlow() {
 	tickWait(ts.orch, a1DR)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
-			ts.ProtoEqual(&pb.DropRequest{Range: 1}, aaa[0])
+			ProtoEqual(ts.T(), &pb.DropRequest{Range: 1}, aaa[0])
 		}
 	}
 
@@ -897,7 +892,7 @@ func (ts *OrchestratorSuite) TestSplitSlow() {
 	ts.rost.Tick()
 	ts.Equal("{test-aaa [2:NsReady, 3:NsReady]}", ts.rost.TestString())
 
-	ts.EnsureStable()
+	requireStable(ts.T(), ts.orch)
 
 	// Assert that the error chan was closed, to indicate op is complete.
 	select {
@@ -912,7 +907,7 @@ func (ts *OrchestratorSuite) TestSplitSlow() {
 
 func (ts *OrchestratorSuite) TestJoinFast() {
 	r1, r2 := initTestJoin(ts, false)
-	ts.EnsureStable()
+	requireStable(ts.T(), ts.orch)
 
 	op := OpJoin{
 		Left:  r1.Meta.Ident,
@@ -962,7 +957,7 @@ func (ts *OrchestratorSuite) TestJoinSlow() {
 	tickWait(ts.orch, c3PAR)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-ccc"}, nIDs(rpcs)) {
 		if ccc := rpcs["test-ccc"]; ts.Len(ccc, 1) {
-			ts.ProtoEqual(&pb.GiveRequest{
+			ProtoEqual(ts.T(), &pb.GiveRequest{
 				Range: &pb.RangeMeta{
 					Ident: 3,
 				},
@@ -1028,10 +1023,10 @@ func (ts *OrchestratorSuite) TestJoinSlow() {
 	tickWait(ts.orch, a1PDR, b2PDR)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa", "test-bbb"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
-			ts.ProtoEqual(&pb.TakeRequest{Range: 1}, aaa[0])
+			ProtoEqual(ts.T(), &pb.TakeRequest{Range: 1}, aaa[0])
 		}
 		if bbb := rpcs["test-bbb"]; ts.Len(bbb, 1) {
-			ts.ProtoEqual(&pb.TakeRequest{Range: 2}, bbb[0])
+			ProtoEqual(ts.T(), &pb.TakeRequest{Range: 2}, bbb[0])
 		}
 	}
 
@@ -1050,7 +1045,7 @@ func (ts *OrchestratorSuite) TestJoinSlow() {
 	c3AR.Wait()
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-ccc"}, nIDs(rpcs)) {
 		if ccc := rpcs["test-ccc"]; ts.Len(ccc, 1) {
-			ts.ProtoEqual(&pb.ServeRequest{Range: 3}, ccc[0])
+			ProtoEqual(ts.T(), &pb.ServeRequest{Range: 3}, ccc[0])
 		}
 	}
 
@@ -1073,10 +1068,10 @@ func (ts *OrchestratorSuite) TestJoinSlow() {
 	tickWait(ts.orch, a1DR, b2DR)
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa", "test-bbb"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
-			ts.ProtoEqual(&pb.DropRequest{Range: 1}, aaa[0])
+			ProtoEqual(ts.T(), &pb.DropRequest{Range: 1}, aaa[0])
 		}
 		if bbb := rpcs["test-bbb"]; ts.Len(bbb, 1) {
-			ts.ProtoEqual(&pb.DropRequest{Range: 2}, bbb[0])
+			ProtoEqual(ts.T(), &pb.DropRequest{Range: 2}, bbb[0])
 		}
 	}
 
@@ -1104,7 +1099,7 @@ func (ts *OrchestratorSuite) TestJoinSlow() {
 	ts.Equal("{1 [-inf, ggg] RsObsolete} {2 (ggg, +inf] RsObsolete} {3 [-inf, +inf] RsActive p0=test-ccc:PsReady}", ts.ks.LogString())
 	ts.Equal("{test-aaa []} {test-bbb []} {test-ccc [3:NsReady]}", ts.rost.TestString())
 
-	ts.EnsureStable()
+	requireStable(ts.T(), ts.orch)
 
 	// Assert that the error chan was closed, to indicate op is complete.
 	select {
@@ -1143,7 +1138,7 @@ func (ts *OrchestratorSuite) TestSlowRPC() {
 	if rpcs := ts.nodes.RPCs(); ts.Equal([]string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; ts.Len(aaa, 1) {
 			if ts.IsType(&pb.GiveRequest{}, aaa[0]) {
-				ts.ProtoEqual(&pb.RangeMeta{
+				ProtoEqual(ts.T(), &pb.RangeMeta{
 					Ident: 1,
 					Start: []byte(ranje.ZeroKey),
 					End:   []byte(ranje.ZeroKey),
@@ -1612,6 +1607,7 @@ func keyspaceFactory(t *testing.T, cfg config.Config, stubs []rangeStub) *keyspa
 	return ks
 }
 
+// mustGetRange returns a range from the given keyspace or fails the test.
 func mustGetRange(t *testing.T, ks *keyspace.Keyspace, rID int) *ranje.Range {
 	r, err := ks.Get(ranje.Ident(rID))
 	if err != nil {
