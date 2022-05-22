@@ -23,170 +23,22 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/stretchr/testify/suite"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/testing/protocmp"
 )
-
-type OrchestratorSuite struct {
-	suite.Suite
-	ctx   context.Context
-	cfg   config.Config
-	nodes *fake_nodes.TestNodes
-	ks    *keyspace.Keyspace
-	rost  *roster.Roster
-	orch  *Orchestrator
-}
-
-// ProtoEqual is a helper to compare two slices of protobufs. It's not great.
-func ProtoEqual(t *testing.T, expected, actual interface{}) {
-	if diff := cmp.Diff(expected, actual, protocmp.Transform()); diff != "" {
-		t.Errorf(fmt.Sprintf("Not equal (-want +got):\n%s\n", diff))
-	}
-}
-
-// nIDs is a helper to extract the list of nIDs from map like RPCs returns.
-func nIDs(obj map[string][]interface{}) []string {
-	ret := []string{}
-
-	for k := range obj {
-		ret = append(ret, k)
-	}
-
-	sort.Strings(ret)
-	return ret
-}
-
-func RPCs(obj map[string][]interface{}) []interface{} {
-	ret := []interface{}{}
-
-	for _, v := range obj {
-		ret = append(ret, v...)
-	}
-
-	return ret
-}
-
-// Init should be called at the top of each test to define the state of the
-// world. Nothing will work until this method is called.
-func (ts *OrchestratorSuite) Init(ks *keyspace.Keyspace) {
-	ts.ks = ks
-	srv := grpc.NewServer() // TODO: Allow this to be nil.
-	ts.orch = New(ts.cfg, ts.ks, ts.rost, srv)
-}
-
-func testConfig() config.Config {
-	return config.Config{
-		DrainNodesBeforeShutdown: false,
-		NodeExpireDuration:       1 * time.Hour, // never
-		Replication:              1,
-	}
-}
-
-func (ts *OrchestratorSuite) SetupTest() {
-	ts.ctx = context.Background()
-
-	// Sensible defaults.
-	// TODO: Better to set these per test, but that's too late because we've
-	//       already created the objects in this method, and config is supposed
-	//       to be immutable. Better rethink this.
-	ts.cfg = testConfig()
-
-	ts.nodes = fake_nodes.NewTestNodes()
-	ts.rost = roster.New(ts.cfg, ts.nodes.Discovery(), nil, nil, nil)
-	ts.rost.NodeConnFactory = ts.nodes.NodeConnFactory
-}
-
-func requireStable(t *testing.T, orch *Orchestrator) {
-	ksLog := orch.ks.LogString()
-	rostLog := orch.rost.TestString()
-	for i := 0; i < 2; i++ {
-		tickWait(orch)
-		orch.rost.Tick()
-		// Use require (vs assert) since spamming the same error doesn't help.
-		require.Equal(t, ksLog, orch.ks.LogString())
-		require.Equal(t, rostLog, orch.rost.TestString())
-	}
-}
-
-// TODO: Return a function to do this from OrchFactory.
-func (ts *OrchestratorSuite) TearDownTest() {
-	if ts.nodes != nil {
-		ts.nodes.Close()
-	}
-}
-
-type Waiter interface {
-	Wait()
-}
-
-// tickWait performs a Tick, then waits for any pending RPCs to complete, then
-// waits for any give Waiters (which are probably fake_node.Barrier instances)
-// to return.
-//
-// This allows us to pretend that Ticks will never begin while RPCs scheduled
-// during the previous tick are still in flight, without sleeping or anything
-// like that.
-func tickWait(orch *Orchestrator, waiters ...Waiter) {
-	orch.Tick()
-	orch.WaitRPCs()
-
-	for _, w := range waiters {
-		w.Wait()
-	}
-}
-
-func tickUntilStable(t *testing.T, orch *Orchestrator, nodes *fake_nodes.TestNodes) {
-	var ksPrev string // previous value of ks.LogString
-	var stable int    // ticks since keyspace changed or rpc sent
-	var ticks int     // total ticks waited
-
-	for {
-		tickWait(orch)
-		rpcs := len(nodes.RPCs())
-
-		// Keyspace changed since last tick, or RPCs sent? Keep ticking.
-		// TODO: Can we check whether RPCs were sent without having a the
-		//       TestNodes? Would be simpler to do this with just the Orch.
-		ksNow := orch.ks.LogString()
-		if ksPrev != ksNow || rpcs > 0 {
-			ksPrev = ksNow
-			stable = 0
-		} else {
-			stable += 1
-		}
-
-		// Stable for a few ticks? We're done.
-		if stable >= 2 {
-			break
-		}
-
-		ticks += 1
-		if ticks > 50 {
-			t.Fatal("didn't stablize after 50 ticks")
-			return
-		}
-	}
-
-	// Perform a single probe cycle before returning, to update the remote
-	// state of all nodes. (Otherwise we're only observing the remote state as
-	// returned from the RPCs. Any state changes which happened outside of those
-	// RPCs will be missed.)
-	orch.rost.Tick()
-}
 
 // TODO: Move to keyspace tests.
 func TestJunk(t *testing.T) {
 	ksStr := ""
 	rosStr := ""
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig())
-	nodes.SetStrictTransitions(false)
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	defer nodes.Close()
 
 	orch.rost.Tick()
 	assert.Equal(t, "{1 [-inf, +inf] RsActive}", orch.ks.LogString())
 	assert.Equal(t, rosStr, orch.rost.TestString())
 
-	// -------------------------------------------------------------------------
+	// ----
 
 	r := mustGetRange(t, orch.ks, 1)
 	assert.NotNil(t, r)
@@ -197,7 +49,9 @@ func TestJunk(t *testing.T) {
 }
 
 func TestPlacementFast(t *testing.T) {
-	orch, nodes := initTestPlacement(t)
+	orch, nodes := initTestPlacement(t, false)
+	defer nodes.Close()
+
 	tickUntilStable(t, orch, nodes)
 
 	assert.Equal(t, "{test-aaa [1:NsReady]}", orch.rost.TestString())
@@ -207,8 +61,8 @@ func TestPlacementFast(t *testing.T) {
 func TestPlacementReadyError(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []} {test-bbb []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig())
-	nodes.SetStrictTransitions(false)
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	defer nodes.Close()
 
 	// Node aaa will always fail to become ready.
 	nodes.Get("test-aaa").SetReturnValue(t, 1, state.NsReadying, fmt.Errorf("can't get ready!"))
@@ -217,7 +71,7 @@ func TestPlacementReadyError(t *testing.T) {
 	assert.Equal(t, ksStr, orch.ks.LogString())
 	assert.Equal(t, rosStr, orch.rost.TestString())
 
-	// -------------------------------------------------------------------------
+	// ----
 
 	tickUntilStable(t, orch, nodes)
 
@@ -231,7 +85,8 @@ func TestPlacementReadyError(t *testing.T) {
 func TestPlacementWithFailures(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []} {test-bbb []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig())
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	defer nodes.Close()
 
 	// Node aaa will always reject Gives.
 	nodes.Get("test-aaa").SetReturnValue(t, 1, state.NsPreparing, fmt.Errorf("something went wrong"))
@@ -240,7 +95,7 @@ func TestPlacementWithFailures(t *testing.T) {
 	assert.Equal(t, ksStr, orch.ks.LogString())
 	assert.Equal(t, rosStr, orch.rost.TestString())
 
-	// -------------------------------------------------------------------------
+	// ----
 
 	tickUntilStable(t, orch, nodes)
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-bbb:PsReady}", orch.ks.LogString())
@@ -248,7 +103,8 @@ func TestPlacementWithFailures(t *testing.T) {
 }
 
 func TestPlacementMedium(t *testing.T) {
-	orch, nodes := initTestPlacement(t)
+	orch, nodes := initTestPlacement(t, false)
+	defer nodes.Close()
 
 	// First tick: Placement created, Give RPC sent to node and returned
 	// successfully. Remote state is updated in roster, but not keyspace.
@@ -319,8 +175,8 @@ func TestPlacementMedium(t *testing.T) {
 }
 
 func TestPlacementSlow(t *testing.T) {
-	orch, nodes := initTestPlacement(t)
-	nodes.SetStrictTransitions(true)
+	orch, nodes := initTestPlacement(t, true)
+	defer nodes.Close()
 
 	par := nodes.Get("test-aaa").AddBarrier(t, 1, state.NsPreparing)
 	tickWait(orch, par)
@@ -408,14 +264,14 @@ func TestPlacementSlow(t *testing.T) {
 func TestMissingPlacement(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}"
 	rosStr := "{test-aaa []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig())
-	nodes.SetStrictTransitions(false)
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	defer nodes.Close()
 
 	orch.rost.Tick()
 	assert.Equal(t, ksStr, orch.ks.LogString())
 	assert.Equal(t, rosStr, orch.rost.TestString())
 
-	// -------------------------------------------------------------------------
+	// ----
 
 	// Orchestrator notices that the node doesn't have the range, so marks the
 	// placement as abandoned.
@@ -473,6 +329,8 @@ func TestMissingPlacement(t *testing.T) {
 
 func TestMoveFast(t *testing.T) {
 	orch, nodes, r1 := initTestMove(t, false)
+	defer nodes.Close()
+
 	requireStable(t, orch)
 
 	func() {
@@ -494,6 +352,8 @@ func TestMoveFast(t *testing.T) {
 
 func TestMoveSlow(t *testing.T) {
 	orch, nodes, r1 := initTestMove(t, true)
+	defer nodes.Close()
+
 	requireStable(t, orch)
 
 	func() {
@@ -646,6 +506,8 @@ func TestMoveSlow(t *testing.T) {
 
 func TestSplitFast(t *testing.T) {
 	orch, nodes, r1 := initTestSplit(t, false)
+	defer nodes.Close()
+
 	requireStable(t, orch)
 
 	op := OpSplit{
@@ -667,6 +529,7 @@ func TestSplitFast(t *testing.T) {
 
 func TestSplitSlow(t *testing.T) {
 	orch, nodes, r1 := initTestSplit(t, true)
+	defer nodes.Close()
 
 	op := OpSplit{
 		Range: r1.Meta.Ident,
@@ -906,6 +769,8 @@ func TestSplitSlow(t *testing.T) {
 
 func TestJoinFast(t *testing.T) {
 	orch, nodes, r1, r2 := initTestJoin(t, false)
+	defer nodes.Close()
+
 	requireStable(t, orch)
 
 	op := OpJoin{
@@ -928,6 +793,7 @@ func TestJoinFast(t *testing.T) {
 
 func TestJoinSlow(t *testing.T) {
 	orch, nodes, r1, r2 := initTestJoin(t, true)
+	defer nodes.Close()
 
 	// Inject a join to get us started.
 	// TODO: Do this via the operator interface instead.
@@ -1117,8 +983,8 @@ func TestSlowRPC(t *testing.T) {
 
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig())
-	nodes.SetStrictTransitions(false)
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	defer nodes.Close()
 
 	nodes.Get("test-aaa").SetGracePeriod(3 * time.Second)
 
@@ -1126,7 +992,7 @@ func TestSlowRPC(t *testing.T) {
 	assert.Equal(t, ksStr, orch.ks.LogString())
 	assert.Equal(t, rosStr, orch.rost.TestString())
 
-	// -------------------------------------------------------------------------
+	// ----
 
 	// No WaitRPCs() this time! But we do stil have to wait until our one
 	// expected RPC reaches the barrier (via PrepareAddRange). Otherwise, Tick
@@ -1178,17 +1044,12 @@ func TestSlowRPC(t *testing.T) {
 	assert.Equal(t, "{test-aaa [1:NsReady]}", orch.rost.TestString())
 }
 
-func TestOrchestratorSuite(t *testing.T) {
-	suite.Run(t, new(OrchestratorSuite))
-}
+// ----------------------------------------------------------- fixture templates
 
-// -----------------------------------------------------------------------------
-
-func initTestPlacement(t *testing.T) (*Orchestrator, *fake_nodes.TestNodes) {
+func initTestPlacement(t *testing.T, strict bool) (*Orchestrator, *fake_nodes.TestNodes) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig())
-	nodes.SetStrictTransitions(false)
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), strict)
 	orch.rost.Tick()
 	assert.Equal(t, ksStr, orch.ks.LogString())
 	assert.Equal(t, rosStr, orch.rost.TestString())
@@ -1200,8 +1061,7 @@ func initTestPlacement(t *testing.T) (*Orchestrator, *fake_nodes.TestNodes) {
 func initTestMove(t *testing.T, strict bool) (*Orchestrator, *fake_nodes.TestNodes, *ranje.Range) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}"
 	rosStr := "{test-aaa [1:NsReady]} {test-bbb []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig())
-	nodes.SetStrictTransitions(strict)
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), strict)
 
 	orch.rost.Tick()
 	assert.Equal(t, ksStr, orch.ks.LogString())
@@ -1214,8 +1074,7 @@ func initTestMove(t *testing.T, strict bool) (*Orchestrator, *fake_nodes.TestNod
 func initTestSplit(t *testing.T, strict bool) (*Orchestrator, *fake_nodes.TestNodes, *ranje.Range) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}"
 	rosStr := "{test-aaa [1:NsReady]}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig())
-	nodes.SetStrictTransitions(strict)
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), strict)
 
 	orch.rost.Tick()
 	assert.Equal(t, ksStr, orch.ks.LogString())
@@ -1235,8 +1094,7 @@ func initTestJoin(t *testing.T, strict bool) (*Orchestrator, *fake_nodes.TestNod
 
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsReady} {2 (ggg, +inf] RsActive p0=test-bbb:PsReady}"
 	rosStr := "{test-aaa [1:NsReady]} {test-bbb [2:NsReady]} {test-ccc []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig())
-	nodes.SetStrictTransitions(strict)
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), strict)
 
 	// Probe the fake nodes to verify the setup.
 
@@ -1249,9 +1107,14 @@ func initTestJoin(t *testing.T, strict bool) (*Orchestrator, *fake_nodes.TestNod
 	return orch, nodes, r1, r2
 }
 
-type nodeStub struct {
-	node discovery.Remote
-	m    []ranje.Meta
+// ----------------------------------------------------------- fixture factories
+
+func testConfig() config.Config {
+	return config.Config{
+		DrainNodesBeforeShutdown: false,
+		NodeExpireDuration:       1 * time.Hour, // ~never
+		Replication:              1,
+	}
 }
 
 type rangeStub struct {
@@ -1265,6 +1128,16 @@ type rangeStub struct {
 type placementStub struct {
 	nodeID string
 	pState string
+}
+
+type nodePlacementStub struct {
+	rID    int
+	nState string
+}
+
+type nodeStub struct {
+	nodeID     string
+	placements []nodePlacementStub
 }
 
 func parseKeyspace(t *testing.T, keyspace string) []rangeStub {
@@ -1325,17 +1198,7 @@ func TestParseKeyspace(t *testing.T) {
 	assert.Equal(t, ksStr, ks.LogString())
 }
 
-type nodePlacementStub struct {
-	rID    int
-	nState string
-}
-
-type nodeStub2 struct {
-	nodeID     string
-	placements []nodePlacementStub
-}
-
-func parseRoster(t *testing.T, s string) []nodeStub2 {
+func parseRoster(t *testing.T, s string) []nodeStub {
 
 	// {aa} {bb}
 	r1 := regexp.MustCompile(`{[^{}]*}`)
@@ -1349,7 +1212,7 @@ func parseRoster(t *testing.T, s string) []nodeStub2 {
 
 	x := r1.FindAllString(s, -1)
 
-	ns := make([]nodeStub2, len(x))
+	ns := make([]nodeStub, len(x))
 	for i := range x {
 		fmt.Printf("x[%d]: %s\n", i, x[i])
 
@@ -1358,7 +1221,7 @@ func parseRoster(t *testing.T, s string) []nodeStub2 {
 			t.Fatalf("invalid node string: %v", x[i])
 		}
 
-		ns[i] = nodeStub2{
+		ns[i] = nodeStub{
 			nodeID:     y[1],
 			placements: []nodePlacementStub{},
 		}
@@ -1388,7 +1251,7 @@ func parseRoster(t *testing.T, s string) []nodeStub2 {
 	return ns
 }
 
-func nodesFactory2(t *testing.T, cfg config.Config, ctx context.Context, ks *keyspace.Keyspace, stubs []nodeStub2) (*fake_nodes.TestNodes, *roster.Roster) {
+func nodesFactory(t *testing.T, cfg config.Config, ctx context.Context, ks *keyspace.Keyspace, stubs []nodeStub) (*fake_nodes.TestNodes, *roster.Roster) {
 	nodes := fake_nodes.NewTestNodes()
 	rost := roster.New(cfg, nodes.Discovery(), nil, nil, nil)
 
@@ -1422,9 +1285,10 @@ func nodesFactory2(t *testing.T, cfg config.Config, ctx context.Context, ks *key
 	return nodes, rost
 }
 
-func orchFactory(t *testing.T, sKS, sRos string, cfg config.Config) (*Orchestrator, *fake_nodes.TestNodes) {
+func orchFactory(t *testing.T, sKS, sRos string, cfg config.Config, strict bool) (*Orchestrator, *fake_nodes.TestNodes) {
 	ks := keyspaceFactory(t, cfg, parseKeyspace(t, sKS))
-	nodes, ros := nodesFactory2(t, cfg, context.TODO(), ks, parseRoster(t, sRos))
+	nodes, ros := nodesFactory(t, cfg, context.TODO(), ks, parseRoster(t, sRos))
+	nodes.SetStrictTransitions(strict)
 	srv := grpc.NewServer() // TODO: Allow this to be nil.
 	orch := New(cfg, ks, ros, srv)
 	return orch, nodes
@@ -1437,7 +1301,8 @@ func TestParseRoster(t *testing.T) {
 
 	rosStr := "{test-aaa [1:NsReady 2:NsReady]} {test-bbb []} {test-ccc []}"
 	fmt.Printf("%v\n", parseRoster(t, rosStr))
-	_, ros := nodesFactory2(t, testConfig(), context.TODO(), ks, parseRoster(t, rosStr))
+	nodes, ros := nodesFactory(t, testConfig(), context.TODO(), ks, parseRoster(t, rosStr))
+	defer nodes.Close()
 
 	ros.Tick()
 	assert.Equal(t, rosStr, ros.TestString())
@@ -1446,42 +1311,12 @@ func TestParseRoster(t *testing.T) {
 func TestOrchFactory(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsReady p1=test-bbb:PsReady} {2 (ggg, +inf] RsActive}"
 	rosStr := "{test-aaa [1:NsReady 2:NsReady]} {test-bbb []} {test-ccc []}"
-	orch, _ := orchFactory(t, ksStr, rosStr, testConfig())
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	defer nodes.Close()
 	orch.rost.Tick()
 
 	assert.Equal(t, ksStr, orch.ks.LogString())
 	assert.Equal(t, rosStr, orch.rost.TestString())
-}
-
-func nodeFactory(ctx context.Context, nodes *fake_nodes.TestNodes, stubs ...nodeStub) {
-	for i := range stubs {
-
-		ri := map[ranje.Ident]*info.RangeInfo{}
-		for _, m := range stubs[i].m {
-			ri[m.Ident] = &info.RangeInfo{
-				Meta:  m,
-				State: state.NsReady,
-			}
-		}
-
-		nodes.Add(ctx, stubs[i].node, ri)
-	}
-}
-
-func remoteFactory(suffix string) discovery.Remote {
-	return discovery.Remote{
-		Ident: fmt.Sprintf("test-%s", suffix),
-		Host:  fmt.Sprintf("host-%s", suffix),
-		Port:  1,
-	}
-}
-
-func remoteFactoryTwo(s1, s2 string) (discovery.Remote, discovery.Remote) {
-	return remoteFactory(s1), remoteFactory(s2)
-}
-
-func remoteFactoryThree(s1, s2, s3 string) (discovery.Remote, discovery.Remote, discovery.Remote) {
-	return remoteFactory(s1), remoteFactory(s2), remoteFactory(s3)
 }
 
 func PlacementStateFromString(t *testing.T, s string) ranje.PlacementState {
@@ -1582,6 +1417,108 @@ func keyspaceFactory(t *testing.T, cfg config.Config, stubs []rangeStub) *keyspa
 	return ks
 }
 
+// --------------------------------------------------------------------- helpers
+
+type Waiter interface {
+	Wait()
+}
+
+// tickWait performs a Tick, then waits for any pending RPCs to complete, then
+// waits for any give Waiters (which are probably fake_node.Barrier instances)
+// to return.
+//
+// This allows us to pretend that Ticks will never begin while RPCs scheduled
+// during the previous tick are still in flight, without sleeping or anything
+// like that.
+func tickWait(orch *Orchestrator, waiters ...Waiter) {
+	orch.Tick()
+	orch.WaitRPCs()
+
+	for _, w := range waiters {
+		w.Wait()
+	}
+}
+
+func tickUntilStable(t *testing.T, orch *Orchestrator, nodes *fake_nodes.TestNodes) {
+	var ksPrev string // previous value of ks.LogString
+	var stable int    // ticks since keyspace changed or rpc sent
+	var ticks int     // total ticks waited
+
+	for {
+		tickWait(orch)
+		rpcs := len(nodes.RPCs())
+
+		// Keyspace changed since last tick, or RPCs sent? Keep ticking.
+		// TODO: Can we check whether RPCs were sent without having a the
+		//       TestNodes? Would be simpler to do this with just the Orch.
+		ksNow := orch.ks.LogString()
+		if ksPrev != ksNow || rpcs > 0 {
+			ksPrev = ksNow
+			stable = 0
+		} else {
+			stable += 1
+		}
+
+		// Stable for a few ticks? We're done.
+		if stable >= 2 {
+			break
+		}
+
+		ticks += 1
+		if ticks > 50 {
+			t.Fatal("didn't stablize after 50 ticks")
+			return
+		}
+	}
+
+	// Perform a single probe cycle before returning, to update the remote
+	// state of all nodes. (Otherwise we're only observing the remote state as
+	// returned from the RPCs. Any state changes which happened outside of those
+	// RPCs will be missed.)
+	orch.rost.Tick()
+}
+
+func requireStable(t *testing.T, orch *Orchestrator) {
+	ksLog := orch.ks.LogString()
+	rostLog := orch.rost.TestString()
+	for i := 0; i < 2; i++ {
+		tickWait(orch)
+		orch.rost.Tick()
+		// Use require (vs assert) since spamming the same error doesn't help.
+		require.Equal(t, ksLog, orch.ks.LogString())
+		require.Equal(t, rostLog, orch.rost.TestString())
+	}
+}
+
+// ProtoEqual is a helper to compare two slices of protobufs. It's not great.
+func ProtoEqual(t *testing.T, expected, actual interface{}) {
+	if diff := cmp.Diff(expected, actual, protocmp.Transform()); diff != "" {
+		t.Errorf(fmt.Sprintf("Not equal (-want +got):\n%s\n", diff))
+	}
+}
+
+// nIDs is a helper to extract the list of nIDs from map like RPCs returns.
+func nIDs(obj map[string][]interface{}) []string {
+	ret := []string{}
+
+	for k := range obj {
+		ret = append(ret, k)
+	}
+
+	sort.Strings(ret)
+	return ret
+}
+
+func RPCs(obj map[string][]interface{}) []interface{} {
+	ret := []interface{}{}
+
+	for _, v := range obj {
+		ret = append(ret, v...)
+	}
+
+	return ret
+}
+
 // mustGetRange returns a range from the given keyspace or fails the test.
 func mustGetRange(t *testing.T, ks *keyspace.Keyspace, rID int) *ranje.Range {
 	r, err := ks.Get(ranje.Ident(rID))
@@ -1591,7 +1528,7 @@ func mustGetRange(t *testing.T, ks *keyspace.Keyspace, rID int) *ranje.Range {
 	return r
 }
 
-// -----------------------------------------------------------------------------
+// ------------------------------------------------------------------- persister
 
 type FakePersister struct {
 	ranges []*ranje.Range
