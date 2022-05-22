@@ -82,6 +82,14 @@ func (ts *OrchestratorSuite) Init(ks *keyspace.Keyspace) {
 	ts.orch = New(ts.cfg, ts.ks, ts.rost, srv)
 }
 
+func testConfig() config.Config {
+	return config.Config{
+		DrainNodesBeforeShutdown: false,
+		NodeExpireDuration:       1 * time.Hour, // never
+		Replication:              1,
+	}
+}
+
 func (ts *OrchestratorSuite) SetupTest() {
 	ts.ctx = context.Background()
 
@@ -89,11 +97,7 @@ func (ts *OrchestratorSuite) SetupTest() {
 	// TODO: Better to set these per test, but that's too late because we've
 	//       already created the objects in this method, and config is supposed
 	//       to be immutable. Better rethink this.
-	ts.cfg = config.Config{
-		DrainNodesBeforeShutdown: false,
-		NodeExpireDuration:       1 * time.Hour, // never
-		Replication:              1,
-	}
+	ts.cfg = testConfig()
 
 	ts.nodes = fake_nodes.NewTestNodes()
 	ts.rost = roster.New(ts.cfg, ts.nodes.Discovery(), nil, nil, nil)
@@ -1448,6 +1452,14 @@ func nodesFactory2(t *testing.T, ctx context.Context, ks *keyspace.Keyspace, stu
 	return nodes, rost
 }
 
+func orchFactory(t *testing.T, sKS, sRos string, cfg config.Config) *Orchestrator {
+	ks := keyspaceFactory(t, config.Config{}, parseKeyspace(t, sKS))
+	_, ros := nodesFactory2(t, context.TODO(), ks, parseRoster(t, sRos))
+	srv := grpc.NewServer() // TODO: Allow this to be nil.
+	orch := New(cfg, ks, ros, srv)
+	return orch
+}
+
 func TestParseRoster(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsReady p1=test-bbb:PsReady} {2 (ggg, +inf] RsActive}"
 	ks := keyspaceFactory(t, config.Config{}, parseKeyspace(t, ksStr))
@@ -1459,6 +1471,16 @@ func TestParseRoster(t *testing.T) {
 
 	ros.Tick()
 	assert.Equal(t, rosStr, ros.TestString())
+}
+
+func TestOrchFactory(t *testing.T) {
+	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsReady p1=test-bbb:PsReady} {2 (ggg, +inf] RsActive}"
+	rosStr := "{test-aaa [1:NsReady 2:NsReady]} {test-bbb []} {test-ccc []}"
+	orch := orchFactory(t, ksStr, rosStr, testConfig())
+	orch.rost.Tick()
+
+	assert.Equal(t, ksStr, orch.ks.LogString())
+	assert.Equal(t, rosStr, orch.rost.TestString())
 }
 
 func nodeFactory(ctx context.Context, nodes *fake_nodes.TestNodes, stubs ...nodeStub) {
