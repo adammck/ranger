@@ -3,7 +3,10 @@ package orchestrator
 import (
 	"fmt"
 	"log"
+	"regexp"
 	"sort"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +22,7 @@ import (
 	"github.com/adammck/ranger/pkg/roster/state"
 	"github.com/adammck/ranger/pkg/test/fake_nodes"
 	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/testing/protocmp"
@@ -403,7 +407,8 @@ func (ts *OrchestratorSuite) TestMissingPlacement() {
 	ts.nodes.SetStrictTransitions(false)
 
 	// One range, which the controller thinks should be on that node.
-	ks := keyspaceFactory(ts.T(), ts.cfg, []rangeStub{{"", na.Ident}})
+	//ks := keyspaceFactory(ts.T(), ts.cfg, []rangeStub{{"", na.Ident}})
+	ks := keyspaceFactory(ts.T(), ts.cfg, nil)
 	ts.Init(ks)
 
 	// Probe to verify initial state.
@@ -1193,7 +1198,8 @@ func initTestPlacement(ts *OrchestratorSuite) {
 // (range 1 is on aaa in PsReady), and returns the range.
 func initTestMove(ts *OrchestratorSuite, strict bool) *ranje.Range {
 	na, nb := remoteFactoryTwo("aaa", "bbb")
-	ks := keyspaceFactory(ts.T(), ts.cfg, []rangeStub{{"", na.Ident}})
+	//ks := keyspaceFactory(ts.T(), ts.cfg, []rangeStub{{"", na.Ident}})
+	ks := keyspaceFactory(ts.T(), ts.cfg, nil)
 	r1 := mustGetRange(ts.T(), ks, 1)
 	ts.Init(ks)
 
@@ -1215,7 +1221,8 @@ func initTestSplit(ts *OrchestratorSuite, strict bool) *ranje.Range {
 	// Controller-side
 	// TODO: Test that controller-side placements are repaired when a node
 	//       shows up claiming to have a (valid) placement.
-	ks := keyspaceFactory(ts.T(), ts.cfg, []rangeStub{{"", na.Ident}})
+	//ks := keyspaceFactory(ts.T(), ts.cfg, []rangeStub{{"", na.Ident}})
+	ks := keyspaceFactory(ts.T(), ts.cfg, nil)
 	r1 := mustGetRange(ts.T(), ks, 1)
 	ts.Init(ks)
 
@@ -1244,7 +1251,8 @@ func initTestJoin(ts *OrchestratorSuite, strict bool) (*ranje.Range, *ranje.Rang
 	// to two of three nodes. The ranges will be joined onto the third node.
 
 	na, nb, nc := remoteFactoryThree("aaa", "bbb", "ccc")
-	ks := keyspaceFactory(ts.T(), ts.cfg, []rangeStub{{"", na.Ident}, {"ggg", nb.Ident}})
+	//ks := keyspaceFactory(ts.T(), ts.cfg, []rangeStub{{"", na.Ident}, {"ggg", nb.Ident}})
+	ks := keyspaceFactory(ts.T(), ts.cfg, nil)
 	r1 := mustGetRange(ts.T(), ks, 1)
 	r2 := mustGetRange(ts.T(), ks, 2)
 	ts.Init(ks)
@@ -1264,6 +1272,193 @@ func initTestJoin(ts *OrchestratorSuite, strict bool) (*ranje.Range, *ranje.Rang
 type nodeStub struct {
 	node discovery.Remote
 	m    []ranje.Meta
+}
+
+type rangeStub struct {
+	rID        string
+	startKey   string
+	endKey     string
+	rState     string
+	placements []placementStub
+}
+
+type placementStub struct {
+	nodeID string
+	pState string
+}
+
+func parseKeyspace(t *testing.T, keyspace string) []rangeStub {
+
+	// keyspace = "{1 [-inf, ggg] RsActive p0=test-aaa:PsReady} {2 (ggg, +inf] RsActive p0=test-bbb:PsReady}"
+	// roster = "{test-aaa [1:NsReady]} {test-bbb [2:NsReady]} {test-ccc []}"
+
+	r := regexp.MustCompile(`{[^{}]*}`)
+	x := r.FindAllString(keyspace, -1)
+	if x == nil {
+		t.Fatalf("invalid keyspace string: %v", keyspace)
+	}
+
+	sr := make([]rangeStub, len(x))
+	for i := range x {
+		fmt.Printf("x[%d]: %s\n", i, x[i])
+
+		// {1 [-inf, ggg] RsActive p0=test-aaa:PsReady p1=test-bbb:PsReady} {2 (ggg, +inf] RsActive}
+		//                       {    1                [          -inf            ,      ggg             ]                RsActive    (placements)   }
+		r = regexp.MustCompile(`^{` + `(\d+)` + ` ` + `[\[\(]` + `([\+\-\w]+)` + `, ` + `([\+\-\w]+)` + `[\]\)]` + ` ` + `(Rs\w+)` + `(?: (.+))?` + `}$`)
+		y := r.FindStringSubmatch(x[i])
+		if y == nil {
+			t.Fatalf("invalid range string: %v", x[i])
+		}
+
+		sr[i] = rangeStub{
+			rID:      y[1],
+			startKey: y[2],
+			endKey:   y[3],
+			rState:   y[4],
+		}
+
+		placements := y[5]
+		if placements != "" {
+			pl := strings.Split(placements, ` `)
+			sp := make([]placementStub, len(pl))
+			for ii := range pl {
+				// p0=test-aaa:PsReady
+				//                            p0         =     test-aaa :     PsReady
+				r = regexp.MustCompile(`^` + `p(\d+)` + `=` + `(.+)` + `:` + `(Ps\w+)` + `$`)
+				z := r.FindStringSubmatch(pl[ii])
+				if z == nil {
+					t.Fatalf("invalid placement string: %v", pl[ii])
+				}
+
+				// TODO: Check that indices are contiguous?
+
+				sp[ii] = placementStub{nodeID: z[2], pState: z[3]}
+			}
+
+			sr[i].placements = sp
+		}
+	}
+
+	return sr
+}
+
+func TestParseKeyspace(t *testing.T) {
+	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsReady p1=test-bbb:PsReady} {2 (ggg, +inf] RsActive}"
+	ks := keyspaceFactory(t, config.Config{}, parseKeyspace(t, ksStr))
+	assert.Equal(t, ksStr, ks.LogString())
+}
+
+type nodePlacementStub struct {
+	rID    int
+	nState string
+}
+
+type nodeStub2 struct {
+	nodeID     string
+	placements []nodePlacementStub
+}
+
+func parseRoster(t *testing.T, s string) []nodeStub2 {
+
+	// {aa} {bb}
+	r1 := regexp.MustCompile(`{[^{}]*}`)
+
+	// {test-aaa [1:NsReady 2:NsReady]}
+	//                         {     test-aaa            [1:NsReady 2:NsReady]}
+	r2 := regexp.MustCompile(`^{` + `([\w\-]+)` + ` ` + `\[(.*)\]}$`)
+
+	// 1:NsReady
+	r3 := regexp.MustCompile(`^` + `(\d+)` + `:` + `(Ns\w+)` + `$`)
+
+	x := r1.FindAllString(s, -1)
+	if x == nil {
+		t.Fatalf("invalid roster string: %v", s)
+	}
+
+	ns := make([]nodeStub2, len(x))
+	for i := range x {
+		fmt.Printf("x[%d]: %s\n", i, x[i])
+
+		y := r2.FindStringSubmatch(x[i])
+		if y == nil {
+			t.Fatalf("invalid node string: %v", x[i])
+		}
+
+		ns[i] = nodeStub2{
+			nodeID:     y[1],
+			placements: []nodePlacementStub{},
+		}
+
+		placements := y[2]
+		if placements != "" {
+			pl := strings.Split(placements, ` `)
+			nps := make([]nodePlacementStub, len(pl))
+			for ii := range pl {
+				z := r3.FindStringSubmatch(pl[ii])
+				if z == nil {
+					t.Fatalf("invalid placement string: %v", pl[ii])
+				}
+				rID, err := strconv.Atoi(z[1])
+				if err != nil {
+					t.Fatalf("invalid parsing range ID: %v", err)
+				}
+				nps[ii] = nodePlacementStub{
+					rID:    rID,
+					nState: z[2],
+				}
+			}
+			ns[i].placements = nps
+		}
+	}
+
+	return ns
+}
+
+func nodesFactory2(t *testing.T, ctx context.Context, ks *keyspace.Keyspace, stubs []nodeStub2) (*fake_nodes.TestNodes, *roster.Roster) {
+	nodes := fake_nodes.NewTestNodes()
+
+	for i := range stubs {
+
+		rem := discovery.Remote{
+			Ident: stubs[i].nodeID,
+			Host:  fmt.Sprintf("host-%s", stubs[i].nodeID),
+			Port:  1,
+		}
+
+		ri := map[ranje.Ident]*info.RangeInfo{}
+		for _, pStub := range stubs[i].placements {
+
+			rID := ranje.Ident(pStub.rID)
+			r, err := ks.Get(rID)
+			if err != nil {
+				t.Fatalf("invalid node placement stub: %v", err)
+			}
+
+			ri[rID] = &info.RangeInfo{
+				Meta:  r.Meta,
+				State: RemoteStateFromString(t, pStub.nState),
+			}
+		}
+
+		nodes.Add(ctx, rem, ri)
+	}
+
+	rost := roster.New(config.Config{}, nodes.Discovery(), nil, nil, nil)
+	rost.NodeConnFactory = nodes.NodeConnFactory
+	return nodes, rost
+}
+
+func TestParseRoster(t *testing.T) {
+	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsReady p1=test-bbb:PsReady} {2 (ggg, +inf] RsActive}"
+	ks := keyspaceFactory(t, config.Config{}, parseKeyspace(t, ksStr))
+	assert.Equal(t, ksStr, ks.LogString())
+
+	rosStr := "{test-aaa [1:NsReady 2:NsReady]} {test-bbb []} {test-ccc []}"
+	fmt.Printf("%v\n", parseRoster(t, rosStr))
+	_, ros := nodesFactory2(t, context.TODO(), ks, parseRoster(t, rosStr))
+
+	ros.Tick()
+	assert.Equal(t, rosStr, ros.TestString())
 }
 
 func nodeFactory(ctx context.Context, nodes *fake_nodes.TestNodes, stubs ...nodeStub) {
@@ -1297,9 +1492,66 @@ func remoteFactoryThree(s1, s2, s3 string) (discovery.Remote, discovery.Remote, 
 	return remoteFactory(s1), remoteFactory(s2), remoteFactory(s3)
 }
 
-type rangeStub struct {
-	startKey string
-	nodeID   string
+func PlacementStateFromString(t *testing.T, s string) ranje.PlacementState {
+	switch s {
+	case ranje.PsUnknown.String():
+		return ranje.PsUnknown
+
+	case ranje.PsPending.String():
+		return ranje.PsPending
+
+	case ranje.PsPrepared.String():
+		return ranje.PsPrepared
+
+	case ranje.PsReady.String():
+		return ranje.PsReady
+
+	case ranje.PsTaken.String():
+		return ranje.PsTaken
+
+	case ranje.PsGiveUp.String():
+		return ranje.PsGiveUp
+
+	case ranje.PsDropped.String():
+		return ranje.PsDropped
+	}
+
+	t.Fatalf("invalid PlacementState string: %s", s)
+	return ranje.PsUnknown // unreachable
+}
+
+func RemoteStateFromString(t *testing.T, s string) state.RemoteState {
+	switch s {
+	case "NsUnknown":
+		return state.NsUnknown
+	case "NsPreparing":
+		return state.NsPreparing
+	case "NsPreparingError":
+		return state.NsPreparingError
+	case "NsPrepared":
+		return state.NsPrepared
+	case "NsReadying":
+		return state.NsReadying
+	case "NsReadyingError":
+		return state.NsReadyingError
+	case "NsReady":
+		return state.NsReady
+	case "NsTaking":
+		return state.NsTaking
+	case "NsTakingError":
+		return state.NsTakingError
+	case "NsTaken":
+		return state.NsTaken
+	case "NsDropping":
+		return state.NsDropping
+	case "NsDroppingError":
+		return state.NsDroppingError
+	case "NsNotFound":
+		return state.NsNotFound
+	}
+
+	t.Fatalf("invalid PlacementState string: %s", s)
+	return state.NsUnknown // unreachable
 }
 
 // TODO: Remove config param. Config was a mistake.
@@ -1314,10 +1566,15 @@ func keyspaceFactory(t *testing.T, cfg config.Config, stubs []rangeStub) *keyspa
 			ranges[i-1].Meta.End = ranje.Key(stubs[i].startKey)
 		}
 
-		r.Placements = []*ranje.Placement{{
-			NodeID: stubs[i].nodeID,
-			State:  ranje.PsReady,
-		}}
+		r.Placements = make([]*ranje.Placement, len(stubs[i].placements))
+
+		for ii := range stubs[i].placements {
+			pstub := stubs[i].placements[ii]
+			r.Placements[ii] = &ranje.Placement{
+				NodeID: pstub.nodeID,
+				State:  PlacementStateFromString(t, pstub.pState),
+			}
+		}
 
 		ranges[i] = r
 	}

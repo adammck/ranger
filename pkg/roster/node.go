@@ -85,7 +85,7 @@ func (n *Node) TestString() string {
 		s[i] = fmt.Sprintf("%s:%s", ri.Meta.Ident, ri.State)
 	}
 
-	return fmt.Sprintf("{%s [%s]}", n.Remote.Ident, strings.Join(s, ", "))
+	return fmt.Sprintf("{%s [%s]}", n.Remote.Ident, strings.Join(s, " "))
 }
 
 func (n *Node) Get(rangeID ranje.Ident) (info.RangeInfo, bool) {
