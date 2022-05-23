@@ -29,17 +29,16 @@ import (
 
 // TODO: Move to keyspace tests.
 func TestJunk(t *testing.T) {
-	ksStr := ""
-	rosStr := ""
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	ksStr := "" // No ranges at all!
+	orch, nodes := orchFactory(t, ksStr, "", testConfig(), false)
 	defer nodes.Close()
 
-	orch.rost.Tick()
+	// Genesis range was created.
 	assert.Equal(t, "{1 [-inf, +inf] RsActive}", orch.ks.LogString())
-	assert.Equal(t, rosStr, orch.rost.TestString())
 
 	// ----
 
+	// This really just restates the above.
 	r := mustGetRange(t, orch.ks, 1)
 	assert.NotNil(t, r)
 	assert.Equal(t, ranje.ZeroKey, r.Meta.Start, "range should start at ZeroKey")
@@ -49,7 +48,9 @@ func TestJunk(t *testing.T) {
 }
 
 func TestPlacementFast(t *testing.T) {
-	orch, nodes := initTestPlacement(t, false)
+	ksStr := "{1 [-inf, +inf] RsActive}"
+	rosStr := "{test-aaa []}"
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
 	defer nodes.Close()
 
 	tickUntilStable(t, orch, nodes)
@@ -103,7 +104,9 @@ func TestPlacementWithFailures(t *testing.T) {
 }
 
 func TestPlacementMedium(t *testing.T) {
-	orch, nodes := initTestPlacement(t, false)
+	ksStr := "{1 [-inf, +inf] RsActive}"
+	rosStr := "{test-aaa []} {test-bbb []}"
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
 	defer nodes.Close()
 
 	// First tick: Placement created, Give RPC sent to node and returned
@@ -175,7 +178,9 @@ func TestPlacementMedium(t *testing.T) {
 }
 
 func TestPlacementSlow(t *testing.T) {
-	orch, nodes := initTestPlacement(t, true)
+	ksStr := "{1 [-inf, +inf] RsActive}"
+	rosStr := "{test-aaa []} {test-bbb []}"
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), true)
 	defer nodes.Close()
 
 	par := nodes.Get("test-aaa").AddBarrier(t, 1, state.NsPreparing)
@@ -328,20 +333,20 @@ func TestMissingPlacement(t *testing.T) {
 }
 
 func TestMoveFast(t *testing.T) {
-	orch, nodes, r1 := initTestMove(t, false)
+	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}"
+	rosStr := "{test-aaa [1:NsReady]} {test-bbb []}"
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
 	defer nodes.Close()
-
 	requireStable(t, orch)
 
-	func() {
-		orch.opMovesMu.Lock()
-		defer orch.opMovesMu.Unlock()
-		// TODO: Probably add a method to do this.
-		orch.opMoves = append(orch.opMoves, OpMove{
-			Range: r1.Meta.Ident,
-			Dest:  "test-bbb",
-		})
-	}()
+	op := OpMove{
+		Range: ranje.Ident(1),
+		Dest:  "test-bbb",
+	}
+
+	orch.opMovesMu.Lock()
+	orch.opMoves = append(orch.opMoves, op)
+	orch.opMovesMu.Unlock()
 
 	tickUntilStable(t, orch, nodes)
 
@@ -351,9 +356,10 @@ func TestMoveFast(t *testing.T) {
 }
 
 func TestMoveSlow(t *testing.T) {
-	orch, nodes, r1 := initTestMove(t, true)
+	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}"
+	rosStr := "{test-aaa [1:NsReady]} {test-bbb []}"
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
 	defer nodes.Close()
-
 	requireStable(t, orch)
 
 	func() {
@@ -361,7 +367,7 @@ func TestMoveSlow(t *testing.T) {
 		defer orch.opMovesMu.Unlock()
 		// TODO: Probably add a method to do this.
 		orch.opMoves = append(orch.opMoves, OpMove{
-			Range: r1.Meta.Ident,
+			Range: 1,
 			Dest:  "test-bbb",
 		})
 	}()
@@ -505,19 +511,20 @@ func TestMoveSlow(t *testing.T) {
 }
 
 func TestSplitFast(t *testing.T) {
-	orch, nodes, r1 := initTestSplit(t, false)
+	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}"
+	rosStr := "{test-aaa [1:NsReady]}"
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
 	defer nodes.Close()
-
 	requireStable(t, orch)
 
 	op := OpSplit{
-		Range: r1.Meta.Ident,
+		Range: 1,
 		Key:   "ccc",
 		Err:   make(chan error),
 	}
 
 	orch.opSplitsMu.Lock()
-	orch.opSplits[r1.Meta.Ident] = op
+	orch.opSplits[1] = op
 	orch.opSplitsMu.Unlock()
 
 	tickUntilStable(t, orch, nodes)
@@ -528,17 +535,20 @@ func TestSplitFast(t *testing.T) {
 }
 
 func TestSplitSlow(t *testing.T) {
-	orch, nodes, r1 := initTestSplit(t, true)
+	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}"
+	rosStr := "{test-aaa [1:NsReady]}"
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
 	defer nodes.Close()
+	requireStable(t, orch)
 
 	op := OpSplit{
-		Range: r1.Meta.Ident,
+		Range: 1,
 		Key:   "ccc",
 		Err:   make(chan error),
 	}
 
 	orch.opSplitsMu.Lock()
-	orch.opSplits[r1.Meta.Ident] = op
+	orch.opSplits[1] = op
 	orch.opSplitsMu.Unlock()
 
 	// 1. Split initiated by controller. Node hasn't heard about it yet.
@@ -768,14 +778,15 @@ func TestSplitSlow(t *testing.T) {
 }
 
 func TestJoinFast(t *testing.T) {
-	orch, nodes, r1, r2 := initTestJoin(t, false)
+	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsReady} {2 (ggg, +inf] RsActive p0=test-bbb:PsReady}"
+	rosStr := "{test-aaa [1:NsReady]} {test-bbb [2:NsReady]} {test-ccc []}"
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
 	defer nodes.Close()
-
 	requireStable(t, orch)
 
 	op := OpJoin{
-		Left:  r1.Meta.Ident,
-		Right: r2.Meta.Ident,
+		Left:  1,
+		Right: 2,
 		Dest:  "test-ccc",
 		Err:   make(chan error),
 	}
@@ -792,8 +803,11 @@ func TestJoinFast(t *testing.T) {
 }
 
 func TestJoinSlow(t *testing.T) {
-	orch, nodes, r1, r2 := initTestJoin(t, true)
+	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsReady} {2 (ggg, +inf] RsActive p0=test-bbb:PsReady}"
+	rosStr := "{test-aaa [1:NsReady]} {test-bbb [2:NsReady]} {test-ccc []}"
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), true)
 	defer nodes.Close()
+	requireStable(t, orch)
 
 	// Inject a join to get us started.
 	// TODO: Do this via the operator interface instead.
@@ -801,8 +815,8 @@ func TestJoinSlow(t *testing.T) {
 	//       node
 
 	op := OpJoin{
-		Left:  r1.Meta.Ident,
-		Right: r2.Meta.Ident,
+		Left:  1,
+		Right: 2,
 		Dest:  "test-ccc",
 		Err:   make(chan error),
 	}
@@ -1044,69 +1058,6 @@ func TestSlowRPC(t *testing.T) {
 	assert.Equal(t, "{test-aaa [1:NsReady]}", orch.rost.TestString())
 }
 
-// ----------------------------------------------------------- fixture templates
-
-func initTestPlacement(t *testing.T, strict bool) (*Orchestrator, *fake_nodes.TestNodes) {
-	ksStr := "{1 [-inf, +inf] RsActive}"
-	rosStr := "{test-aaa []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), strict)
-	orch.rost.Tick()
-	assert.Equal(t, ksStr, orch.ks.LogString())
-	assert.Equal(t, rosStr, orch.rost.TestString())
-	return orch, nodes
-}
-
-// initTestMove spawns two hosts (aaa, bbb), one range (1), and one placement
-// (range 1 is on aaa in PsReady), and returns the range.
-func initTestMove(t *testing.T, strict bool) (*Orchestrator, *fake_nodes.TestNodes, *ranje.Range) {
-	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}"
-	rosStr := "{test-aaa [1:NsReady]} {test-bbb []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), strict)
-
-	orch.rost.Tick()
-	assert.Equal(t, ksStr, orch.ks.LogString())
-	assert.Equal(t, rosStr, orch.rost.TestString())
-
-	r1 := mustGetRange(t, orch.ks, 1)
-	return orch, nodes, r1
-}
-
-func initTestSplit(t *testing.T, strict bool) (*Orchestrator, *fake_nodes.TestNodes, *ranje.Range) {
-	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}"
-	rosStr := "{test-aaa [1:NsReady]}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), strict)
-
-	orch.rost.Tick()
-	assert.Equal(t, ksStr, orch.ks.LogString())
-	assert.Equal(t, rosStr, orch.rost.TestString())
-
-	r1 := mustGetRange(t, orch.ks, 1)
-	return orch, nodes, r1
-}
-
-// initTestJoin sets up three hosts (aaa, bbb, ccc), two ranges (1, 2) split at
-// ggg, and two placements (r1 on aaa, r2 on bbb; both in PsReady), and returns
-// the two ranges.
-func initTestJoin(t *testing.T, strict bool) (*Orchestrator, *fake_nodes.TestNodes, *ranje.Range, *ranje.Range) {
-
-	// Start with two ranges (which together cover the whole keyspace) assigned
-	// to two of three nodes. The ranges will be joined onto the third node.
-
-	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsReady} {2 (ggg, +inf] RsActive p0=test-bbb:PsReady}"
-	rosStr := "{test-aaa [1:NsReady]} {test-bbb [2:NsReady]} {test-ccc []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), strict)
-
-	// Probe the fake nodes to verify the setup.
-
-	orch.rost.Tick()
-	assert.Equal(t, ksStr, orch.ks.LogString())
-	assert.Equal(t, rosStr, orch.rost.TestString())
-
-	r1 := mustGetRange(t, orch.ks, 1)
-	r2 := mustGetRange(t, orch.ks, 2)
-	return orch, nodes, r1, r2
-}
-
 // ----------------------------------------------------------- fixture factories
 
 func testConfig() config.Config {
@@ -1142,20 +1093,19 @@ type nodeStub struct {
 
 func parseKeyspace(t *testing.T, keyspace string) []rangeStub {
 
-	// keyspace = "{1 [-inf, ggg] RsActive p0=test-aaa:PsReady} {2 (ggg, +inf] RsActive p0=test-bbb:PsReady}"
-	// roster = "{test-aaa [1:NsReady]} {test-bbb [2:NsReady]} {test-ccc []}"
+	// {aa} {bb}
+	r1 := regexp.MustCompile(`{[^{}]*}`)
 
-	r := regexp.MustCompile(`{[^{}]*}`)
-	x := r.FindAllString(keyspace, -1)
+	// {1 [-inf, ggg] RsActive p0=test-aaa:PsReady p1=test-bbb:PsReady} {2 (ggg, +inf] RsActive}
+	r2 := regexp.MustCompile(`^{` + `(\d+)` + ` ` + `[\[\(]` + `([\+\-\w]+)` + `, ` + `([\+\-\w]+)` + `[\]\)]` + ` ` + `(Rs\w+)` + `(?: (.+))?` + `}$`)
 
+	// p0=test-aaa:PsReady
+	r3 := regexp.MustCompile(`^` + `p(\d+)` + `=` + `(.+)` + `:` + `(Ps\w+)` + `$`)
+
+	x := r1.FindAllString(keyspace, -1)
 	sr := make([]rangeStub, len(x))
 	for i := range x {
-		fmt.Printf("x[%d]: %s\n", i, x[i])
-
-		// {1 [-inf, ggg] RsActive p0=test-aaa:PsReady p1=test-bbb:PsReady} {2 (ggg, +inf] RsActive}
-		//                       {    1                [          -inf            ,      ggg             ]                RsActive    (placements)   }
-		r = regexp.MustCompile(`^{` + `(\d+)` + ` ` + `[\[\(]` + `([\+\-\w]+)` + `, ` + `([\+\-\w]+)` + `[\]\)]` + ` ` + `(Rs\w+)` + `(?: (.+))?` + `}$`)
-		y := r.FindStringSubmatch(x[i])
+		y := r2.FindStringSubmatch(x[i])
 		if y == nil {
 			t.Fatalf("invalid range string: %v", x[i])
 		}
@@ -1172,10 +1122,7 @@ func parseKeyspace(t *testing.T, keyspace string) []rangeStub {
 			pl := strings.Split(placements, ` `)
 			sp := make([]placementStub, len(pl))
 			for ii := range pl {
-				// p0=test-aaa:PsReady
-				//                            p0         =     test-aaa :     PsReady
-				r = regexp.MustCompile(`^` + `p(\d+)` + `=` + `(.+)` + `:` + `(Ps\w+)` + `$`)
-				z := r.FindStringSubmatch(pl[ii])
+				z := r3.FindStringSubmatch(pl[ii])
 				if z == nil {
 					t.Fatalf("invalid placement string: %v", pl[ii])
 				}
@@ -1192,30 +1139,20 @@ func parseKeyspace(t *testing.T, keyspace string) []rangeStub {
 	return sr
 }
 
-func TestParseKeyspace(t *testing.T) {
-	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsReady p1=test-bbb:PsReady} {2 (ggg, +inf] RsActive}"
-	ks := keyspaceFactory(t, config.Config{}, parseKeyspace(t, ksStr))
-	assert.Equal(t, ksStr, ks.LogString())
-}
-
 func parseRoster(t *testing.T, s string) []nodeStub {
 
 	// {aa} {bb}
 	r1 := regexp.MustCompile(`{[^{}]*}`)
 
 	// {test-aaa [1:NsReady 2:NsReady]}
-	//                         {     test-aaa            [1:NsReady 2:NsReady]}
 	r2 := regexp.MustCompile(`^{` + `([\w\-]+)` + ` ` + `\[(.*)\]}$`)
 
 	// 1:NsReady
 	r3 := regexp.MustCompile(`^` + `(\d+)` + `:` + `(Ns\w+)` + `$`)
 
 	x := r1.FindAllString(s, -1)
-
 	ns := make([]nodeStub, len(x))
 	for i := range x {
-		fmt.Printf("x[%d]: %s\n", i, x[i])
-
 		y := r2.FindStringSubmatch(x[i])
 		if y == nil {
 			t.Fatalf("invalid node string: %v", x[i])
@@ -1251,7 +1188,43 @@ func parseRoster(t *testing.T, s string) []nodeStub {
 	return ns
 }
 
-func nodesFactory(t *testing.T, cfg config.Config, ctx context.Context, ks *keyspace.Keyspace, stubs []nodeStub) (*fake_nodes.TestNodes, *roster.Roster) {
+// TODO: Remove config param. Config was a mistake.
+func keyspaceFactory(t *testing.T, cfg config.Config, stubs []rangeStub) *keyspace.Keyspace {
+	ranges := make([]*ranje.Range, len(stubs))
+	for i := range stubs {
+		r := ranje.NewRange(ranje.Ident(i + 1))
+		r.State = ranje.RsActive
+
+		if i > 0 {
+			r.Meta.Start = ranje.Key(stubs[i].startKey)
+			ranges[i-1].Meta.End = ranje.Key(stubs[i].startKey)
+		}
+
+		r.Placements = make([]*ranje.Placement, len(stubs[i].placements))
+
+		for ii := range stubs[i].placements {
+			pstub := stubs[i].placements[ii]
+			r.Placements[ii] = &ranje.Placement{
+				NodeID: pstub.nodeID,
+				State:  placementStateFromString(t, pstub.pState),
+			}
+		}
+
+		ranges[i] = r
+	}
+
+	pers := &FakePersister{ranges: ranges}
+
+	var err error
+	ks, err := keyspace.New(cfg, pers)
+	if err != nil {
+		t.Fatalf("keyspace.New: %s", err)
+	}
+
+	return ks
+}
+
+func rosterFactory(t *testing.T, cfg config.Config, ctx context.Context, ks *keyspace.Keyspace, stubs []nodeStub) (*fake_nodes.TestNodes, *roster.Roster) {
 	nodes := fake_nodes.NewTestNodes()
 	rost := roster.New(cfg, nodes.Discovery(), nil, nil, nil)
 
@@ -1274,7 +1247,7 @@ func nodesFactory(t *testing.T, cfg config.Config, ctx context.Context, ks *keys
 
 			ri[rID] = &info.RangeInfo{
 				Meta:  r.Meta,
-				State: RemoteStateFromString(t, pStub.nState),
+				State: remoteStateFromString(t, pStub.nState),
 			}
 		}
 
@@ -1287,39 +1260,25 @@ func nodesFactory(t *testing.T, cfg config.Config, ctx context.Context, ks *keys
 
 func orchFactory(t *testing.T, sKS, sRos string, cfg config.Config, strict bool) (*Orchestrator, *fake_nodes.TestNodes) {
 	ks := keyspaceFactory(t, cfg, parseKeyspace(t, sKS))
-	nodes, ros := nodesFactory(t, cfg, context.TODO(), ks, parseRoster(t, sRos))
+	nodes, ros := rosterFactory(t, cfg, context.TODO(), ks, parseRoster(t, sRos))
 	nodes.SetStrictTransitions(strict)
 	srv := grpc.NewServer() // TODO: Allow this to be nil.
 	orch := New(cfg, ks, ros, srv)
+
+	// Tick once, to populate the roster before the first orchestrator tick. We
+	// also do this when starting up the controller is starting up, so it's not
+	// too much of a hack. (Doesn't happen before most ticks, though.)
+	orch.rost.Tick()
+
+	// Verify that the current state of the keyspace and roster is what was
+	// requested. (Require it, because if not, the test harness is broken.)
+	require.Equal(t, sKS, orch.ks.LogString())
+	require.Equal(t, sRos, orch.rost.TestString())
+
 	return orch, nodes
 }
 
-func TestParseRoster(t *testing.T) {
-	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsReady p1=test-bbb:PsReady} {2 (ggg, +inf] RsActive}"
-	ks := keyspaceFactory(t, config.Config{}, parseKeyspace(t, ksStr))
-	assert.Equal(t, ksStr, ks.LogString())
-
-	rosStr := "{test-aaa [1:NsReady 2:NsReady]} {test-bbb []} {test-ccc []}"
-	fmt.Printf("%v\n", parseRoster(t, rosStr))
-	nodes, ros := nodesFactory(t, testConfig(), context.TODO(), ks, parseRoster(t, rosStr))
-	defer nodes.Close()
-
-	ros.Tick()
-	assert.Equal(t, rosStr, ros.TestString())
-}
-
-func TestOrchFactory(t *testing.T) {
-	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsReady p1=test-bbb:PsReady} {2 (ggg, +inf] RsActive}"
-	rosStr := "{test-aaa [1:NsReady 2:NsReady]} {test-bbb []} {test-ccc []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
-	defer nodes.Close()
-	orch.rost.Tick()
-
-	assert.Equal(t, ksStr, orch.ks.LogString())
-	assert.Equal(t, rosStr, orch.rost.TestString())
-}
-
-func PlacementStateFromString(t *testing.T, s string) ranje.PlacementState {
+func placementStateFromString(t *testing.T, s string) ranje.PlacementState {
 	switch s {
 	case ranje.PsUnknown.String():
 		return ranje.PsUnknown
@@ -1347,7 +1306,7 @@ func PlacementStateFromString(t *testing.T, s string) ranje.PlacementState {
 	return ranje.PsUnknown // unreachable
 }
 
-func RemoteStateFromString(t *testing.T, s string) state.RemoteState {
+func remoteStateFromString(t *testing.T, s string) state.RemoteState {
 	switch s {
 	case "NsUnknown":
 		return state.NsUnknown
@@ -1379,42 +1338,6 @@ func RemoteStateFromString(t *testing.T, s string) state.RemoteState {
 
 	t.Fatalf("invalid PlacementState string: %s", s)
 	return state.NsUnknown // unreachable
-}
-
-// TODO: Remove config param. Config was a mistake.
-func keyspaceFactory(t *testing.T, cfg config.Config, stubs []rangeStub) *keyspace.Keyspace {
-	ranges := make([]*ranje.Range, len(stubs))
-	for i := range stubs {
-		r := ranje.NewRange(ranje.Ident(i + 1))
-		r.State = ranje.RsActive
-
-		if i > 0 {
-			r.Meta.Start = ranje.Key(stubs[i].startKey)
-			ranges[i-1].Meta.End = ranje.Key(stubs[i].startKey)
-		}
-
-		r.Placements = make([]*ranje.Placement, len(stubs[i].placements))
-
-		for ii := range stubs[i].placements {
-			pstub := stubs[i].placements[ii]
-			r.Placements[ii] = &ranje.Placement{
-				NodeID: pstub.nodeID,
-				State:  PlacementStateFromString(t, pstub.pState),
-			}
-		}
-
-		ranges[i] = r
-	}
-
-	pers := &FakePersister{ranges: ranges}
-
-	var err error
-	ks, err := keyspace.New(cfg, pers)
-	if err != nil {
-		t.Fatalf("keyspace.New: %s", err)
-	}
-
-	return ks
 }
 
 // --------------------------------------------------------------------- helpers
