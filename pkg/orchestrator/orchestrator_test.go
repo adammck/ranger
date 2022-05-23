@@ -1319,26 +1319,18 @@ func remoteStateFromString(t *testing.T, s string) state.RemoteState {
 		return state.NsUnknown
 	case "NsPreparing":
 		return state.NsPreparing
-	case "NsPreparingError":
-		return state.NsPreparingError
 	case "NsPrepared":
 		return state.NsPrepared
 	case "NsReadying":
 		return state.NsReadying
-	case "NsReadyingError":
-		return state.NsReadyingError
 	case "NsReady":
 		return state.NsReady
 	case "NsTaking":
 		return state.NsTaking
-	case "NsTakingError":
-		return state.NsTakingError
 	case "NsTaken":
 		return state.NsTaken
 	case "NsDropping":
 		return state.NsDropping
-	case "NsDroppingError":
-		return state.NsDroppingError
 	case "NsNotFound":
 		return state.NsNotFound
 	}
