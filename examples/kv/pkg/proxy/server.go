@@ -28,7 +28,7 @@ func (ps *proxyServer) getClient(k string, write bool) (pbkv.KVClient, roster.Lo
 
 	if !write {
 		// Reads are okay while the range is being moved, too.
-		states = append(states, state.NsTaking, state.NsTaken, state.NsTakingError)
+		states = append(states, state.NsTaking, state.NsTaken)
 	}
 
 	locations := ps.proxy.rost.LocateInState(ranje.Key(k), states)

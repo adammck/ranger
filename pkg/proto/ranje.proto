@@ -64,7 +64,6 @@ enum RangeNodeState {
   READYING_ERROR = 5;
   READY = 6;
   TAKING = 7;
-  TAKING_ERROR = 8;
   TAKEN = 9;
   DROPPING = 10;
   DROPPING_ERROR = 11;

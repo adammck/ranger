@@ -574,14 +574,6 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 		case state.NsTaking:
 			log.Printf("node %s still taking %s", n.Ident(), p.Range().Meta.Ident)
 
-		case state.NsTakingError:
-			// TODO: Pass back more information from the node, here. It's
-			//       not an RPC error, but there was some failure which we
-			//       can log or handle here.
-			log.Printf("error taking %s from %s", p.Range().Meta.Ident, n.Ident())
-			b.ks.PlacementToState(p, ranje.PsGiveUp)
-			return
-
 		case state.NsTaken:
 			b.ks.PlacementToState(p, ranje.PsTaken)
 			return

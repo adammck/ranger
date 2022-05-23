@@ -378,12 +378,12 @@ func TestTakeErrorFast(t *testing.T) {
 	ri, err := rglt.take(m.Ident)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsTakingError, ri.State)
+	assert.Equal(t, state.NsReady, ri.State)
 
 	// Check state was updated.
 	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
-	assert.Equal(t, state.NsTakingError, ri.State)
+	assert.Equal(t, state.NsReady, ri.State)
 }
 
 func TestTakeErrorSlow(t *testing.T) {
@@ -409,18 +409,11 @@ func TestTakeErrorSlow(t *testing.T) {
 	// Unblock PrepareDropRange.
 	n.wgPrepareDropRange.Done()
 
-	// Wait until TakingError (because PrepareDropRange returned error).
+	// Wait until Ready (because PrepareDropRange returned error).
 	require.Eventually(t, func() bool {
 		ri, ok := rglt.rangeInfo(m.Ident)
-		return ok && ri.State == state.NsTakingError
+		return ok && ri.State == state.NsReady
 	}, waitFor, tick)
-
-	for i := 0; i < 2; i++ {
-		ri, err := rglt.serve(m.Ident)
-		require.Error(t, err)
-		assert.EqualError(t, err, "rpc error: code = InvalidArgument desc = invalid state for Serve: NsTakingError")
-		assert.Equal(t, state.NsTakingError, ri.State)
-	}
 }
 
 func setupDrop(infos map[ranje.Ident]*info.RangeInfo, m ranje.Meta) {

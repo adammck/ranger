@@ -241,7 +241,7 @@ func (r *Rangelet) take(rID ranje.Ident) (info.RangeInfo, error) {
 	r.Unlock()
 
 	withTimeout(r.gracePeriod, func() {
-		r.runThenUpdateState(rID, state.NsTaking, state.NsTaken, state.NsTakingError, func() error {
+		r.runThenUpdateState(rID, state.NsTaking, state.NsTaken, state.NsReady, func() error {
 			return r.n.PrepareDropRange(rID)
 		})
 	})
