@@ -245,12 +245,12 @@ func TestServeErrorFast(t *testing.T) {
 	ri, err := rglt.serve(m.Ident)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsReadyingError, ri.State)
+	assert.Equal(t, state.NsPrepared, ri.State)
 
 	// State was updated.
 	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
-	assert.Equal(t, state.NsReadyingError, ri.State)
+	assert.Equal(t, state.NsPrepared, ri.State)
 }
 
 func TestServeErrorSlow(t *testing.T) {
@@ -276,18 +276,11 @@ func TestServeErrorSlow(t *testing.T) {
 	// Unblock AddRange.
 	n.wgAddRange.Done()
 
-	// Wait until ReadyingError (because AddRange returned error).
+	// Wait until Prepared (because AddRange returned error).
 	require.Eventually(t, func() bool {
 		ri, ok := rglt.rangeInfo(m.Ident)
-		return ok && ri.State == state.NsReadyingError
+		return ok && ri.State == state.NsPrepared
 	}, waitFor, tick)
-
-	for i := 0; i < 2; i++ {
-		ri, err := rglt.serve(m.Ident)
-		require.Error(t, err)
-		assert.EqualError(t, err, "rpc error: code = InvalidArgument desc = invalid state for Serve: NsReadyingError")
-		assert.Equal(t, state.NsReadyingError, ri.State)
-	}
 }
 
 func setupTake(infos map[ranje.Ident]*info.RangeInfo, m ranje.Meta) {

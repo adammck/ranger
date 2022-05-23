@@ -198,7 +198,7 @@ func (r *Rangelet) serve(rID ranje.Ident) (info.RangeInfo, error) {
 	r.Unlock()
 
 	withTimeout(r.gracePeriod, func() {
-		r.runThenUpdateState(rID, state.NsReadying, state.NsReady, state.NsReadyingError, func() error {
+		r.runThenUpdateState(rID, state.NsReadying, state.NsReady, state.NsPrepared, func() error {
 			return r.n.AddRange(rID)
 		})
 	})

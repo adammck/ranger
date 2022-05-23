@@ -525,13 +525,6 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 			// is working on it. Just keep waiting.
 			log.Printf("node %s still readying %s", n.Ident(), p.Range().Meta.Ident)
 
-		case state.NsReadyingError:
-			// TODO: Pass back more information from the node, here. It's
-			//       not an RPC error, but there was some failure which we
-			//       can log or handle here.l
-			log.Printf("error readying %s on %s", p.Range().Meta.Ident, n.Ident())
-			b.ks.PlacementToState(p, ranje.PsGiveUp)
-
 		case state.NsReady:
 			b.ks.PlacementToState(p, ranje.PsReady)
 			return
