@@ -30,7 +30,7 @@ import (
 // TODO: Move to keyspace tests.
 func TestJunk(t *testing.T) {
 	ksStr := "" // No ranges at all!
-	orch, nodes := orchFactory(t, ksStr, "", testConfig(), false)
+	orch, nodes := orchFactoryNoCheck(t, ksStr, "", testConfig(), false)
 	defer nodes.Close()
 
 	// Genesis range was created.
@@ -105,7 +105,7 @@ func TestPlacementWithFailures(t *testing.T) {
 
 func TestPlacementMedium(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
-	rosStr := "{test-aaa []} {test-bbb []}"
+	rosStr := "{test-aaa []}"
 	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
 	defer nodes.Close()
 
@@ -179,7 +179,7 @@ func TestPlacementMedium(t *testing.T) {
 
 func TestPlacementSlow(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
-	rosStr := "{test-aaa []} {test-bbb []}"
+	rosStr := "{test-aaa []}"
 	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), true)
 	defer nodes.Close()
 
@@ -1258,12 +1258,18 @@ func rosterFactory(t *testing.T, cfg config.Config, ctx context.Context, ks *key
 	return nodes, rost
 }
 
-func orchFactory(t *testing.T, sKS, sRos string, cfg config.Config, strict bool) (*Orchestrator, *fake_nodes.TestNodes) {
+// TODO: Merge this with orchFactoryCheck once TestJunk is gone.
+func orchFactoryNoCheck(t *testing.T, sKS, sRos string, cfg config.Config, strict bool) (*Orchestrator, *fake_nodes.TestNodes) {
 	ks := keyspaceFactory(t, cfg, parseKeyspace(t, sKS))
 	nodes, ros := rosterFactory(t, cfg, context.TODO(), ks, parseRoster(t, sRos))
 	nodes.SetStrictTransitions(strict)
 	srv := grpc.NewServer() // TODO: Allow this to be nil.
 	orch := New(cfg, ks, ros, srv)
+	return orch, nodes
+}
+
+func orchFactory(t *testing.T, sKS, sRos string, cfg config.Config, strict bool) (*Orchestrator, *fake_nodes.TestNodes) {
+	orch, nodes := orchFactoryNoCheck(t, sKS, sRos, cfg, strict)
 
 	// Tick once, to populate the roster before the first orchestrator tick. We
 	// also do this when starting up the controller is starting up, so it's not
@@ -1272,6 +1278,7 @@ func orchFactory(t *testing.T, sKS, sRos string, cfg config.Config, strict bool)
 
 	// Verify that the current state of the keyspace and roster is what was
 	// requested. (Require it, because if not, the test harness is broken.)
+	// TODO: Call nodes.Close() when these fail, somehow.
 	require.Equal(t, sKS, orch.ks.LogString())
 	require.Equal(t, sRos, orch.rost.TestString())
 

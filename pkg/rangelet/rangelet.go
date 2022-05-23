@@ -450,11 +450,9 @@ func withTimeout(timeout time.Duration, f func()) bool {
 
 	select {
 	case <-ch:
-		log.Print("finished!")
 		return true
 
 	case <-time.After(timeout):
-		log.Print("timed out")
 		return false
 	}
 }

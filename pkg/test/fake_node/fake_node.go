@@ -195,6 +195,12 @@ func (n *TestNode) withTestInterceptor() grpc.DialOption {
 	return grpc.WithUnaryInterceptor(n.testInterceptor)
 }
 
+// SetReturnValue sets the value which should be returned from the relevant
+// state change method for the given range on this test node. The src param is a
+// bit weird. It refers to the (rangelet-side) state that the range is in when
+// the method is called. So use NsPreparing to intercept PrepareAddShard,
+// NsReadying for AddShard, NsTaking for PrepareDropShard, and NsDropping for
+// DropShard.
 func (n *TestNode) SetReturnValue(t *testing.T, rID ranje.Ident, src state.RemoteState, err error) {
 	if src != state.NsPreparing && src != state.NsReadying && src != state.NsTaking && src != state.NsDropping {
 		t.Fatalf("unsupported src state: %v", src)
@@ -206,9 +212,8 @@ func (n *TestNode) SetReturnValue(t *testing.T, rID ranje.Ident, src state.Remot
 	}
 
 	n.muErr.Lock()
-	defer n.muErr.Unlock()
-
 	n.errors[ek] = err
+	n.muErr.Unlock()
 }
 
 func (n *TestNode) AddBarrier(t *testing.T, rID ranje.Ident, src state.RemoteState) *barrier {
