@@ -529,6 +529,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 		// We are ready to move from Prepared to Ready, but may have to wait for
 		// the placement that this is replacing (maybe) to relinquish it first.
 		if !b.ks.PlacementMayBecomeReady(p) {
+			log.Printf("prepared placement %s on %s may not become ready", n.Ident(), p.Range().Meta.Ident)
 			return
 		}
 
@@ -569,6 +570,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 		}
 
 		if !b.ks.PlacementMayBeTaken(p) {
+			log.Printf("placement may not be taken (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
 			return
 		}
 
