@@ -53,12 +53,11 @@ message RangeInfo {
   LoadInfo info = 3;
  }
 
- // TODO: Rename to RemoteState, like the non-proto type.
+// TODO: Rename to RemoteState, like the non-proto type.
 // Keep synced with RangeState (in node.go for now)
 enum RangeNodeState {
   UNKNOWN = 0;
   PREPARING = 1;
-  PREPARING_ERROR = 2;
   PREPARED = 3;
   READYING = 4;
   READY = 6;

@@ -111,7 +111,7 @@ func TestGiveErrorFast(t *testing.T) {
 	ri, err := rglt.give(m, p)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsPreparingError, ri.State)
+	assert.Equal(t, state.NsNotFound, ri.State)
 
 	// Check that no range was created.
 	ri, ok := rglt.rangeInfo(m.Ident)
@@ -150,13 +150,6 @@ func TestGiveErrorSlow(t *testing.T) {
 		_, ok := rglt.rangeInfo(m.Ident)
 		return !ok
 	}, waitFor, tick)
-
-	for i := 0; i < 2; i++ {
-		ri, err := rglt.give(m, p)
-		require.NoError(t, err)
-		assert.Equal(t, m, ri.Meta)
-		assert.Equal(t, state.NsPreparingError, ri.State)
-	}
 }
 
 func setupServe(infos map[ranje.Ident]*info.RangeInfo, m ranje.Meta) {

@@ -16,7 +16,6 @@ const (
 
 	// Valid states.
 	NsPreparing
-	NsPreparingError
 	NsPrepared
 	NsReadying
 	NsReady
@@ -42,8 +41,6 @@ func RemoteStateFromProto(s pb.RangeNodeState) RemoteState {
 		return NsUnknown
 	case pb.RangeNodeState_PREPARING:
 		return NsPreparing
-	case pb.RangeNodeState_PREPARING_ERROR:
-		return NsPreparingError
 	case pb.RangeNodeState_PREPARED:
 		return NsPrepared
 	case pb.RangeNodeState_READYING:
@@ -70,8 +67,6 @@ func (rs RemoteState) ToProto() pb.RangeNodeState {
 		return pb.RangeNodeState_UNKNOWN
 	case NsPreparing:
 		return pb.RangeNodeState_PREPARING
-	case NsPreparingError:
-		return pb.RangeNodeState_PREPARING_ERROR
 	case NsPrepared:
 		return pb.RangeNodeState_PREPARED
 	case NsReadying:

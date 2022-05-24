@@ -92,16 +92,6 @@ func (r *Rangelet) runThenUpdateState(rID ranje.Ident, old state.RemoteState, su
 		return
 	}
 
-	// Another special case.
-	// TODO: Remove this, so the controller sees the same version of the state
-	//       whether updated by probe or by response from RPC.
-	if s == state.NsPreparingError {
-		delete(r.info, rID)
-		r.runCallback(rID, old, s)
-		log.Printf("deleting range after failed give: %v", rID)
-		return
-	}
-
 	ri, ok := r.info[rID]
 	if !ok {
 		panic(fmt.Sprintf("range vanished in runThenUpdateState! (rID=%v, s=%s)", rID, s))
@@ -125,12 +115,6 @@ func (r *Rangelet) give(rm ranje.Meta, parents []api.Parent) (info.RangeInfo, er
 			return *ri, nil
 		}
 
-		// TODO: Allow retry if in PreparingError
-		if ri.State == state.NsPreparingError {
-			log.Printf("got Give in NsPreparingError")
-			return *ri, nil
-		}
-
 		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Give: %v", ri.State)
 	}
 
@@ -144,7 +128,7 @@ func (r *Rangelet) give(rm ranje.Meta, parents []api.Parent) (info.RangeInfo, er
 	r.Unlock()
 
 	withTimeout(r.gracePeriod, func() {
-		r.runThenUpdateState(rID, state.NsPreparing, state.NsPrepared, state.NsPreparingError, func() error {
+		r.runThenUpdateState(rID, state.NsPreparing, state.NsPrepared, state.NsNotFound, func() error {
 			return r.n.PrepareAddRange(rm, parents)
 		})
 	})
@@ -157,15 +141,15 @@ func (r *Rangelet) give(rm ranje.Meta, parents []api.Parent) (info.RangeInfo, er
 
 	if !ok {
 		// The range has vanished, because runThenUpdateState saw that it was
-		// NsPreparingError and special-cased it. Return something tht kind of
-		// looks right, so the controller knows what to do.
+		// NotFound and special-cased it. Return something tht kind of looks
+		// right, so the controller knows what to do.
 		//
-		// TODO: Remove this (and return PreparingError directly), so the
-		//       controller sees the same version of the state whether updated
-		//       by probe or by response from RPC.
+		// TODO: Remove this (and return NotFound directly), so the controller
+		//       sees the same version of the state whether updated by probe or
+		//       by response from RPC.
 		return info.RangeInfo{
 			Meta:  ranje.Meta{Ident: rID},
-			State: state.NsPreparingError,
+			State: state.NsNotFound,
 		}, nil
 	}
 
