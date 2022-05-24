@@ -58,14 +58,14 @@ message RangeInfo {
 enum RangeNodeState {
   UNKNOWN = 0;
   PREPARING = 1;
-  PREPARED = 3;
-  READYING = 4;
-  READY = 6;
-  TAKING = 7;
-  TAKEN = 9;
-  DROPPING = 10;
+  PREPARED = 2;
+  READYING = 3;
+  READY = 4;
+  TAKING = 5;
+  TAKEN = 6;
+  DROPPING = 7;
   // Special case: See roster.RemoteState
-  NOT_FOUND = 12;
+  NOT_FOUND = 8;
 }
 
 // This is only for debugging purposes, for now.
