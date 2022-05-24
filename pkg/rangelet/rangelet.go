@@ -261,18 +261,19 @@ func (r *Rangelet) drop(rID ranje.Ident) (info.RangeInfo, error) {
 		return *ri, nil
 	}
 
-	if ri.State != state.NsTaken {
+	if ri.State != state.NsTaken && ri.State != state.NsPrepared {
 		defer r.Unlock()
 		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Drop: %v", ri.State)
 	}
 
-	// State is NsTaken
+	// State is Taken or Prepared
 
+	old := ri.State
 	ri.State = state.NsDropping
 	r.Unlock()
 
 	withTimeout(r.gracePeriod, func() {
-		r.runThenUpdateState(rID, state.NsDropping, state.NsNotFound, state.NsTaken, func() error {
+		r.runThenUpdateState(rID, state.NsDropping, state.NsNotFound, old, func() error {
 			return r.n.DropRange(rID)
 		})
 	})

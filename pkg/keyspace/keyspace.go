@@ -233,16 +233,10 @@ func (ks *Keyspace) PlacementMayBeTaken(p *ranje.Placement) bool {
 
 	switch r.State {
 	case ranje.RsActive:
-		var replacement *ranje.Placement
-		for _, p2 := range r.Placements {
-			if p2.IsReplacing == p.NodeID {
-				replacement = p2
-				break
-			}
-		}
+		replacement := replacementFor(p)
 
-		// p wants to be moved, but no replacement placement has been created yet.
-		// Not sure how we ended up here, but it's valid.
+		// p wants to be moved, but no replacement placement has been created
+		// yet. Not sure how we ended up here, but it's valid.
 		if replacement == nil {
 			return false
 		}
@@ -250,6 +244,7 @@ func (ks *Keyspace) PlacementMayBeTaken(p *ranje.Placement) bool {
 		if replacement.State == ranje.PsPrepared {
 			return true
 		}
+
 	case ranje.RsSubsuming:
 
 		// Exit early if any of the child ranges don't have enough replicas
@@ -277,24 +272,49 @@ func (ks *Keyspace) PlacementMayBeTaken(p *ranje.Placement) bool {
 }
 
 func (ks *Keyspace) PlacementMayBeDropped(p *ranje.Placement) error {
+	switch p.State {
+	case ranje.PsTaken:
+		return ks.mayDropTaken(p)
 
-	// Sanity check.
-	if p.State != ranje.PsTaken {
-		return fmt.Errorf("placment not in ranje.PsTaken")
+	case ranje.PsPrepared:
+		return ks.mayDropPrepared(p)
+
+	default:
+		return fmt.Errorf("invalid state for PlacementMayBeDropped: %s", p.State)
+	}
+}
+
+func replacementFor(p *ranje.Placement) *ranje.Placement {
+	var out *ranje.Placement
+
+	for _, pp := range p.Range().Placements {
+		if pp.IsReplacing == p.NodeID {
+			out = pp
+			break
+		}
 	}
 
+	return out
+}
+
+func replacedBy(p *ranje.Placement) *ranje.Placement {
+	var out *ranje.Placement
+
+	for _, pp := range p.Range().Placements {
+		if p.IsReplacing == pp.NodeID {
+			out = pp
+			break
+		}
+	}
+
+	return out
+}
+
+func (ks *Keyspace) mayDropTaken(p *ranje.Placement) error {
 	r := p.Range()
 	switch r.State {
 	case ranje.RsActive:
-
-		// TODO: Move this (same in MayBeTaken) to r.ReplacementFor or something.
-		var replacement *ranje.Placement
-		for _, p2 := range r.Placements {
-			if p2.IsReplacing == p.NodeID {
-				replacement = p2
-				break
-			}
-		}
+		replacement := replacementFor(p)
 
 		// p is in Taken, but no replacement exists? This should not have happened.
 		// Maybe placing the replacement failed and we gave up?
@@ -333,7 +353,38 @@ func (ks *Keyspace) PlacementMayBeDropped(p *ranje.Placement) error {
 		return nil
 
 	default:
-		return fmt.Errorf("unexpected state (s=%v)", r.State)
+		return fmt.Errorf("unexpected range state (s=%v)", r.State)
+	}
+}
+
+func (ks *Keyspace) mayDropPrepared(p *ranje.Placement) error {
+	r := p.Range()
+	switch r.State {
+	case ranje.RsActive:
+
+		// Fetch the original placement, which we are replacing.
+		other := replacedBy(p)
+		if other == nil {
+			// Shouldn't really be getting here; any placement which is Prepared
+			// and not replacing any other placement can immediately advance to
+			// Ready. There's nothing to take.
+			log.Printf("won't drop prepared non-replacing placement (pn=%s)", p.NodeID)
+			return fmt.Errorf("won't drop prepared non-replacing placement (pn=%s)", p.NodeID)
+		}
+
+		if !other.GivenUp {
+			log.Printf("won't drop prepared placement when other is not GivenUp (pn=%s, rn=%s)", p.NodeID, other.NodeID)
+			return fmt.Errorf("won't drop prepared placement when other is not GivenUp (pn=%s, rn=%s)", p.NodeID, other.NodeID)
+		}
+
+		return nil
+
+	case ranje.RsSubsuming:
+		// TODO: I think this should never happen? What *should* it do?
+		return fmt.Errorf("won't drop prepared placement in subsuming range")
+
+	default:
+		return fmt.Errorf("unexpected range state (s=%v)", r.State)
 	}
 }
 

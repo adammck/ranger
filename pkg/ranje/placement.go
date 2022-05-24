@@ -25,7 +25,10 @@ type Placement struct {
 	// How many times has this placement failed to advance to the next state?
 	// Orchestrator uses this to determine whether to give up or try again.
 	// Reset by ToState.
-	ErrorCount int
+	Attempts int
+
+	// TODO: When does this get unset? Manually? Timer?
+	GivenUp bool
 
 	// Not persisted.
 	replaceDone func()
@@ -108,7 +111,7 @@ func (p *Placement) ToState(new PlacementState) error {
 	}
 
 	p.State = new
-	p.ErrorCount = 0
+	p.Attempts = 0
 	p.rang.dirty = true
 
 	// TODO: Make this less weird

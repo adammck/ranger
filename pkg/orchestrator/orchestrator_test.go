@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"fmt"
+	"log"
 	"regexp"
 	"sort"
 	"strconv"
@@ -73,30 +74,6 @@ func TestPlacementPrepareError(t *testing.T) {
 	tickUntilStable(t, orch, nodes)
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-bbb:PsReady}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsReady]}", orch.rost.TestString())
-}
-
-func TestPlacementReadyError(t *testing.T) {
-	ksStr := "{1 [-inf, +inf] RsActive}"
-	rosStr := "{test-aaa []} {test-bbb []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
-	defer nodes.Close()
-
-	// Node aaa will always fail to become ready.
-	nodes.Get("test-aaa").SetReturnValue(t, 1, state.NsReadying, fmt.Errorf("can't get ready!"))
-
-	orch.rost.Tick()
-	assert.Equal(t, ksStr, orch.ks.LogString())
-	assert.Equal(t, rosStr, orch.rost.TestString())
-
-	// ----
-
-	tickUntilStable(t, orch, nodes)
-
-	// TODO: This is not a good state! The controller has discarded the
-	//       placement on aaa, but the node will remember it forever. That's the
-	//       only way that it ended up on bbb, which I think is also buggy.
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-bbb:PsReady}", orch.ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsReadyingError]} {test-bbb [1:NsReady]}", orch.rost.TestString())
 }
 
 func TestPlacementMedium(t *testing.T) {
@@ -373,6 +350,7 @@ func TestMoveTakeError(t *testing.T) {
 
 	// 1. Node B gets PrepareAddShard to verify that it can take the shard. This
 	//    succeeds (because nothing has failed yet).
+	log.Print("1")
 
 	tickWait(orch)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-bbb"}, nIDs(rpcs)) {
@@ -416,34 +394,50 @@ func TestMoveTakeError(t *testing.T) {
 	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb [1:NsPrepared]}", orch.rost.TestString())
 
 	// 2. Node A gets PrepareDropShard, which fails because we injected an error
-	//    above.
+	//    above. This repeats three times before we give up and accept that the
+	//    node will not relinquish the range.
+	log.Print("2")
+
+	for i := 1; i < 4; i++ {
+		log.Printf("2.%d", i)
+		tickWait(orch)
+		if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
+			if a := rpcs["test-aaa"]; assert.Len(t, a, 1) {
+				ProtoEqual(t, &pb.TakeRequest{
+					Range: 1,
+				}, a[0])
+			}
+		}
+
+		assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady p1=test-bbb:PsPrepared:replacing(test-aaa)}", orch.ks.LogString())
+		assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb [1:NsPrepared]}", orch.rost.TestString())
+	}
+
+	// 3. Node B gets DropShard, to abandon the placement it prepared. It will
+	//    never become ready.
+	log.Print("3")
 
 	tickWait(orch)
-	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
-		if a := rpcs["test-aaa"]; assert.Len(t, a, 1) {
-			ProtoEqual(t, &pb.TakeRequest{
+	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-bbb"}, nIDs(rpcs)) {
+		if b := rpcs["test-bbb"]; assert.Len(t, b, 1) {
+			ProtoEqual(t, &pb.DropRequest{
 				Range: 1,
-			}, a[0])
+			}, b[0])
 		}
 	}
 
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady p1=test-bbb:PsPrepared:replacing(test-aaa)}", orch.ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb [1:NsPrepared]}", orch.rost.TestString())
+	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb []}", orch.rost.TestString())
 
+	// Destroy the abandonned placement.
 	tickWait(orch)
-	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
-		if a := rpcs["test-aaa"]; assert.Len(t, a, 1) {
-			ProtoEqual(t, &pb.ServeRequest{
-				Range: 1,
-			}, a[0])
-		}
-	}
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady p1=test-bbb:PsPrepared:replacing(test-aaa)}", orch.ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb [1:NsPrepared]}", orch.rost.TestString())
+	assert.Empty(t, nodes.RPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb []}", orch.rost.TestString())
 
-	// Desired end state:
-	// assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}", orch.ks.LogString())
-	// assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb []}", orch.rost.TestString())
+	// Stable now, because the move was a one-off. (The balancer might try the
+	// same thing again, but that's a separate test.)
+	requireStable(t, orch)
 }
 
 func TestMoveSlow(t *testing.T) {
@@ -1450,6 +1444,9 @@ func tickWait(orch *Orchestrator, waiters ...Waiter) {
 	for _, w := range waiters {
 		w.Wait()
 	}
+
+	log.Print("ks: ", orch.ks.LogString())
+	log.Print("ro: ", orch.rost.TestString())
 }
 
 func tickUntilStable(t *testing.T, orch *Orchestrator, nodes *fake_nodes.TestNodes) {
