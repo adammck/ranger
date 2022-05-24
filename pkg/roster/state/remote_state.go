@@ -23,7 +23,6 @@ const (
 	NsTaking
 	NsTaken
 	NsDropping
-	NsDroppingError
 
 	// Special case: This is never returned by probes, since those only include
 	// the state of ranges which the node has. This is returned by redundant
@@ -57,8 +56,6 @@ func RemoteStateFromProto(s pb.RangeNodeState) RemoteState {
 		return NsTaken
 	case pb.RangeNodeState_DROPPING:
 		return NsDropping
-	case pb.RangeNodeState_DROPPING_ERROR:
-		return NsDroppingError
 	case pb.RangeNodeState_NOT_FOUND:
 		return NsNotFound
 	}
@@ -87,8 +84,6 @@ func (rs RemoteState) ToProto() pb.RangeNodeState {
 		return pb.RangeNodeState_TAKEN
 	case NsDropping:
 		return pb.RangeNodeState_DROPPING
-	case NsDroppingError:
-		return pb.RangeNodeState_DROPPING_ERROR
 	case NsNotFound:
 		return pb.RangeNodeState_NOT_FOUND
 	}

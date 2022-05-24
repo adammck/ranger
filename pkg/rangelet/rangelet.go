@@ -283,11 +283,12 @@ func (r *Rangelet) drop(rID ranje.Ident) (info.RangeInfo, error) {
 
 	// State is NsTaken
 
+	old := ri.State
 	ri.State = state.NsDropping
 	r.Unlock()
 
 	withTimeout(r.gracePeriod, func() {
-		r.runThenUpdateState(rID, state.NsDropping, state.NsNotFound, state.NsDroppingError, func() error {
+		r.runThenUpdateState(rID, state.NsDropping, state.NsNotFound, old, func() error {
 			return r.n.DropRange(rID)
 		})
 	})
@@ -317,7 +318,7 @@ func (r *Rangelet) Find(k ranje.Key) (ranje.Ident, bool) {
 		// before PrepareAddShard has returned, or while DropShard is still in
 		// progress.) The client should check the state anyway, but this makes
 		// the contract simpler.
-		if ri.State == state.NsPreparing || ri.State == state.NsDropping || ri.State == state.NsDroppingError {
+		if ri.State == state.NsPreparing || ri.State == state.NsDropping {
 			continue
 		}
 

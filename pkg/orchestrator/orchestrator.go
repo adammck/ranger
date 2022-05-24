@@ -614,14 +614,6 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 				// the RPC (below) already, so cannot turn back now.
 				log.Printf("node %s still dropping %s", n.Ident(), p.Range().Meta.Ident)
 
-			case state.NsDroppingError:
-				// TODO: Pass back more information from the node, here. It's
-				//       not an RPC error, but there was some failure which we
-				//       can log or handle here.
-				log.Printf("error dropping %s from %s", p.Range().Meta.Ident, n.Ident())
-				b.ks.PlacementToState(p, ranje.PsGiveUp)
-				return
-
 			default:
 				log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
 				b.ks.PlacementToState(p, ranje.PsGiveUp)

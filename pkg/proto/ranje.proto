@@ -65,7 +65,6 @@ enum RangeNodeState {
   TAKING = 7;
   TAKEN = 9;
   DROPPING = 10;
-  DROPPING_ERROR = 11;
   // Special case: See roster.RemoteState
   NOT_FOUND = 12;
 }
