@@ -84,21 +84,12 @@ func (r *Rangelet) runThenUpdateState(rID ranje.Ident, old state.RemoteState, su
 	defer r.Unlock()
 
 	// Special case: Ranges are never actually in NotFound; it's a signal to
-	// delete them.
+	// delete them. This happens when a PrepareAddShard fails, or a DropShard
+	// succeeds; either way, the range is gone.
 	if s == state.NsNotFound {
 		delete(r.info, rID)
 		r.runCallback(rID, old, s)
 		log.Printf("range deleted: %v", rID)
-		return
-	}
-
-	// Another special case.
-	// TODO: Remove this, so the controller sees the same version of the state
-	//       whether updated by probe or by response from RPC.
-	if s == state.NsPreparingError {
-		delete(r.info, rID)
-		r.runCallback(rID, old, s)
-		log.Printf("deleting range after failed give: %v", rID)
 		return
 	}
 
@@ -125,12 +116,6 @@ func (r *Rangelet) give(rm ranje.Meta, parents []api.Parent) (info.RangeInfo, er
 			return *ri, nil
 		}
 
-		// TODO: Allow retry if in PreparingError
-		if ri.State == state.NsPreparingError {
-			log.Printf("got Give in NsPreparingError")
-			return *ri, nil
-		}
-
 		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Give: %v", ri.State)
 	}
 
@@ -144,7 +129,7 @@ func (r *Rangelet) give(rm ranje.Meta, parents []api.Parent) (info.RangeInfo, er
 	r.Unlock()
 
 	withTimeout(r.gracePeriod, func() {
-		r.runThenUpdateState(rID, state.NsPreparing, state.NsPrepared, state.NsPreparingError, func() error {
+		r.runThenUpdateState(rID, state.NsPreparing, state.NsPrepared, state.NsNotFound, func() error {
 			return r.n.PrepareAddRange(rm, parents)
 		})
 	})
@@ -157,15 +142,15 @@ func (r *Rangelet) give(rm ranje.Meta, parents []api.Parent) (info.RangeInfo, er
 
 	if !ok {
 		// The range has vanished, because runThenUpdateState saw that it was
-		// NsPreparingError and special-cased it. Return something tht kind of
-		// looks right, so the controller knows what to do.
+		// NotFound and special-cased it. Return something tht kind of looks
+		// right, so the controller knows what to do.
 		//
-		// TODO: Remove this (and return PreparingError directly), so the
-		//       controller sees the same version of the state whether updated
-		//       by probe or by response from RPC.
+		// TODO: Remove this (and return NotFound directly), so the controller
+		//       sees the same version of the state whether updated by probe or
+		//       by response from RPC.
 		return info.RangeInfo{
 			Meta:  ranje.Meta{Ident: rID},
-			State: state.NsPreparingError,
+			State: state.NsNotFound,
 		}, nil
 	}
 
@@ -198,7 +183,7 @@ func (r *Rangelet) serve(rID ranje.Ident) (info.RangeInfo, error) {
 	r.Unlock()
 
 	withTimeout(r.gracePeriod, func() {
-		r.runThenUpdateState(rID, state.NsReadying, state.NsReady, state.NsReadyingError, func() error {
+		r.runThenUpdateState(rID, state.NsReadying, state.NsReady, state.NsPrepared, func() error {
 			return r.n.AddRange(rID)
 		})
 	})
@@ -241,7 +226,7 @@ func (r *Rangelet) take(rID ranje.Ident) (info.RangeInfo, error) {
 	r.Unlock()
 
 	withTimeout(r.gracePeriod, func() {
-		r.runThenUpdateState(rID, state.NsTaking, state.NsTaken, state.NsTakingError, func() error {
+		r.runThenUpdateState(rID, state.NsTaking, state.NsTaken, state.NsReady, func() error {
 			return r.n.PrepareDropRange(rID)
 		})
 	})
@@ -287,7 +272,7 @@ func (r *Rangelet) drop(rID ranje.Ident) (info.RangeInfo, error) {
 	r.Unlock()
 
 	withTimeout(r.gracePeriod, func() {
-		r.runThenUpdateState(rID, state.NsDropping, state.NsNotFound, state.NsDroppingError, func() error {
+		r.runThenUpdateState(rID, state.NsDropping, state.NsNotFound, state.NsTaken, func() error {
 			return r.n.DropRange(rID)
 		})
 	})
@@ -317,7 +302,7 @@ func (r *Rangelet) Find(k ranje.Key) (ranje.Ident, bool) {
 		// before PrepareAddShard has returned, or while DropShard is still in
 		// progress.) The client should check the state anyway, but this makes
 		// the contract simpler.
-		if ri.State == state.NsPreparing || ri.State == state.NsDropping || ri.State == state.NsDroppingError {
+		if ri.State == state.NsPreparing || ri.State == state.NsDropping {
 			continue
 		}
 

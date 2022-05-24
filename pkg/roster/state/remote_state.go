@@ -16,16 +16,12 @@ const (
 
 	// Valid states.
 	NsPreparing
-	NsPreparingError
 	NsPrepared
 	NsReadying
-	NsReadyingError
 	NsReady
 	NsTaking
-	NsTakingError
 	NsTaken
 	NsDropping
-	NsDroppingError
 
 	// Special case: This is never returned by probes, since those only include
 	// the state of ranges which the node has. This is returned by redundant
@@ -45,26 +41,18 @@ func RemoteStateFromProto(s pb.RangeNodeState) RemoteState {
 		return NsUnknown
 	case pb.RangeNodeState_PREPARING:
 		return NsPreparing
-	case pb.RangeNodeState_PREPARING_ERROR:
-		return NsPreparingError
 	case pb.RangeNodeState_PREPARED:
 		return NsPrepared
 	case pb.RangeNodeState_READYING:
 		return NsReadying
-	case pb.RangeNodeState_READYING_ERROR:
-		return NsReadyingError
 	case pb.RangeNodeState_READY:
 		return NsReady
 	case pb.RangeNodeState_TAKING:
 		return NsTaking
-	case pb.RangeNodeState_TAKING_ERROR:
-		return NsTakingError
 	case pb.RangeNodeState_TAKEN:
 		return NsTaken
 	case pb.RangeNodeState_DROPPING:
 		return NsDropping
-	case pb.RangeNodeState_DROPPING_ERROR:
-		return NsDroppingError
 	case pb.RangeNodeState_NOT_FOUND:
 		return NsNotFound
 	}
@@ -79,26 +67,18 @@ func (rs RemoteState) ToProto() pb.RangeNodeState {
 		return pb.RangeNodeState_UNKNOWN
 	case NsPreparing:
 		return pb.RangeNodeState_PREPARING
-	case NsPreparingError:
-		return pb.RangeNodeState_PREPARING_ERROR
 	case NsPrepared:
 		return pb.RangeNodeState_PREPARED
 	case NsReadying:
 		return pb.RangeNodeState_READYING
-	case NsReadyingError:
-		return pb.RangeNodeState_READYING_ERROR
 	case NsReady:
 		return pb.RangeNodeState_READY
 	case NsTaking:
 		return pb.RangeNodeState_TAKING
-	case NsTakingError:
-		return pb.RangeNodeState_TAKING_ERROR
 	case NsTaken:
 		return pb.RangeNodeState_TAKEN
 	case NsDropping:
 		return pb.RangeNodeState_DROPPING
-	case NsDroppingError:
-		return pb.RangeNodeState_DROPPING_ERROR
 	case NsNotFound:
 		return pb.RangeNodeState_NOT_FOUND
 	}

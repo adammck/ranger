@@ -479,14 +479,6 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 				b.ks.PlacementToState(p, ranje.PsPrepared)
 				return
 
-			case state.NsPreparingError:
-				// TODO: Pass back more information from the node, here. It's
-				//       not an RPC error, but there was some failure which we
-				//       can log or handle here.
-				log.Printf("error placing %s on %s", p.Range().Meta.Ident, n.Ident())
-				b.ks.PlacementToState(p, ranje.PsGiveUp)
-				return
-
 			default:
 				log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
 				b.ks.PlacementToState(p, ranje.PsGiveUp)
@@ -524,13 +516,6 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 			// We've already sent the Serve RPC at least once, and the node
 			// is working on it. Just keep waiting.
 			log.Printf("node %s still readying %s", n.Ident(), p.Range().Meta.Ident)
-
-		case state.NsReadyingError:
-			// TODO: Pass back more information from the node, here. It's
-			//       not an RPC error, but there was some failure which we
-			//       can log or handle here.l
-			log.Printf("error readying %s on %s", p.Range().Meta.Ident, n.Ident())
-			b.ks.PlacementToState(p, ranje.PsGiveUp)
 
 		case state.NsReady:
 			b.ks.PlacementToState(p, ranje.PsReady)
@@ -573,14 +558,6 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 
 		case state.NsTaking:
 			log.Printf("node %s still taking %s", n.Ident(), p.Range().Meta.Ident)
-
-		case state.NsTakingError:
-			// TODO: Pass back more information from the node, here. It's
-			//       not an RPC error, but there was some failure which we
-			//       can log or handle here.
-			log.Printf("error taking %s from %s", p.Range().Meta.Ident, n.Ident())
-			b.ks.PlacementToState(p, ranje.PsGiveUp)
-			return
 
 		case state.NsTaken:
 			b.ks.PlacementToState(p, ranje.PsTaken)
@@ -628,14 +605,6 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 				// We have already decided to drop the range, and have probably sent
 				// the RPC (below) already, so cannot turn back now.
 				log.Printf("node %s still dropping %s", n.Ident(), p.Range().Meta.Ident)
-
-			case state.NsDroppingError:
-				// TODO: Pass back more information from the node, here. It's
-				//       not an RPC error, but there was some failure which we
-				//       can log or handle here.
-				log.Printf("error dropping %s from %s", p.Range().Meta.Ident, n.Ident())
-				b.ks.PlacementToState(p, ranje.PsGiveUp)
-				return
 
 			default:
 				log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)

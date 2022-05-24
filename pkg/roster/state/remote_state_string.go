@@ -10,22 +10,18 @@ func _() {
 	var x [1]struct{}
 	_ = x[NsUnknown-0]
 	_ = x[NsPreparing-1]
-	_ = x[NsPreparingError-2]
-	_ = x[NsPrepared-3]
-	_ = x[NsReadying-4]
-	_ = x[NsReadyingError-5]
-	_ = x[NsReady-6]
-	_ = x[NsTaking-7]
-	_ = x[NsTakingError-8]
-	_ = x[NsTaken-9]
-	_ = x[NsDropping-10]
-	_ = x[NsDroppingError-11]
-	_ = x[NsNotFound-12]
+	_ = x[NsPrepared-2]
+	_ = x[NsReadying-3]
+	_ = x[NsReady-4]
+	_ = x[NsTaking-5]
+	_ = x[NsTaken-6]
+	_ = x[NsDropping-7]
+	_ = x[NsNotFound-8]
 }
 
-const _RemoteState_name = "NsUnknownNsPreparingNsPreparingErrorNsPreparedNsReadyingNsReadyingErrorNsReadyNsTakingNsTakingErrorNsTakenNsDroppingNsDroppingErrorNsNotFound"
+const _RemoteState_name = "NsUnknownNsPreparingNsPreparedNsReadyingNsReadyNsTakingNsTakenNsDroppingNsNotFound"
 
-var _RemoteState_index = [...]uint8{0, 9, 20, 36, 46, 56, 71, 78, 86, 99, 106, 116, 131, 141}
+var _RemoteState_index = [...]uint8{0, 9, 20, 30, 40, 47, 55, 62, 72, 82}
 
 func (i RemoteState) String() string {
 	if i >= RemoteState(len(_RemoteState_index)-1) {
