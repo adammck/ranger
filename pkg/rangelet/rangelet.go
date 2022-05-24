@@ -84,7 +84,8 @@ func (r *Rangelet) runThenUpdateState(rID ranje.Ident, old state.RemoteState, su
 	defer r.Unlock()
 
 	// Special case: Ranges are never actually in NotFound; it's a signal to
-	// delete them.
+	// delete them. This happens when a PrepareAddShard fails, or a DropShard
+	// succeeds; either way, the range is gone.
 	if s == state.NsNotFound {
 		delete(r.info, rID)
 		r.runCallback(rID, old, s)
@@ -267,12 +268,11 @@ func (r *Rangelet) drop(rID ranje.Ident) (info.RangeInfo, error) {
 
 	// State is NsTaken
 
-	old := ri.State
 	ri.State = state.NsDropping
 	r.Unlock()
 
 	withTimeout(r.gracePeriod, func() {
-		r.runThenUpdateState(rID, state.NsDropping, state.NsNotFound, old, func() error {
+		r.runThenUpdateState(rID, state.NsDropping, state.NsNotFound, state.NsTaken, func() error {
 			return r.n.DropRange(rID)
 		})
 	})

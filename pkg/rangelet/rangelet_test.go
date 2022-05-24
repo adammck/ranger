@@ -145,7 +145,7 @@ func TestGiveErrorSlow(t *testing.T) {
 	// Unblock PrepareAddRange.
 	n.wgPrepareAddRange.Done()
 
-	// Wait until range vanishes (because PrepareAddRange returned error)
+	// Wait until range vanishes (because PrepareAddRange returned error).
 	require.Eventually(t, func() bool {
 		_, ok := rglt.rangeInfo(m.Ident)
 		return !ok
@@ -269,7 +269,7 @@ func TestServeErrorSlow(t *testing.T) {
 	// Unblock AddRange.
 	n.wgAddRange.Done()
 
-	// Wait until Prepared (because AddRange returned error).
+	// Wait until state returns to Prepared (because AddRange returned error).
 	require.Eventually(t, func() bool {
 		ri, ok := rglt.rangeInfo(m.Ident)
 		return ok && ri.State == state.NsPrepared
@@ -395,7 +395,7 @@ func TestTakeErrorSlow(t *testing.T) {
 	// Unblock PrepareDropRange.
 	n.wgPrepareDropRange.Done()
 
-	// Wait until Ready (because PrepareDropRange returned error).
+	// Wait until state returns to Ready (because PrepareDropRange returned error).
 	require.Eventually(t, func() bool {
 		ri, ok := rglt.rangeInfo(m.Ident)
 		return ok && ri.State == state.NsReady
@@ -452,7 +452,7 @@ func TestDropSlow(t *testing.T) {
 	// Unblock DropRange.
 	n.wgDropRange.Done()
 
-	// Wait until range is dropped.
+	// Wait until range vanishes.
 	require.Eventually(t, func() bool {
 		_, ok := rglt.rangeInfo(m.Ident)
 		return !ok
@@ -520,7 +520,7 @@ func TestDropErrorSlow(t *testing.T) {
 	// Unblock DropRange.
 	n.wgDropRange.Done()
 
-	// Wait until state is return to Taken (because DropRange returned error).
+	// Wait until state returns to Taken (because DropRange returned error).
 	require.Eventually(t, func() bool {
 		ri, ok := rglt.rangeInfo(m.Ident)
 		return ok && ri.State == state.NsTaken
