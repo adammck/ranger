@@ -18,7 +18,7 @@ in collaborating.
 
 ## Interface
 
-Services implement [rangelet.Node](pkg/rangelet/interface.go):
+Services implement [rangelet.Node](pkg/api/node.go):
 
 - `GetLoadInfo(rID ranje.Ident) LoadInfo`
 - `PrepareAddRange(rm RangeMeta, parents []Parent) error`
@@ -60,16 +60,16 @@ The main components are:
   ranges evenly across nodes.
 
 Both **Persister** and **Discovery** are simple interfaces to pluggable storage
-systems. Only Consul is supported by either for now, but adding support for
-other systems (e.g. ZooKeeper, etcd) should be easy enough in future.
+systems. Only Consul is supported for now, but adding support for other systems
+(e.g. ZooKeeper, etcd) should be easy enough in future.
 
 The **green boxes** are storage nodes. These are implemented entirely (except
 the rangelet) by the service owner, to perform the _actual work_ that Ranger is
-so helpfully sharding and balancing. Services may receive their data via HTTP or
-RPC, and so may provide a client library to route requests to the appropriate
-node(s), or may forward requests between themselves. (Ranger doesn't provide any
-help with that part today, but likely will in future.) Alternatively, services
-may pull relevant work from e.g. a message queue.
+sharding and balancing. Services may receive their data via HTTP or RPC, and so
+may provide a client library to route requests to the appropriate node(s), or
+may forward requests between themselves. (Ranger doesn't provide any help with
+that part today, but likely will in future.) Alternatively, services may pull
+relevant work from e.g. a message queue.
 
 For example node implementations, see the [examples](/examples) directory.  
 For more complex examples, read the _Slicer_ and _Shard Manager_ papers.
