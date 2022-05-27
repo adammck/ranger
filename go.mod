@@ -11,4 +11,5 @@ require (
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 	google.golang.org/grpc v1.41.0
 	google.golang.org/protobuf v1.27.1
+	gopkg.in/yaml.v3 v3.0.0 // indirect
 )
