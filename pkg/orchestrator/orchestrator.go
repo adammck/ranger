@@ -17,6 +17,7 @@ import (
 )
 
 const maxTakeAttempts = 3
+const maxServeAttempts = 3
 
 type Orchestrator struct {
 	cfg  config.Config
@@ -491,12 +492,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 		// Send a Give RPC (maybe not the first time; once per tick).
 		// TODO: Keep track of how many times we've tried this and for how long.
 		//       We'll want to give up if it takes too long to prepare.
-		b.RPC(p, "Give", func() {
-			err := n.Give(context.Background(), p, getParents(b.ks, b.rost, p.Range()))
-			if err != nil {
-				log.Printf("error giving %v to %s: %v", p.LogString(), n.Ident(), err)
-			}
-		})
+		b.give(p, n)
 
 	case ranje.PsPrepared:
 		ri, ok := n.Get(p.Range().Meta.Ident)
@@ -522,21 +518,26 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 			// move to Ready, the one it is replacing (maybe) must reliniquish
 			// it first. Otherwise we just do nothing this tick.
 			if b.ks.PlacementMayBecomeReady(p) {
-				p.Attempts += 1
-				log.Printf("will serve %s to %s (attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
-				// proceed
+				if p.Attempts >= maxServeAttempts {
+					log.Printf("given up on serving prepared placement (rID=%s, n=%s, attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
+					n.PlacementFailed(p.Range().Meta.Ident, time.Now())
+					p.GivenUp = true
+					b.drop(p, n)
+
+				} else {
+					p.Attempts += 1
+					log.Printf("will serve %s to %s (attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
+					b.serve(p, n)
+				}
 
 			} else if err := b.ks.PlacementMayBeDropped(p); err == nil {
 				p.GivenUp = true
 				b.drop(p, n)
-				return
 
 			} else {
-				log.Printf("placement blocked at NsPrepared (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
+				//log.Printf("placement blocked at NsPrepared (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
 				return
 			}
-
-			log.Printf("placement unblocked at NsPrepared (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
 
 		} else if ri.State == state.NsReadying {
 			// We've already sent the Serve RPC at least once, and the node is
@@ -544,19 +545,18 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 			// check whether it's finished and is now Ready. (Or has changed to
 			// some other state through crash or bug.)
 			log.Printf("placement waiting at NsReadying (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
+			b.serve(p, n)
+
+		} else if ri.State == state.NsDropping {
+			// This placement failed to serve too many times. We've given up on it.
+			log.Printf("placement waiting at NsDropping (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
+			b.drop(p, n)
 
 		} else {
 			log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
 			b.ks.PlacementToState(p, ranje.PsGiveUp)
 			return
 		}
-
-		b.RPC(p, "Serve", func() {
-			err := n.Serve(context.Background(), p)
-			if err != nil {
-				log.Printf("error serving %v to %s: %v", p.LogString(), n.Ident(), err)
-			}
-		})
 
 	case ranje.PsReady:
 		ri, ok := n.Get(p.Range().Meta.Ident)
@@ -581,7 +581,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 				}
 
 			} else {
-				log.Printf("placement blocked at NsReady (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
+				//log.Printf("placement blocked at NsReady (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
 			}
 
 		case state.NsTaking:
@@ -690,11 +690,29 @@ func (b *Orchestrator) RPC(p *ranje.Placement, method string, f func()) {
 	}()
 }
 
+func (b *Orchestrator) give(p *ranje.Placement, n *roster.Node) {
+	b.RPC(p, "Give", func() {
+		err := n.Give(context.Background(), p, getParents(b.ks, b.rost, p.Range()))
+		if err != nil {
+			log.Printf("error giving %v to %s: %v", p.LogString(), n.Ident(), err)
+		}
+	})
+}
+
 func (b *Orchestrator) take(p *ranje.Placement, n *roster.Node) {
 	b.RPC(p, "Take", func() {
 		err := n.Take(context.Background(), p)
 		if err != nil {
 			log.Printf("error taking %v from %s: %v", p.LogString(), n.Ident(), err)
+		}
+	})
+}
+
+func (b *Orchestrator) serve(p *ranje.Placement, n *roster.Node) {
+	b.RPC(p, "Serve", func() {
+		err := n.Serve(context.Background(), p)
+		if err != nil {
+			log.Printf("error serving %v to %s: %v", p.LogString(), n.Ident(), err)
 		}
 	})
 }

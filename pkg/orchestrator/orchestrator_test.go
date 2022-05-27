@@ -76,6 +76,83 @@ func TestPlacementPrepareError(t *testing.T) {
 	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsReady]}", orch.rost.TestString())
 }
 
+func TestPlacementReadyError(t *testing.T) {
+	ksStr := "{1 [-inf, +inf] RsActive}"
+	rosStr := "{test-aaa []} {test-bbb []}"
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	defer nodes.Close()
+
+	// AddRange will always fail on node A.
+	// (But PrepareAddRange will succeed, as is the default)
+	nodes.Get("test-aaa").SetReturnValue(t, 1, state.NsReadying, fmt.Errorf("can't get ready!"))
+
+	// ----
+
+	tickUntilStable(t, orch, nodes)
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-bbb:PsReady}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsReady]}", orch.rost.TestString())
+}
+
+func TestPlacementReadyErrorLong(t *testing.T) {
+	ksStr := "{1 [-inf, +inf] RsActive}"
+	rosStr := "{test-aaa []} {test-bbb []}"
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	defer nodes.Close()
+
+	// AddRange will always fail on node A.
+	// (But PrepareAddRange will succeed, as is the default)
+	nodes.Get("test-aaa").SetReturnValue(t, 1, state.NsReadying, fmt.Errorf("can't get ready!"))
+
+	// 1. PrepareAddRange(1, aaa)
+
+	tickWait(orch)
+	assert.Len(t, nodes.RPCs(), 1) // no need to check RPC contents again.
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsPrepared]} {test-bbb []}", orch.rost.TestString())
+
+	tickWait(orch)
+	assert.Empty(t, nodes.RPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPrepared}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsPrepared]} {test-bbb []}", orch.rost.TestString())
+
+	// 2. AddRange(1, aaa)
+	//    Makes three attempts.
+
+	for attempt := 1; attempt <= 3; attempt++ {
+		tickWait(orch)
+		assert.Len(t, nodes.RPCs(), 1) // no need to check RPC contents again.
+		assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPrepared}", orch.ks.LogString())
+		assert.Equal(t, "{test-aaa [1:NsPrepared]} {test-bbb []}", orch.rost.TestString())
+		assert.Equal(t, attempt, mustGetPlacement(t, orch.ks, 1, "test-aaa").Attempts)
+	}
+
+	// 3. DropRange(1, aaa)
+
+	tickWait(orch)
+	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
+		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 1) {
+			ProtoEqual(t, &pb.DropRequest{
+				Range: 1,
+			}, aaa[0])
+		}
+	}
+
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPrepared}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa []} {test-bbb []}", orch.rost.TestString())
+
+	tickWait(orch)
+	assert.Empty(t, nodes.RPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsActive}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa []} {test-bbb []}", orch.rost.TestString())
+
+	// 4. PrepareAddRange(1, bbb)
+	// 5. AddRange(1, bbb)
+
+	tickUntilStable(t, orch, nodes)
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-bbb:PsReady}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsReady]}", orch.rost.TestString())
+}
+
 func TestPlacementMedium(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []}"
@@ -1536,6 +1613,15 @@ func mustGetRange(t *testing.T, ks *keyspace.Keyspace, rID int) *ranje.Range {
 		t.Fatalf("ks.Get(%d): %v", rID, err)
 	}
 	return r
+}
+
+func mustGetPlacement(t *testing.T, ks *keyspace.Keyspace, rID int, nodeID string) *ranje.Placement {
+	r := mustGetRange(t, ks, rID)
+	p := r.PlacementByNodeID(nodeID)
+	if p == nil {
+		t.Fatalf("r(%d).PlacementByNodeID(%s): no such placement", rID, nodeID)
+	}
+	return p
 }
 
 // ------------------------------------------------------------------- persister

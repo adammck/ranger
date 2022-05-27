@@ -28,6 +28,7 @@ type Placement struct {
 	Attempts int
 
 	// TODO: When does this get unset? Manually? Timer?
+	// Reset by ToState.
 	GivenUp bool
 
 	// Not persisted.
@@ -112,6 +113,7 @@ func (p *Placement) ToState(new PlacementState) error {
 
 	p.State = new
 	p.Attempts = 0
+	p.GivenUp = false
 	p.rang.dirty = true
 
 	// TODO: Make this less weird
