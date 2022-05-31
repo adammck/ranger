@@ -10,6 +10,8 @@ into a single range (3) assined to a different node (c), we **join** them.
 5. DropRange(a, 1)
 6. DropRange(a, 2)
 
+[_TestJoin_](https://cs.github.com/adammck/ranger?q=symbol%3ATestJoin)
+
 ## Failures
 
 tk

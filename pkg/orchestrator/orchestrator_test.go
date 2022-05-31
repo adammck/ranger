@@ -949,6 +949,22 @@ func TestJoin_Short(t *testing.T) {
 	assert.Equal(t, "{test-aaa []} {test-bbb []} {test-ccc [3:NsReady]}", orch.rost.TestString())
 }
 
+func TestSplitFailure_PrepareAddRange(t *testing.T) {
+	t.Skip("not implemented")
+}
+
+func TestSplitFailure_PrepareDropRange(t *testing.T) {
+	t.Skip("not implemented")
+}
+
+func TestSplitFailure_AddRange(t *testing.T) {
+	t.Skip("not implemented")
+}
+
+func TestSplitFailure_DropRange(t *testing.T) {
+	t.Skip("not implemented")
+}
+
 func TestJoin_Slow(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsReady} {2 (ggg, +inf] RsActive p0=test-bbb:PsReady}"
 	rosStr := "{test-aaa [1:NsReady]} {test-bbb [2:NsReady]} {test-ccc []}"

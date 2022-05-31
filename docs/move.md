@@ -8,6 +8,8 @@ different node (b), we **move** it.
 3. AddRange(b)
 4. DropRange(a)
 
+[_TestMove_](https://cs.github.com/adammck/ranger?q=symbol%3ATestMove)
+
 ## Failures
 
 If step 1 fails, abort the move:
