@@ -920,6 +920,22 @@ func TestSplit_Slow(t *testing.T) {
 	}
 }
 
+func TestSplitFailure_PrepareAddRange(t *testing.T) {
+	t.Skip("not implemented")
+}
+
+func TestSplitFailure_PrepareDropRange(t *testing.T) {
+	t.Skip("not implemented")
+}
+
+func TestSplitFailure_AddRange(t *testing.T) {
+	t.Skip("not implemented")
+}
+
+func TestSplitFailure_DropRange(t *testing.T) {
+	t.Skip("not implemented")
+}
+
 func TestJoin(t *testing.T) {
 	t.Skip("not implemented")
 }
@@ -947,22 +963,6 @@ func TestJoin_Short(t *testing.T) {
 	// Ranges 1 and 2 were joined into range 3, which holds the entire keyspace.
 	assert.Equal(t, "{1 [-inf, ggg] RsObsolete} {2 (ggg, +inf] RsObsolete} {3 [-inf, +inf] RsActive p0=test-ccc:PsReady}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []} {test-bbb []} {test-ccc [3:NsReady]}", orch.rost.TestString())
-}
-
-func TestSplitFailure_PrepareAddRange(t *testing.T) {
-	t.Skip("not implemented")
-}
-
-func TestSplitFailure_PrepareDropRange(t *testing.T) {
-	t.Skip("not implemented")
-}
-
-func TestSplitFailure_AddRange(t *testing.T) {
-	t.Skip("not implemented")
-}
-
-func TestSplitFailure_DropRange(t *testing.T) {
-	t.Skip("not implemented")
 }
 
 func TestJoin_Slow(t *testing.T) {
@@ -1152,6 +1152,22 @@ func TestJoin_Slow(t *testing.T) {
 	default:
 		assert.Fail(t, "expected op.Err to be closed")
 	}
+}
+
+func TestJoinFailure_PrepareAddRange(t *testing.T) {
+	t.Skip("not implemented")
+}
+
+func TestJoinFailure_PrepareDropRange(t *testing.T) {
+	t.Skip("not implemented")
+}
+
+func TestJoinFailure_AddRange(t *testing.T) {
+	t.Skip("not implemented")
+}
+
+func TestJoinFailure_DropRange(t *testing.T) {
+	t.Skip("not implemented")
 }
 
 func TestMissingPlacement(t *testing.T) {
