@@ -426,7 +426,7 @@ func TestMoveTakeError(t *testing.T) {
 
 	// ----
 
-	// 1. Node B gets PrepareAddShard to verify that it can take the shard. This
+	// 1. Node B gets PrepareAddRange to verify that it can take the shard. This
 	//    succeeds (because nothing has failed yet).
 	log.Print("1")
 
@@ -471,7 +471,7 @@ func TestMoveTakeError(t *testing.T) {
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady p1=test-bbb:PsPrepared:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb [1:NsPrepared]}", orch.rost.TestString())
 
-	// 2. Node A gets PrepareDropShard, which fails because we injected an error
+	// 2. Node A gets PrepareDropRange, which fails because we injected an error
 	//    above. This repeats three times before we give up and accept that the
 	//    node will not relinquish the range.
 	log.Print("2")
@@ -491,7 +491,7 @@ func TestMoveTakeError(t *testing.T) {
 		assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb [1:NsPrepared]}", orch.rost.TestString())
 	}
 
-	// 3. Node B gets DropShard, to abandon the placement it prepared. It will
+	// 3. Node B gets DropRange, to abandon the placement it prepared. It will
 	//    never become ready.
 	log.Print("3")
 

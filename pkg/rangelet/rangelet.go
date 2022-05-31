@@ -84,7 +84,7 @@ func (r *Rangelet) runThenUpdateState(rID ranje.Ident, old state.RemoteState, su
 	defer r.Unlock()
 
 	// Special case: Ranges are never actually in NotFound; it's a signal to
-	// delete them. This happens when a PrepareAddShard fails, or a DropShard
+	// delete them. This happens when a PrepareAddRange fails, or a DropRange
 	// succeeds; either way, the range is gone.
 	if s == state.NsNotFound {
 		delete(r.info, rID)
@@ -300,7 +300,7 @@ func (r *Rangelet) Find(k ranje.Key) (ranje.Ident, bool) {
 
 		// Play dumb in some cases: a range can be known to the rangelet but
 		// unknown to the client, in these states. (Find might have been called
-		// before PrepareAddShard has returned, or while DropShard is still in
+		// before PrepareAddRange has returned, or while DropRange is still in
 		// progress.) The client should check the state anyway, but this makes
 		// the contract simpler.
 		if ri.State == state.NsPreparing || ri.State == state.NsDropping {
