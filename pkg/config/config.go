@@ -14,7 +14,9 @@ type Config struct {
 	DrainNodesBeforeShutdown bool
 
 	// How long should the controller wait for a node to respond to a probe
-	// before expiring it?
+	// before expiring it? The default value (zero) means that nodes expire as
+	// soon as they are discovered, which means that nothing every works. That
+	// is non-ideal.
 	NodeExpireDuration time.Duration
 
 	// How many Ready placements should each range have?

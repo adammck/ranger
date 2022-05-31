@@ -157,7 +157,7 @@ func (n *Node) performChaos() error {
 
 	// TODO: This causes actual problems really fast if raised significantly.
 	//       Looks like an orchestrator bug. Look into it.
-	if rand.Float32() < 0.05 {
+	if rand.Float32() < 0.5 {
 		log.Print("Failing (chaos)")
 		return fmt.Errorf("it's your unlucky day")
 	}

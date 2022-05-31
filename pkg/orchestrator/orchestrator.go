@@ -16,8 +16,8 @@ import (
 	"google.golang.org/grpc"
 )
 
-type RpcIdent struct {
-}
+const maxTakeAttempts = 3
+const maxServeAttempts = 3
 
 type Orchestrator struct {
 	cfg  config.Config
@@ -485,62 +485,78 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 				return
 			}
 		} else {
-			log.Printf("will give %s to %s", p.Range().Meta.Ident, n.Ident())
+			p.Attempts += 1
+			log.Printf("will give %s to %s (attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
 		}
 
 		// Send a Give RPC (maybe not the first time; once per tick).
 		// TODO: Keep track of how many times we've tried this and for how long.
 		//       We'll want to give up if it takes too long to prepare.
-		b.RPC(p, "Give", func() {
-			err := n.Give(context.Background(), p, getParents(b.ks, b.rost, p.Range()))
-			if err != nil {
-				log.Printf("error giving %v to %s: %v", p.LogString(), n.Ident(), err)
-			}
-		})
+		b.give(p, n)
 
 	case ranje.PsPrepared:
 		ri, ok := n.Get(p.Range().Meta.Ident)
 		if !ok {
-			// The node doesn't have the placement any more! Abort.
-			log.Printf("placement missing from node (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
-			b.ks.PlacementToState(p, ranje.PsGiveUp)
+			if !p.GivenUp {
+				// Unexpected if the placement wasn't given up.
+				log.Printf("placement missing from node (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
+			}
+
+			destroy = true
 			return
 		}
 
-		switch ri.State {
-		case state.NsPrepared:
-			// This is the first time around.
-			log.Printf("will instruct %s to serve %s", n.Ident(), p.Range().Meta.Ident)
-
-		case state.NsReadying:
-			// We've already sent the Serve RPC at least once, and the node
-			// is working on it. Just keep waiting.
-			log.Printf("node %s still readying %s", n.Ident(), p.Range().Meta.Ident)
-
-		case state.NsReady:
+		// RPC succeeded.
+		if ri.State == state.NsReady {
 			b.ks.PlacementToState(p, ranje.PsReady)
 			return
+		}
 
-		// TODO: state.NsReadyError?
+		if ri.State == state.NsPrepared {
 
-		default:
+			// This is the first time around. In order for this placement to
+			// move to Ready, the one it is replacing (maybe) must reliniquish
+			// it first. Otherwise we just do nothing this tick.
+			if b.ks.PlacementMayBecomeReady(p) {
+				if p.Attempts >= maxServeAttempts {
+					log.Printf("given up on serving prepared placement (rID=%s, n=%s, attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
+					n.PlacementFailed(p.Range().Meta.Ident, time.Now())
+					p.GivenUp = true
+					b.drop(p, n)
+
+				} else {
+					p.Attempts += 1
+					log.Printf("will serve %s to %s (attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
+					b.serve(p, n)
+				}
+
+			} else if err := b.ks.PlacementMayBeDropped(p); err == nil {
+				p.GivenUp = true
+				b.drop(p, n)
+
+			} else {
+				//log.Printf("placement blocked at NsPrepared (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
+				return
+			}
+
+		} else if ri.State == state.NsReadying {
+			// We've already sent the Serve RPC at least once, and the node is
+			// working on it. Just keep waiting. But send another Serve RPC to
+			// check whether it's finished and is now Ready. (Or has changed to
+			// some other state through crash or bug.)
+			log.Printf("placement waiting at NsReadying (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
+			b.serve(p, n)
+
+		} else if ri.State == state.NsDropping {
+			// This placement failed to serve too many times. We've given up on it.
+			log.Printf("placement waiting at NsDropping (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
+			b.drop(p, n)
+
+		} else {
 			log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
 			b.ks.PlacementToState(p, ranje.PsGiveUp)
 			return
 		}
-
-		// We are ready to move from Prepared to Ready, but may have to wait for
-		// the placement that this is replacing (maybe) to relinquish it first.
-		if !b.ks.PlacementMayBecomeReady(p) {
-			return
-		}
-
-		b.RPC(p, "Serve", func() {
-			err := n.Serve(context.Background(), p)
-			if err != nil {
-				log.Printf("error serving %v to %s: %v", p.LogString(), n.Ident(), err)
-			}
-		})
 
 	case ranje.PsReady:
 		ri, ok := n.Get(p.Range().Meta.Ident)
@@ -553,34 +569,32 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 
 		switch ri.State {
 		case state.NsReady:
-			// No need to keep logging this.
-			//log.Printf("ready: %s", p.LogString())
+			if b.ks.PlacementMayBeTaken(p) {
+				if p.Attempts >= maxTakeAttempts {
+					log.Printf("given up on taking ready placement (rID=%s, n=%s, attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
+					p.GivenUp = true
+
+				} else {
+					p.Attempts += 1
+					log.Printf("will take %s from %s (attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
+					b.take(p, n)
+				}
+
+			} else {
+				//log.Printf("placement blocked at NsReady (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
+			}
 
 		case state.NsTaking:
 			log.Printf("node %s still taking %s", n.Ident(), p.Range().Meta.Ident)
+			b.take(p, n)
 
 		case state.NsTaken:
 			b.ks.PlacementToState(p, ranje.PsTaken)
-			return
-
-		// TODO: state.NsTakeError?
 
 		default:
 			log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
 			b.ks.PlacementToState(p, ranje.PsGiveUp)
-			return
 		}
-
-		if !b.ks.PlacementMayBeTaken(p) {
-			return
-		}
-
-		b.RPC(p, "Take", func() {
-			err := n.Take(context.Background(), p)
-			if err != nil {
-				log.Printf("error taking %v from %s: %v", p.LogString(), n.Ident(), err)
-			}
-		})
 
 	case ranje.PsTaken:
 		ri, ok := n.Get(p.Range().Meta.Ident)
@@ -592,33 +606,27 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 			// from the node. Nodes will never confirm that they used to have a
 			// range but and have dropped it.
 			b.ks.PlacementToState(p, ranje.PsDropped)
-			return
 
 		} else {
 			switch ri.State {
 			case state.NsTaken:
-				if err := b.ks.PlacementMayBeDropped(p); err != nil {
-					return
+				if err := b.ks.PlacementMayBeDropped(p); err == nil {
+					b.drop(p, n)
+				} else {
+					log.Print(err) // why not drop?
 				}
 
 			case state.NsDropping:
-				// We have already decided to drop the range, and have probably sent
-				// the RPC (below) already, so cannot turn back now.
+				// We have already decided to drop the range, and have probably
+				// sent the RPC (below) already, so cannot turn back now.
 				log.Printf("node %s still dropping %s", n.Ident(), p.Range().Meta.Ident)
+				b.drop(p, n)
 
 			default:
 				log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
 				b.ks.PlacementToState(p, ranje.PsGiveUp)
-				return
 			}
 		}
-
-		b.RPC(p, "Drop", func() {
-			err := n.Drop(context.Background(), p)
-			if err != nil {
-				log.Printf("error dropping %v from %s: %v", p.LogString(), n.Ident(), err)
-			}
-		})
 
 	case ranje.PsGiveUp:
 		// This transition only exists to provide an error-handling path to
@@ -680,6 +688,42 @@ func (b *Orchestrator) RPC(p *ranje.Placement, method string, f func()) {
 
 		b.rpcWG.Done()
 	}()
+}
+
+func (b *Orchestrator) give(p *ranje.Placement, n *roster.Node) {
+	b.RPC(p, "Give", func() {
+		err := n.Give(context.Background(), p, getParents(b.ks, b.rost, p.Range()))
+		if err != nil {
+			log.Printf("error giving %v to %s: %v", p.LogString(), n.Ident(), err)
+		}
+	})
+}
+
+func (b *Orchestrator) take(p *ranje.Placement, n *roster.Node) {
+	b.RPC(p, "Take", func() {
+		err := n.Take(context.Background(), p)
+		if err != nil {
+			log.Printf("error taking %v from %s: %v", p.LogString(), n.Ident(), err)
+		}
+	})
+}
+
+func (b *Orchestrator) serve(p *ranje.Placement, n *roster.Node) {
+	b.RPC(p, "Serve", func() {
+		err := n.Serve(context.Background(), p)
+		if err != nil {
+			log.Printf("error serving %v to %s: %v", p.LogString(), n.Ident(), err)
+		}
+	})
+}
+
+func (b *Orchestrator) drop(p *ranje.Placement, n *roster.Node) {
+	b.RPC(p, "Drop", func() {
+		err := n.Drop(context.Background(), p)
+		if err != nil {
+			log.Printf("error dropping %v from %s: %v", p.LogString(), n.Ident(), err)
+		}
+	})
 }
 
 func getParents(ks *keyspace.Keyspace, rost *roster.Roster, rang *ranje.Range) []*pb.Parent {

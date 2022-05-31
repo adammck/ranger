@@ -119,13 +119,13 @@ func (ts *RosterSuite) TestCandidateByNodeID() {
 	}
 
 	// This one doesn't exist
-	nID, err = ts.rost.Candidate(ts.r, ranje.Constraint{NodeID: "test-ddd"})
+	_, err = ts.rost.Candidate(ts.r, ranje.Constraint{NodeID: "test-ddd"})
 	if ts.Error(err) {
 		ts.Equal("no such node: test-ddd", err.Error())
 	}
 
 	// This one already has the range
-	nID, err = ts.rost.Candidate(ts.r, ranje.Constraint{NodeID: "test-aaa"})
+	_, err = ts.rost.Candidate(ts.r, ranje.Constraint{NodeID: "test-aaa"})
 	if ts.Error(err) {
 		ts.Equal("node already has range: test-aaa", err.Error())
 	}
@@ -134,7 +134,7 @@ func (ts *RosterSuite) TestCandidateByNodeID() {
 	// Note that we only know that the node wants to be drained because of the
 	// roster tick, above. If we just called SetWantDrain(true) and didn't tick,
 	// the "remote" node would want drain, but the roster wouldn't know that.
-	nID, err = ts.rost.Candidate(ts.r, ranje.Constraint{NodeID: "test-ccc"})
+	_, err = ts.rost.Candidate(ts.r, ranje.Constraint{NodeID: "test-ccc"})
 	if ts.Error(err) {
 		ts.Equal("node wants drain: test-ccc", err.Error())
 	}
