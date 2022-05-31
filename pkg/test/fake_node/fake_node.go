@@ -21,6 +21,15 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 )
 
+type Action uint8
+
+const (
+	PrepareAddRange Action = iota
+	AddRange
+	PrepareDropRange
+	DropRange
+)
+
 type stateTransition struct {
 	src state.RemoteState
 	bar *barrier
@@ -28,7 +37,7 @@ type stateTransition struct {
 
 type ErrKey struct {
 	rID ranje.Ident
-	src state.RemoteState
+	act Action
 }
 
 type TestNode struct {
@@ -94,12 +103,12 @@ func (n *TestNode) Listen(ctx context.Context, srv *grpc.Server) func() {
 	return closer
 }
 
-func (n *TestNode) transition(rID ranje.Ident, src state.RemoteState) error {
+func (n *TestNode) transition(rID ranje.Ident, act Action) error {
 	n.muBar.Lock()
 
 	ek := ErrKey{
 		rID: rID,
-		src: src,
+		act: act,
 	}
 
 	n.muErr.Lock()
@@ -135,19 +144,19 @@ func (n *TestNode) GetLoadInfo(rID ranje.Ident) (api.LoadInfo, error) {
 }
 
 func (n *TestNode) PrepareAddRange(m ranje.Meta, p []api.Parent) error {
-	return n.transition(m.Ident, state.NsPreparing)
+	return n.transition(m.Ident, PrepareAddRange)
 }
 
 func (n *TestNode) AddRange(rID ranje.Ident) error {
-	return n.transition(rID, state.NsReadying)
+	return n.transition(rID, AddRange)
 }
 
 func (n *TestNode) PrepareDropRange(rID ranje.Ident) error {
-	return n.transition(rID, state.NsTaking)
+	return n.transition(rID, PrepareDropRange)
 }
 
 func (n *TestNode) DropRange(rID ranje.Ident) error {
-	return n.transition(rID, state.NsDropping)
+	return n.transition(rID, DropRange)
 }
 
 // From: https://harrigan.xyz/blog/testing-go-grpc-server-using-an-in-memory-buffer-with-bufconn/
@@ -195,20 +204,13 @@ func (n *TestNode) withTestInterceptor() grpc.DialOption {
 	return grpc.WithUnaryInterceptor(n.testInterceptor)
 }
 
-// SetReturnValue sets the value which should be returned from the relevant
-// state change method for the given range on this test node. The src param is a
-// bit weird. It refers to the (rangelet-side) state that the range is in when
-// the method is called. So use NsPreparing to intercept PrepareAddShard,
-// NsReadying for AddShard, NsTaking for PrepareDropShard, and NsDropping for
-// DropShard.
-func (n *TestNode) SetReturnValue(t *testing.T, rID ranje.Ident, src state.RemoteState, err error) {
-	if src != state.NsPreparing && src != state.NsReadying && src != state.NsTaking && src != state.NsDropping {
-		t.Fatalf("unsupported src state: %v", src)
-	}
-
+// SetReturnValue sets the value which should be returned from the given action
+// (i.e. one of the state-transitioning methods of the Rangelet interface) for
+// the given range on this test node.
+func (n *TestNode) SetReturnValue(t *testing.T, rID ranje.Ident, act Action, err error) {
 	ek := ErrKey{
 		rID: rID,
-		src: src,
+		act: act,
 	}
 
 	n.muErr.Lock()

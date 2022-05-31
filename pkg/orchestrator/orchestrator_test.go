@@ -20,6 +20,7 @@ import (
 	"github.com/adammck/ranger/pkg/roster"
 	"github.com/adammck/ranger/pkg/roster/info"
 	"github.com/adammck/ranger/pkg/roster/state"
+	"github.com/adammck/ranger/pkg/test/fake_node"
 	"github.com/adammck/ranger/pkg/test/fake_nodes"
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
@@ -66,8 +67,8 @@ func TestPlacementPrepareError(t *testing.T) {
 	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
 	defer nodes.Close()
 
-	// Node aaa will always fail PrepareAddShard.
-	nodes.Get("test-aaa").SetReturnValue(t, 1, state.NsPreparing, fmt.Errorf("something went wrong"))
+	// Node aaa will always fail PrepareAddRange.
+	nodes.Get("test-aaa").SetReturnValue(t, 1, fake_node.PrepareAddRange, fmt.Errorf("something went wrong"))
 
 	// ----
 
@@ -84,7 +85,7 @@ func TestPlacementReadyError(t *testing.T) {
 
 	// AddRange will always fail on node A.
 	// (But PrepareAddRange will succeed, as is the default)
-	nodes.Get("test-aaa").SetReturnValue(t, 1, state.NsReadying, fmt.Errorf("can't get ready!"))
+	nodes.Get("test-aaa").SetReturnValue(t, 1, fake_node.AddRange, fmt.Errorf("can't get ready!"))
 
 	// ----
 
@@ -101,7 +102,7 @@ func TestPlacementReadyErrorLong(t *testing.T) {
 
 	// AddRange will always fail on node A.
 	// (But PrepareAddRange will succeed, as is the default)
-	nodes.Get("test-aaa").SetReturnValue(t, 1, state.NsReadying, fmt.Errorf("can't get ready!"))
+	nodes.Get("test-aaa").SetReturnValue(t, 1, fake_node.AddRange, fmt.Errorf("can't get ready!"))
 
 	// 1. PrepareAddRange(1, aaa)
 
@@ -409,8 +410,8 @@ func TestMoveTakeError(t *testing.T) {
 	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
 	defer nodes.Close()
 
-	// PrepareDropShard will always fail on node A.
-	nodes.Get("test-aaa").SetReturnValue(t, 1, state.NsTaking, fmt.Errorf("can't take! nobody knows why!"))
+	// PrepareDropRange will always fail on node A.
+	nodes.Get("test-aaa").SetReturnValue(t, 1, fake_node.PrepareDropRange, fmt.Errorf("can't take! nobody knows why!"))
 
 	// ----
 
