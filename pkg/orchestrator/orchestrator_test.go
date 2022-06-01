@@ -650,7 +650,172 @@ func TestMoveFailure_DropRange(t *testing.T) {
 }
 
 func TestSplit(t *testing.T) {
-	t.Skip("not implemented")
+	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}"
+	rosStr := "{test-aaa [1:NsReady]}"
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	defer nodes.Close()
+	requireStable(t, orch)
+
+	op := OpSplit{
+		Range: 1,
+		Key:   "ccc",
+		Err:   make(chan error),
+	}
+
+	orch.opSplitsMu.Lock()
+	orch.opSplits[1] = op
+	orch.opSplitsMu.Unlock()
+
+	// 1. PrepareAddRange
+
+	tickWait(orch)
+	assert.Empty(t, nodes.RPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsReady} {2 [-inf, ccc] RsActive p0=test-aaa:PsPending} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsReady]}", orch.rost.TestString())
+
+	tickWait(orch)
+	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
+		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 2) {
+			ProtoEqual(t, &pb.GiveRequest{
+				Range: &pb.RangeMeta{
+					Ident: 2,
+					Start: []byte(ranje.ZeroKey),
+					End:   []byte("ccc"),
+				},
+				Parents: []*pb.Parent{
+					{
+						Range: &pb.RangeMeta{
+							Ident: 2,
+							Start: []byte(ranje.ZeroKey),
+							End:   []byte("ccc"),
+						},
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-test-aaa:1",
+								State: pb.PlacementState_PS_PENDING,
+							},
+						},
+					},
+					{
+						Range: &pb.RangeMeta{
+							Ident: 1,
+						},
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-test-aaa:1",
+								State: pb.PlacementState_PS_READY,
+							},
+						},
+					},
+				},
+			}, aaa[0])
+			ProtoEqual(t, &pb.GiveRequest{
+				Range: &pb.RangeMeta{
+					Ident: 3,
+					Start: []byte("ccc"),
+					End:   []byte(ranje.ZeroKey),
+				},
+				Parents: []*pb.Parent{
+					{
+						Range: &pb.RangeMeta{
+							Ident: 3,
+							Start: []byte("ccc"),
+							End:   []byte(ranje.ZeroKey),
+						},
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-test-aaa:1",
+								State: pb.PlacementState_PS_PENDING,
+							},
+						},
+					},
+					{
+						Range: &pb.RangeMeta{
+							Ident: 1,
+							Start: []byte(ranje.ZeroKey),
+							End:   []byte(ranje.ZeroKey),
+						},
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-test-aaa:1",
+								State: pb.PlacementState_PS_READY,
+							},
+						},
+					},
+				},
+			}, aaa[1])
+		}
+	}
+
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsReady} {2 [-inf, ccc] RsActive p0=test-aaa:PsPending} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsReady 2:NsPrepared 3:NsPrepared]}", orch.rost.TestString())
+
+	tickWait(orch)
+	assert.Empty(t, nodes.RPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsReady} {2 [-inf, ccc] RsActive p0=test-aaa:PsPrepared} {3 (ccc, +inf] RsActive p0=test-aaa:PsPrepared}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsReady 2:NsPrepared 3:NsPrepared]}", orch.rost.TestString())
+
+	// 2. PrepareDropRange
+
+	tickWait(orch)
+	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
+		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 1) {
+			ProtoEqual(t, &pb.TakeRequest{Range: 1}, aaa[0])
+		}
+	}
+
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsReady} {2 [-inf, ccc] RsActive p0=test-aaa:PsPrepared} {3 (ccc, +inf] RsActive p0=test-aaa:PsPrepared}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsTaken 2:NsPrepared 3:NsPrepared]}", orch.rost.TestString())
+
+	// 3. AddRange
+
+	tickWait(orch)
+	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
+		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 2) {
+			ProtoEqual(t, &pb.ServeRequest{Range: 2}, aaa[0])
+			ProtoEqual(t, &pb.ServeRequest{Range: 3}, aaa[1])
+		}
+	}
+
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsTaken} {2 [-inf, ccc] RsActive p0=test-aaa:PsPrepared} {3 (ccc, +inf] RsActive p0=test-aaa:PsPrepared}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsTaken 2:NsReady 3:NsReady]}", orch.rost.TestString())
+
+	tickWait(orch)
+	assert.Empty(t, nodes.RPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsTaken} {2 [-inf, ccc] RsActive p0=test-aaa:PsReady} {3 (ccc, +inf] RsActive p0=test-aaa:PsReady}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsTaken 2:NsReady 3:NsReady]}", orch.rost.TestString())
+
+	// 4. DropRange
+
+	tickWait(orch)
+	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
+		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 1) {
+			ProtoEqual(t, &pb.DropRequest{Range: 1}, aaa[0])
+		}
+	}
+
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsTaken} {2 [-inf, ccc] RsActive p0=test-aaa:PsReady} {3 (ccc, +inf] RsActive p0=test-aaa:PsReady}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [2:NsReady 3:NsReady]}", orch.rost.TestString())
+
+	tickWait(orch)
+	assert.Empty(t, nodes.RPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsDropped} {2 [-inf, ccc] RsActive p0=test-aaa:PsReady} {3 (ccc, +inf] RsActive p0=test-aaa:PsReady}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [2:NsReady 3:NsReady]}", orch.rost.TestString())
+
+	// 5. Cleanup
+
+	tickWait(orch)
+	assert.Empty(t, nodes.RPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming} {2 [-inf, ccc] RsActive p0=test-aaa:PsReady} {3 (ccc, +inf] RsActive p0=test-aaa:PsReady}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [2:NsReady 3:NsReady]}", orch.rost.TestString())
+
+	tickWait(orch)
+	assert.Empty(t, nodes.RPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsObsolete} {2 [-inf, ccc] RsActive p0=test-aaa:PsReady} {3 (ccc, +inf] RsActive p0=test-aaa:PsReady}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [2:NsReady 3:NsReady]}", orch.rost.TestString())
+
+	requireStable(t, orch)
+	assertClosed(t, op.Err)
 }
 
 func TestSplit_Short(t *testing.T) {
@@ -902,22 +1067,13 @@ func TestSplit_Slow(t *testing.T) {
 	assert.Equal(t, "{1 [-inf, +inf] RsObsolete} {2 [-inf, ccc] RsActive p0=test-aaa:PsReady} {3 (ccc, +inf] RsActive p0=test-aaa:PsReady}", orch.ks.LogString())
 
 	// Whenever the next probe cycle happens, we notice that the range is gone
-	// from the node, because it was dropped. Orchestrator doesn't notice this, but
-	// maybe should, after sending the redundant Drop RPC?
+	// from the node, because it was dropped. Orchestrator doesn't notice this,
+	// but maybe should, after sending the redundant Drop RPC?
 	orch.rost.Tick()
 	assert.Equal(t, "{test-aaa [2:NsReady 3:NsReady]}", orch.rost.TestString())
 
 	requireStable(t, orch)
-
-	// Assert that the error chan was closed, to indicate op is complete.
-	select {
-	case err, ok := <-op.Err:
-		if ok {
-			assert.NoError(t, err)
-		}
-	default:
-		assert.Fail(t, "expected op.Err to be closed")
-	}
+	assertClosed(t, op.Err)
 }
 
 func TestSplitFailure_PrepareAddRange(t *testing.T) {
@@ -1142,16 +1298,7 @@ func TestJoin_Slow(t *testing.T) {
 	assert.Equal(t, "{test-aaa []} {test-bbb []} {test-ccc [3:NsReady]}", orch.rost.TestString())
 
 	requireStable(t, orch)
-
-	// Assert that the error chan was closed, to indicate op is complete.
-	select {
-	case err, ok := <-op.Err:
-		if ok {
-			assert.NoError(t, err)
-		}
-	default:
-		assert.Fail(t, "expected op.Err to be closed")
-	}
+	assertClosed(t, op.Err)
 }
 
 func TestJoinFailure_PrepareAddRange(t *testing.T) {
@@ -1701,6 +1848,18 @@ func mustGetPlacement(t *testing.T, ks *keyspace.Keyspace, rID int, nodeID strin
 		t.Fatalf("r(%d).PlacementByNodeID(%s): no such placement", rID, nodeID)
 	}
 	return p
+}
+
+// assertClosed asserts that the given error channel is closed.
+func assertClosed(t *testing.T, ch <-chan error) {
+	select {
+	case err, ok := <-ch:
+		if ok {
+			assert.NoError(t, err)
+		}
+	default:
+		assert.Fail(t, "expected channel to be closed")
+	}
 }
 
 // ------------------------------------------------------------------- persister
