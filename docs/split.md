@@ -16,28 +16,32 @@ separate ranges (2, 3) assigned to different nodes (b, c), we **split** it.
 
 ## Failures
 
-If step 1 fails, drop any destination placements which succeeded, and abort the
-split:
+If any of the PrepareAddRange commands in step 1 fail, just destroy the failed
+placement(s) and try again on some other node. The predecessor range is still
+Ready, so there is no particular harm in waiting while we try again.
 
 1. <strike>PrepareAddRange</strike>
    1. <strike>PrepareAddRange(b, 2)</strike>
    2. <strike>PrepareAddRange(c, 3)</strike>
+1. PrepareAddRange (retry)
+   1. PrepareAddRange(d, 2)
+   2. PrepareAddRange(e, 3)
 
 or
 
 1. <strike>PrepareAddRange</strike>
    1. <strike>PrepareAddRange(b, 2)</strike>
    2. PrepareAddRange(c, 3)
-2. DropRange
-   1. DropRange(c, 3)
+2. PrepareAddRange (retry)
+   1. PrepareAddRange(d, 2)
 
 or
 
 1. <strike>PrepareAddRange</strike>
    1. PrepareAddRange(b, 2)
    2. <strike>PrepareAddRange(c, 3)</strike>
-2. DropRange
-   1. DropRange(b, 2)
+2. PrepareAddRange (retry)
+   1. PrepareAddRange(d, 3)
 
 [_TestSplitFailure_PrepareAddRange_](https://cs.github.com/adammck/ranger?q=symbol%3ATestSplitFailure_PrepareAddRange)
 
@@ -48,23 +52,24 @@ fails fast. Not a huge deal, but pointless work.
 
 ---
 
-If step 2 fails, drop the destination placements and abort the split:
+If step 2 fails -- the source placement failed to PrepareDropRange -- just retry
+forever (and probably alert an operator). This isn't an emergency (the source
+placement is still ready), but indicates that something is quite broken.
 
 1. PrepareAddRange
    1. PrepareAddRange(b, 2)
    2. PrepareAddRange(c, 3)
 2. <strike>PrepareDropRange(a, 1)</strike>
-3. DropRange
-   1. DropRange(b, 2)
-   2. DropRange(c, 3)
+3. PrepareDropRange(a, 1) (retry)
+
 
 [_TestSplitFailure_PrepareDropRange_](https://cs.github.com/adammck/ranger?q=symbol%3ATestSplitFailure_PrepareDropRange)
 
 ---
 
-If step 3 fails, prepareDrop any destination placements which became ready, drop
-both destination placements, revert the source placement to ready, and abort the
-split:
+If step 3 fails, prepareDrop any destination placements which became ready (i.e.
+the ones which _didn't_ fail), revert the source placement to ready, drop the
+placements which failed to become ready, and retry their placement.
 
 1. PrepareAddRange
    1. PrepareAddRange(b, 2)
@@ -73,10 +78,13 @@ split:
 3. <strike>AddRange</strike>
    1. <strike>AddRange(b, 2)</strike>
    2. <strike>AddRange(c, 3)</strike>
-4. DropRange
+4. AddRange(a, 1)
+5. DropRange
    1. DropRange(b, 2)
    2. DropRange(c, 3)
-5. AddRange(a, 1)
+6. PrepareAddRange (retry)
+   1. PrepareAddRange(d, 2)
+   2. PrepareAddRange(e, 3)
 
 or
 
@@ -89,10 +97,11 @@ or
    2. AddRange(c, 3)
 4. PrepareDropRange
    1. PrepareDropRange(c, 3)
-5. DropRange
+5. AddRange(a, 1)
+6. DropRange
    1. DropRange(b, 2)
-   2. DropRange(c, 3)
-6. AddRange(a, 1)
+7. PrepareAddRange (retry)
+   1. PrepareAddRange(d, 2)
 
 or
 
@@ -105,10 +114,11 @@ or
    2. <strike>AddRange(c, 3)</strike>
 4. PrepareDropRange
    1. PrepareDropRange(b, 2)
-5. DropRange
-   1. DropRange(b, 2)
-   2. DropRange(c, 3)
-6. AddRange(a, 1)
+5. AddRange(a, 1)
+6. DropRange
+   1. DropRange(c, 3)
+7. PrepareAddRange (retry)
+   1. PrepareAddRange(c, 3)
 
 [_TestSplitFailure_AddRange_](https://cs.github.com/adammck/ranger?q=symbol%3ATestSplitFailure_AddRange)
 
