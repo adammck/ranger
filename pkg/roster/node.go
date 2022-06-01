@@ -12,6 +12,7 @@ import (
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster/info"
+	"github.com/adammck/ranger/pkg/roster/state"
 	"google.golang.org/grpc"
 )
 
@@ -147,8 +148,15 @@ func (n *Node) WantDrain() bool {
 func (n *Node) HasRange(rID ranje.Ident) bool {
 	n.muRanges.RLock()
 	defer n.muRanges.RUnlock()
-	_, ok := n.ranges[rID]
-	return ok
+	ri, ok := n.ranges[rID]
+
+	// Note that if we have an entry for the range, but it's NsNotFound, that
+	// means that the node told us (in response to a command RPC) that it does
+	// NOT have that range. I don't remember why we do that as opposed to clear
+	// the range state.
+	// TODO: Find out why and update this comment. Might be obsolete.
+
+	return ok && !(ri.State == state.NsNotFound)
 }
 
 func (n *Node) PlacementFailed(rID ranje.Ident, t time.Time) {

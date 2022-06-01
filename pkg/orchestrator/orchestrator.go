@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc"
 )
 
+const maxGiveAttempts = 3
 const maxTakeAttempts = 3
 const maxServeAttempts = 3
 
@@ -465,6 +466,8 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 
 	switch p.State {
 	case ranje.PsPending:
+		doPlace := false
+
 		// If the node already has the range (i.e. this is not the first tick
 		// where the placement is PsPending, so the RPC may already have been
 		// sent), check its remote state, which may have been updated by a
@@ -474,25 +477,36 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 			switch ri.State {
 			case state.NsPreparing:
 				log.Printf("node %s still preparing %s", n.Ident(), p.Range().Meta.Ident)
+				b.give(p, n)
 
 			case state.NsPrepared:
 				b.ks.PlacementToState(p, ranje.PsPrepared)
-				return
+
+			case state.NsNotFound:
+				// Special case: Give has already been attempted, but it failed.
+				// We can try again, same as if the placement was missing.
+				doPlace = true
 
 			default:
 				log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
 				b.ks.PlacementToState(p, ranje.PsGiveUp)
-				return
 			}
 		} else {
-			p.Attempts += 1
-			log.Printf("will give %s to %s (attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
+			doPlace = true
 		}
 
-		// Send a Give RPC (maybe not the first time; once per tick).
-		// TODO: Keep track of how many times we've tried this and for how long.
-		//       We'll want to give up if it takes too long to prepare.
-		b.give(p, n)
+		if doPlace {
+			if p.Attempts >= maxGiveAttempts {
+				log.Printf("given up on placing (rID=%s, n=%s, attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
+				n.PlacementFailed(p.Range().Meta.Ident, time.Now())
+				destroy = true
+
+			} else {
+				p.Attempts += 1
+				log.Printf("will give %s to %s (attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
+				b.give(p, n)
+			}
+		}
 
 	case ranje.PsPrepared:
 		ri, ok := n.Get(p.Range().Meta.Ident)

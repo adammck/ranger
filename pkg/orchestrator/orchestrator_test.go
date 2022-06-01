@@ -656,6 +656,8 @@ func TestSplit(t *testing.T) {
 	defer nodes.Close()
 	requireStable(t, orch)
 
+	// 0. Initiate
+
 	op := OpSplit{
 		Range: 1,
 		Key:   "ccc",
@@ -1077,7 +1079,92 @@ func TestSplit_Slow(t *testing.T) {
 }
 
 func TestSplitFailure_PrepareAddRange(t *testing.T) {
-	t.Skip("not implemented")
+	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}"
+	rosStr := "{test-aaa [1:NsReady]} {test-bbb []} {test-ccc []}"
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	defer nodes.Close()
+	requireStable(t, orch)
+
+	// Left side of the split range will not be accepted.
+	nodes.Get("test-bbb").SetReturnValue(t, 2, fake_node.PrepareAddRange, fmt.Errorf("something went wrong"))
+
+	// 0. Initiate
+
+	op := OpSplit{
+		Range: 1,
+		Key:   "ccc",
+		Err:   make(chan error),
+	}
+
+	orch.opSplitsMu.Lock()
+	orch.opSplits[1] = op
+	orch.opSplitsMu.Unlock()
+
+	// 1. PrepareAddRange
+
+	tickWait(orch)
+	assert.Empty(t, nodes.RPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsReady} {2 [-inf, ccc] RsActive p0=test-bbb:PsPending} {3 (ccc, +inf] RsActive p0=test-bbb:PsPending}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb []} {test-ccc []}", orch.rost.TestString())
+
+	tickWait(orch)
+	// First tick attempts to give both placements.
+	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-bbb"}, nIDs(rpcs)) {
+		if bbb := rpcs["test-bbb"]; assert.Len(t, bbb, 2) {
+			assert.IsType(t, &pb.GiveRequest{}, bbb[0])
+			assert.IsType(t, &pb.GiveRequest{}, bbb[1])
+		}
+	}
+
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsReady} {2 [-inf, ccc] RsActive p0=test-bbb:PsPending} {3 (ccc, +inf] RsActive p0=test-bbb:PsPending}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb [2:NsNotFound 3:NsPrepared]} {test-ccc []}", orch.rost.TestString())
+	assert.Equal(t, 1, mustGetPlacement(t, orch.ks, 2, "test-bbb").Attempts)
+	assert.Equal(t, 1, mustGetPlacement(t, orch.ks, 3, "test-bbb").Attempts)
+
+	for attempt := 2; attempt <= 3; attempt++ {
+		tickWait(orch)
+		// Only the failing placement (rID=2) will be retried.
+		if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-bbb"}, nIDs(rpcs)) {
+			if bbb := rpcs["test-bbb"]; assert.Len(t, bbb, 1) {
+				if assert.IsType(t, &pb.GiveRequest{}, bbb[0]) {
+					assert.Equal(t, uint64(2), bbb[0].(*pb.GiveRequest).Range.Ident)
+				}
+			}
+		}
+
+		assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsReady} {2 [-inf, ccc] RsActive p0=test-bbb:PsPending} {3 (ccc, +inf] RsActive p0=test-bbb:PsPrepared}", orch.ks.LogString())
+		assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb [2:NsNotFound 3:NsPrepared]} {test-ccc []}", orch.rost.TestString())
+		assert.Equal(t, attempt, mustGetPlacement(t, orch.ks, 2, "test-bbb").Attempts)
+	}
+
+	tickWait(orch)
+	// Failed placement is destroyed.
+	assert.Empty(t, nodes.RPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsReady} {2 [-inf, ccc] RsActive} {3 (ccc, +inf] RsActive p0=test-bbb:PsPrepared}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb [2:NsNotFound 3:NsPrepared]} {test-ccc []}", orch.rost.TestString())
+
+	// 2. PrepareAddRange (retry)
+
+	tickWait(orch)
+	// Only the failed placement (rID=2) will be retried.
+	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-ccc"}, nIDs(rpcs)) {
+		if ccc := rpcs["test-ccc"]; assert.Len(t, ccc, 1) {
+			if assert.IsType(t, &pb.GiveRequest{}, ccc[0]) {
+				assert.Equal(t, uint64(2), ccc[0].(*pb.GiveRequest).Range.Ident)
+			}
+		}
+	}
+
+	tickWait(orch)
+	assert.Empty(t, nodes.RPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsReady} {2 [-inf, ccc] RsActive p0=test-ccc:PsPrepared} {3 (ccc, +inf] RsActive p0=test-bbb:PsPrepared}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb [2:NsNotFound 3:NsPrepared]} {test-ccc [2:NsPrepared]}", orch.rost.TestString())
+
+	// Recovered! Finish the split.
+
+	tickUntilStable(t, orch, nodes)
+	assert.Equal(t, "{1 [-inf, +inf] RsObsolete} {2 [-inf, ccc] RsActive p0=test-ccc:PsReady} {3 (ccc, +inf] RsActive p0=test-bbb:PsReady}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa []} {test-bbb [3:NsReady]} {test-ccc [2:NsReady]}", orch.rost.TestString())
 }
 
 func TestSplitFailure_PrepareDropRange(t *testing.T) {
