@@ -29,6 +29,9 @@ import (
 	"google.golang.org/protobuf/testing/protocmp"
 )
 
+const strictTransactions = true
+const noStrictTransactions = false
+
 // Note: These tests are very verbose, but the orchestrator is the most critical
 // part of Ranger. When things go wrong here (e.g. storage nodes getting into a
 // weird combination of state and not being able to recover), we're immediately
@@ -62,7 +65,7 @@ import (
 // TODO: Move to keyspace tests.
 func TestJunk(t *testing.T) {
 	ksStr := "" // No ranges at all!
-	orch, nodes := orchFactoryNoCheck(t, ksStr, "", testConfig(), false)
+	orch, nodes := orchFactoryNoCheck(t, ksStr, "", testConfig(), noStrictTransactions)
 	defer nodes.Close()
 
 	// Genesis range was created.
@@ -80,7 +83,7 @@ func TestJunk(t *testing.T) {
 func TestPlace(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
 
 	// First tick: Placement created, Give RPC sent to node and returned
@@ -154,7 +157,7 @@ func TestPlace(t *testing.T) {
 func TestPlace_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
 
 	tickUntilStable(t, orch, nodes)
@@ -165,7 +168,7 @@ func TestPlace_Short(t *testing.T) {
 func TestPlace_Slow(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), true)
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), strictTransactions)
 	defer nodes.Close()
 
 	par := nodes.Get("test-aaa").AddBarrier(t, 1, state.NsPreparing)
@@ -254,7 +257,7 @@ func TestPlace_Slow(t *testing.T) {
 func TestPlaceFailure_PrepareAddRange(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []} {test-bbb []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
 
 	// Node aaa will always fail PrepareAddRange.
@@ -269,7 +272,7 @@ func TestPlaceFailure_PrepareAddRange(t *testing.T) {
 func TestPlaceFailure_AddRange_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []} {test-bbb []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
 
 	// AddRange will always fail on node A.
@@ -284,7 +287,7 @@ func TestPlaceFailure_AddRange_Short(t *testing.T) {
 func TestPlaceFailure_AddRange(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []} {test-bbb []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
 
 	// AddRange will always fail on node A.
@@ -342,13 +345,123 @@ func TestPlaceFailure_AddRange(t *testing.T) {
 }
 
 func TestMove(t *testing.T) {
-	t.Skip("not implemented")
+	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}"
+	rosStr := "{test-aaa [1:NsReady]} {test-bbb []}"
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	defer nodes.Close()
+	requireStable(t, orch)
+
+	func() {
+		orch.opMovesMu.Lock()
+		defer orch.opMovesMu.Unlock()
+		// TODO: Probably add a method to do this.
+		orch.opMoves = append(orch.opMoves, OpMove{
+			Range: 1,
+			Dest:  "test-bbb",
+		})
+	}()
+
+	tickWait(orch)
+	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-bbb"}, nIDs(rpcs)) {
+		if bbb := rpcs["test-bbb"]; assert.Len(t, bbb, 1) {
+			ProtoEqual(t, &pb.GiveRequest{
+				Range: &pb.RangeMeta{
+					Ident: 1,
+					Start: []byte(ranje.ZeroKey),
+					End:   []byte(ranje.ZeroKey),
+				},
+				Parents: []*pb.Parent{
+					{
+						Range: &pb.RangeMeta{
+							Ident: 1,
+							Start: []byte(ranje.ZeroKey),
+							End:   []byte(ranje.ZeroKey),
+						},
+						Placements: []*pb.Placement{
+							{
+								Node:  "host-test-aaa:1",
+								State: pb.PlacementState_PS_READY,
+							},
+							{
+								Node:  "host-test-bbb:1",
+								State: pb.PlacementState_PS_PENDING,
+							},
+						},
+					},
+				},
+			}, bbb[0])
+		}
+	}
+
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady p1=test-bbb:PsPending:replacing(test-aaa)}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb [1:NsPrepared]}", orch.rost.TestString())
+
+	// Just updates state from roster.
+	// TODO: As above, should maybe trigger the next tick automatically.
+	tickWait(orch)
+	assert.Empty(t, nodes.RPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady p1=test-bbb:PsPrepared:replacing(test-aaa)}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb [1:NsPrepared]}", orch.rost.TestString())
+
+	tickWait(orch)
+	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
+		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 1) {
+			ProtoEqual(t, &pb.TakeRequest{Range: 1}, aaa[0])
+		}
+	}
+
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady p1=test-bbb:PsPrepared:replacing(test-aaa)}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsTaken]} {test-bbb [1:NsPrepared]}", orch.rost.TestString())
+
+	tickWait(orch)
+	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-bbb"}, nIDs(rpcs)) {
+		if bbb := rpcs["test-bbb"]; assert.Len(t, bbb, 1) {
+			ProtoEqual(t, &pb.ServeRequest{Range: 1}, bbb[0])
+		}
+	}
+
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken p1=test-bbb:PsPrepared:replacing(test-aaa)}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsTaken]} {test-bbb [1:NsReady]}", orch.rost.TestString())
+
+	tickWait(orch)
+	assert.Empty(t, nodes.RPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken p1=test-bbb:PsReady:replacing(test-aaa)}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsTaken]} {test-bbb [1:NsReady]}", orch.rost.TestString())
+
+	tickWait(orch)
+	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
+		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 1) {
+			ProtoEqual(t, &pb.DropRequest{Range: 1}, aaa[0])
+		}
+	}
+
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken p1=test-bbb:PsReady:replacing(test-aaa)}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsReady]}", orch.rost.TestString())
+
+	tickWait(orch)
+	assert.Empty(t, nodes.RPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsDropped p1=test-bbb:PsReady:replacing(test-aaa)}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsReady]}", orch.rost.TestString())
+
+	// p0 is gone!
+	tickWait(orch)
+	assert.Empty(t, nodes.RPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-bbb:PsReady:replacing(test-aaa)}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsReady]}", orch.rost.TestString())
+
+	// IsReplacing annotation is gone.
+	tickWait(orch)
+	assert.Empty(t, nodes.RPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-bbb:PsReady}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsReady]}", orch.rost.TestString())
+
+	requireStable(t, orch)
 }
 
 func TestMove_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}"
 	rosStr := "{test-aaa [1:NsReady]} {test-bbb []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
 	requireStable(t, orch)
 
@@ -368,10 +481,10 @@ func TestMove_Short(t *testing.T) {
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-bbb:PsReady}", orch.ks.LogString())
 }
 
-func TestMoveSlow(t *testing.T) {
+func TestMove_Slow(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}"
 	rosStr := "{test-aaa [1:NsReady]} {test-bbb []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), strictTransactions)
 	defer nodes.Close()
 	requireStable(t, orch)
 
@@ -530,7 +643,7 @@ func TestMoveFailure_PrepareAddRange(t *testing.T) {
 func TestMoveFailure_PrepareDropRange(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}"
 	rosStr := "{test-aaa [1:NsReady]} {test-bbb []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
 
 	// PrepareDropRange will always fail on node A.
@@ -652,7 +765,7 @@ func TestMoveFailure_DropRange(t *testing.T) {
 func TestSplit(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}"
 	rosStr := "{test-aaa [1:NsReady]}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
 	requireStable(t, orch)
 
@@ -823,7 +936,7 @@ func TestSplit(t *testing.T) {
 func TestSplit_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}"
 	rosStr := "{test-aaa [1:NsReady]}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
 	requireStable(t, orch)
 
@@ -847,7 +960,7 @@ func TestSplit_Short(t *testing.T) {
 func TestSplit_Slow(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}"
 	rosStr := "{test-aaa [1:NsReady]}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), strictTransactions)
 	defer nodes.Close()
 	requireStable(t, orch)
 
@@ -1081,7 +1194,7 @@ func TestSplit_Slow(t *testing.T) {
 func TestSplitFailure_PrepareAddRange(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}"
 	rosStr := "{test-aaa [1:NsReady]} {test-bbb []} {test-ccc []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
 	requireStable(t, orch)
 
@@ -1186,7 +1299,7 @@ func TestJoin(t *testing.T) {
 func TestJoin_Short(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsReady} {2 (ggg, +inf] RsActive p0=test-bbb:PsReady}"
 	rosStr := "{test-aaa [1:NsReady]} {test-bbb [2:NsReady]} {test-ccc []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
 	requireStable(t, orch)
 
@@ -1211,7 +1324,7 @@ func TestJoin_Short(t *testing.T) {
 func TestJoin_Slow(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsReady} {2 (ggg, +inf] RsActive p0=test-bbb:PsReady}"
 	rosStr := "{test-aaa [1:NsReady]} {test-bbb [2:NsReady]} {test-ccc []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), true)
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), strictTransactions)
 	defer nodes.Close()
 	requireStable(t, orch)
 
@@ -1407,7 +1520,7 @@ func TestJoinFailure_DropRange(t *testing.T) {
 func TestMissingPlacement(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}"
 	rosStr := "{test-aaa []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
 
 	// ----
@@ -1472,7 +1585,7 @@ func TestSlowRPC(t *testing.T) {
 
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), false)
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
 
 	nodes.Get("test-aaa").SetGracePeriod(3 * time.Second)
@@ -1491,6 +1604,7 @@ func TestSlowRPC(t *testing.T) {
 	orch.Tick()
 	par.Wait()
 
+	// TODO: Use this pattern most places; just check the type and meta.
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 1) {
 			if assert.IsType(t, &pb.GiveRequest{}, aaa[0]) {
