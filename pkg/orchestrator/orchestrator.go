@@ -626,12 +626,14 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 				if err := b.ks.PlacementMayBeDropped(p); err == nil {
 					// Should the placement advance to Dropped? This happens
 					// once the replacement is Ready.
+					p.Attempts += 1
 					b.drop(p, n)
 
 				} else if b.ks.PlacementMayBeServed(p) {
 					// Should the placement go back to Ready? This happens when
 					// the replacement was given up on, probably because it
 					// persistently failed to become Ready.
+					p.Attempts += 1
 					b.serve(p, n)
 
 				} else {

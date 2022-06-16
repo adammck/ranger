@@ -961,7 +961,63 @@ func TestMoveFailure_AddRange(t *testing.T) {
 }
 
 func TestMoveFailure_DropRange(t *testing.T) {
-	t.Skip("not implemented")
+	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}"
+	rosStr := "{test-aaa [1:NsReady]} {test-bbb []}"
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	defer nodes.Close()
+	requireStable(t, orch)
+
+	// DropRange will always fail on test-aaa (src).
+	nodes.Get("test-aaa").SetReturnValue(t, 1, fake_node.DropRange, fmt.Errorf("failure injected by TestMoveFailure_DropRange"))
+
+	// ----
+
+	op := OpMove{
+		Range: ranje.Ident(1),
+		Dest:  "test-bbb",
+	}
+
+	orch.opMovesMu.Lock()
+	orch.opMoves = append(orch.opMoves, op)
+	orch.opMovesMu.Unlock()
+
+	// Fast-forward to the part where we send DropRange to aaa.
+	tickUntil(t, orch, nodes, func(ks, ro string) bool {
+		return (true &&
+			ks == "{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken p1=test-bbb:PsReady:replacing(test-aaa)}" &&
+			ro == "{test-aaa [1:NsTaken]} {test-bbb [1:NsReady]}")
+	})
+
+	// ----
+
+	for attempt := 1; attempt <= 5; attempt++ {
+		tickWait(orch)
+
+		// The RPC was sent.
+		if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
+			if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 1) {
+				if assert.IsType(t, &pb.DropRequest{}, aaa[0]) {
+					assert.Equal(t, uint64(1), aaa[0].(*pb.DropRequest).Range)
+				}
+			}
+		}
+
+		// No state changed.
+		assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken p1=test-bbb:PsReady:replacing(test-aaa)}", orch.ks.LogString())
+		assert.Equal(t, "{test-aaa [1:NsTaken]} {test-bbb [1:NsReady]}", orch.rost.TestString())
+
+		// Except this counter, which will increment forever.
+		assert.Equal(t, attempt, mustGetPlacement(t, orch.ks, 1, "test-aaa").Attempts)
+	}
+
+	// Not checking stability here. Failing to drop will retry forever until an
+	// operator intervenes to force the node to drop the placement. This hack
+	// pretends that that happened, so we can observe the workflow unblocking.
+	nodes.Get("test-aaa").ForceDrop(1)
+
+	tickUntilStable(t, orch, nodes)
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-bbb:PsReady}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsReady]}", orch.rost.TestString())
 }
 
 func TestSplit(t *testing.T) {
@@ -2192,6 +2248,28 @@ func tickUntilStable(t *testing.T, orch *Orchestrator, nodes *fake_nodes.TestNod
 	// returned from the RPCs. Any state changes which happened outside of those
 	// RPCs will be missed.)
 	orch.rost.Tick()
+}
+
+// Tick repeatedly until the given callback (which is called with the string
+// representation of the keyspace and roster after each tick) returns true.
+func tickUntil(t *testing.T, orch *Orchestrator, nodes *fake_nodes.TestNodes, callback func(string, string) bool) {
+	var ticks int // total ticks waited
+
+	for {
+		tickWait(orch)
+		if callback(orch.ks.LogString(), orch.rost.TestString()) {
+			break
+		}
+
+		ticks += 1
+		if ticks > 50 {
+			t.Fatal("gave up after 50 ticks")
+			return
+		}
+	}
+
+	// Call and discard, to omit RPCs sent during this loop from asserts.
+	nodes.RPCs()
 }
 
 func requireStable(t *testing.T, orch *Orchestrator) {

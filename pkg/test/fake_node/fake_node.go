@@ -46,6 +46,7 @@ type TestNode struct {
 	rglt *rangelet.Rangelet
 
 	loadInfos map[ranje.Ident]api.LoadInfo
+	muInfos   sync.Mutex
 
 	// Keep requests sent to this node.
 	// Call RPCs() to fetch and clear.
@@ -135,6 +136,9 @@ func (n *TestNode) transition(rID ranje.Ident, act Action) error {
 }
 
 func (n *TestNode) GetLoadInfo(rID ranje.Ident) (api.LoadInfo, error) {
+	n.muInfos.Lock()
+	defer n.muInfos.Unlock()
+
 	li, ok := n.loadInfos[rID]
 	if !ok {
 		return api.LoadInfo{}, api.NotFound
@@ -156,6 +160,7 @@ func (n *TestNode) PrepareDropRange(rID ranje.Ident) error {
 }
 
 func (n *TestNode) DropRange(rID ranje.Ident) error {
+	// TODO: Remove placement from loadinfos if transition succeeds?
 	return n.transition(rID, DropRange)
 }
 
@@ -236,6 +241,13 @@ func (n *TestNode) AddBarrier(t *testing.T, rID ranje.Ident, src state.RemoteSta
 	n.muBar.Unlock()
 
 	return st.bar
+}
+
+func (n *TestNode) ForceDrop(rID ranje.Ident) {
+	n.muInfos.Lock()
+	defer n.muInfos.Unlock()
+	delete(n.loadInfos, rID)
+	n.rglt.ForceDrop(rID)
 }
 
 func (n *TestNode) Ranges(ctx context.Context, req *pb.RangesRequest) (*pb.RangesResponse, error) {

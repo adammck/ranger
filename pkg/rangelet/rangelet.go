@@ -323,6 +323,23 @@ func (r *Rangelet) Len() int {
 	return len(r.info)
 }
 
+// Force the Rangelet to forget about the given range, without calling any of
+// the interface methods or performing any cleanup. It'll just vanish from probe
+// responses. This should only ever be called by the node when it has decided to
+// drop the range and wants to tell the controller that.
+func (r *Rangelet) ForceDrop(rID ranje.Ident) error {
+	r.Lock()
+	defer r.Unlock()
+
+	_, ok := r.info[rID]
+	if !ok {
+		return fmt.Errorf("no such range: %d", rID)
+	}
+
+	delete(r.info, rID)
+	return nil
+}
+
 func (r *Rangelet) gatherLoadInfo() error {
 
 	// Can't gather the range IDs in advance and release the lock, because the
