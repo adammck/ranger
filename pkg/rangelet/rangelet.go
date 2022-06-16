@@ -172,12 +172,14 @@ func (r *Rangelet) serve(rID ranje.Ident) (info.RangeInfo, error) {
 		return *ri, nil
 	}
 
-	if ri.State != state.NsPrepared {
+	if ri.State != state.NsPrepared && ri.State != state.NsTaken {
 		defer r.Unlock()
 		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Serve: %v", ri.State)
 	}
 
-	// State is NsPrepared
+	// State is NsPrepared or NsTaken
+	// TODO: Do we need a separate "untaking" state for when the node is moving
+	//       back from taken to ready? Currently using NsReadying either way.
 
 	ri.State = state.NsReadying
 	r.Unlock()

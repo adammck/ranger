@@ -58,8 +58,12 @@ func (r *Range) LogString() string {
 	for i, p := range r.Placements {
 		ps = fmt.Sprintf("%s p%d=%s:%s", ps, i, p.NodeID, p.State)
 
+		// if p.GivenUp {
+		// 	ps = fmt.Sprintf("%s:GivenUp", ps)
+		// }
+
 		// if p.Attempts > 0 {
-		// 	ps = fmt.Sprintf("%s(att=%d)", ps, p.Attempts)
+		// 	ps = fmt.Sprintf("%s:att=%d", ps, p.Attempts)
 		// }
 
 		if p.IsReplacing != "" {

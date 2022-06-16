@@ -314,8 +314,16 @@ func TestPlaceFailure_AddRange(t *testing.T) {
 		assert.Len(t, nodes.RPCs(), 1) // no need to check RPC contents again.
 		assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPrepared}", orch.ks.LogString())
 		assert.Equal(t, "{test-aaa [1:NsPrepared]} {test-bbb []}", orch.rost.TestString())
-		assert.Equal(t, attempt, mustGetPlacement(t, orch.ks, 1, "test-aaa").Attempts)
+
+		p := mustGetPlacement(t, orch.ks, 1, "test-aaa")
+		assert.Equal(t, attempt, p.Attempts)
+		assert.False(t, p.GivenUp)
 	}
+
+	tickWait(orch)
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPrepared}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsPrepared]} {test-bbb []}", orch.rost.TestString())
+	assert.True(t, mustGetPlacement(t, orch.ks, 1, "test-aaa").GivenUp)
 
 	// 3. DropRange(1, aaa)
 
@@ -813,7 +821,143 @@ func TestMoveFailure_PrepareDropRange(t *testing.T) {
 }
 
 func TestMoveFailure_AddRange(t *testing.T) {
-	t.Skip("not implemented")
+	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}"
+	rosStr := "{test-aaa [1:NsReady]} {test-bbb []}"
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	defer nodes.Close()
+
+	// AddRange will always fail on test-bbb.
+	nodes.Get("test-bbb").SetReturnValue(t, 1, fake_node.AddRange, fmt.Errorf("failure injected by TestMoveFailure_AddRange"))
+
+	// ----
+
+	op := OpMove{
+		Range: ranje.Ident(1),
+		Dest:  "test-bbb",
+	}
+
+	orch.opMovesMu.Lock()
+	orch.opMoves = append(orch.opMoves, op)
+	orch.opMovesMu.Unlock()
+
+	// ----
+
+	// 1. PrepareAddRange(1, bbb)
+	log.Print("1")
+
+	tickWait(orch)
+	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-bbb"}, nIDs(rpcs)) {
+		if bbb := rpcs["test-bbb"]; assert.Len(t, bbb, 1) {
+			if assert.IsType(t, &pb.GiveRequest{}, bbb[0]) {
+				ProtoEqual(t, &pb.RangeMeta{
+					Ident: 1,
+					Start: []byte(ranje.ZeroKey),
+					End:   []byte(ranje.ZeroKey),
+				}, bbb[0].(*pb.GiveRequest).Range)
+			}
+		}
+	}
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady p1=test-bbb:PsPending:replacing(test-aaa)}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb [1:NsPrepared]}", orch.rost.TestString())
+
+	tickWait(orch)
+	assert.Empty(t, nodes.RPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady p1=test-bbb:PsPrepared:replacing(test-aaa)}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb [1:NsPrepared]}", orch.rost.TestString())
+
+	// 2. PrepareDropRange(1, aaa)
+	log.Print("2")
+
+	tickWait(orch)
+	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
+		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 1) {
+			if assert.IsType(t, &pb.TakeRequest{}, aaa[0]) {
+				assert.Equal(t, uint64(1), aaa[0].(*pb.TakeRequest).Range)
+			}
+		}
+	}
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady p1=test-bbb:PsPrepared:replacing(test-aaa)}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsTaken]} {test-bbb [1:NsPrepared]}", orch.rost.TestString())
+
+	// TODO: Why doesn't this step happen? Think it's the placement-ordering
+	//       thing where some stuff happens in one step instead of two if
+	//       dependent placements are ordered a certain way. Need to perform two
+	//       separate steps: update keyspace, then send RPCs.
+
+	// tickWait(orch)
+	// assert.Empty(t, nodes.RPCs())
+	// assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken p1=test-bbb:PsPrepared:replacing(test-aaa)}", orch.ks.LogString())
+	// assert.Equal(t, "{test-aaa [1:NsTaken]} {test-bbb [1:NsPrepared]}", orch.rost.TestString())
+
+	// 3. AddRange(1, bbb)
+	//    Makes three attempts, which will all fail because we stubbed them to
+	//    to do so, above.
+	log.Print("3")
+
+	for attempt := 1; attempt <= 3; attempt++ {
+		tickWait(orch)
+		if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-bbb"}, nIDs(rpcs)) {
+			if bbb := rpcs["test-bbb"]; assert.Len(t, bbb, 1) {
+				if assert.IsType(t, &pb.ServeRequest{}, bbb[0]) {
+					assert.Equal(t, uint64(1), bbb[0].(*pb.ServeRequest).Range)
+				}
+			}
+		}
+		assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken p1=test-bbb:PsPrepared:replacing(test-aaa)}", orch.ks.LogString())
+		assert.Equal(t, "{test-aaa [1:NsTaken]} {test-bbb [1:NsPrepared]}", orch.rost.TestString())
+
+		p := mustGetPlacement(t, orch.ks, 1, "test-bbb")
+		assert.Equal(t, attempt, p.Attempts)
+		assert.False(t, p.GivenUp)
+	}
+
+	// Replacement (on bbb) is marked as GivenUp.
+	tickWait(orch)
+	assert.Empty(t, nodes.RPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken p1=test-bbb:PsPrepared:replacing(test-aaa)}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsTaken]} {test-bbb [1:NsPrepared]}", orch.rost.TestString())
+	assert.True(t, mustGetPlacement(t, orch.ks, 1, "test-bbb").GivenUp)
+
+	// 4. AddRange(1, aaa)
+	log.Print("4")
+
+	tickWait(orch)
+	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
+		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 1) {
+			if assert.IsType(t, &pb.ServeRequest{}, aaa[0]) {
+				assert.Equal(t, uint64(1), aaa[0].(*pb.ServeRequest).Range)
+			}
+		}
+	}
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsTaken p1=test-bbb:PsPrepared:replacing(test-aaa)}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb [1:NsPrepared]}", orch.rost.TestString())
+
+	// TODO: This step is also merged with the next :|
+	// tickWait(orch)
+	// assert.Empty(t, nodes.RPCs())
+	// assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady p1=test-bbb:PsPrepared:replacing(test-aaa)}", orch.ks.LogString())
+	// assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb [1:NsPrepared]}", orch.rost.TestString())
+
+	// 5. DropRange(1, bbb)
+	log.Print("5")
+
+	tickWait(orch)
+	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-bbb"}, nIDs(rpcs)) {
+		if bbb := rpcs["test-bbb"]; assert.Len(t, bbb, 1) {
+			if assert.IsType(t, &pb.DropRequest{}, bbb[0]) {
+				assert.Equal(t, uint64(1), bbb[0].(*pb.DropRequest).Range)
+			}
+		}
+	}
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady p1=test-bbb:PsPrepared:replacing(test-aaa)}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb []}", orch.rost.TestString())
+
+	tickWait(orch)
+	assert.Empty(t, nodes.RPCs())
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsReady}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsReady]} {test-bbb []}", orch.rost.TestString())
+
+	requireStable(t, orch)
 }
 
 func TestMoveFailure_DropRange(t *testing.T) {

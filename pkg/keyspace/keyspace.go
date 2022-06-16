@@ -164,20 +164,39 @@ func (ks *Keyspace) Ranges() ([]*ranje.Range, func()) {
 	return ks.ranges, ks.mu.Unlock
 }
 
-// PlacementMayBecomeReady returns whether the given placement is permitted to
-// advance from ranje.PsPrepared to ranje.PsReady.
-//
-// Returns error if called when the placement is in any state other than
-// ranje.PsPrepared.
-func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) bool {
+// PlacementMayBeServed returns whether the given placement is permitted to
+// advance to ranje.PsReady (from PsPrepared or PsTaken)
+// TODO: Return the error value instead of bool!
+func (ks *Keyspace) PlacementMayBeServed(p *ranje.Placement) bool {
+	var err error
 
-	// Sanity check.
-	if p.State != ranje.PsPrepared {
-		log.Printf("called PlacementMayBecomeReady in weird state: %s", p.State)
+	switch p.State {
+	case ranje.PsPrepared:
+		err = ks.mayServePrepared(p)
+
+	case ranje.PsTaken:
+		err = ks.mayServeTaken(p)
+
+	default:
+		err = fmt.Errorf("invalid state: %s", p.State)
+	}
+
+	if err != nil {
+		log.Printf("placement (rID=%s nID=%s) may not be served: %v", p.Range().Meta.Ident, p.NodeID, err)
 		return false
 	}
 
+	return true
+}
+
+func (ks *Keyspace) mayServePrepared(p *ranje.Placement) error {
 	r := p.Range()
+
+	// If this placement has been given up on, it's destined to be dropped
+	// rather than served. We might have tried to serve it and failed.
+	if p.GivenUp {
+		return fmt.Errorf("gave up")
+	}
 
 	// Gather the parent ranges
 	// TODO: Move this to a method on Keyspace
@@ -185,8 +204,7 @@ func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) bool {
 	for i, rID := range r.Parents {
 		rp, err := ks.Get(rID)
 		if err != nil {
-			log.Printf("range has invalid parent: %s", rID)
-			return false
+			return fmt.Errorf("range has invalid parent: %s", rID)
 		}
 
 		parents[i] = rp
@@ -197,8 +215,8 @@ func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) bool {
 	// available in both the parent and child.
 	for _, rp := range parents {
 		for _, pp := range rp.Placements {
-			if pp.State == ranje.PsReady {
-				return false
+			if pp.State == ranje.PsReady { // TODO: != PsReady, instead?
+				return fmt.Errorf("parent placement is not PsTaken; is %s", pp.State)
 			}
 		}
 	}
@@ -210,7 +228,36 @@ func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) bool {
 		}
 	}
 
-	return n < r.MinReady()
+	// TODO: Isn't this bounded by MaxReady, instead?
+	if n >= r.MinReady() {
+		return fmt.Errorf("too many ready placements (n=%d, MinReady=%d)", n, r.MinReady())
+	}
+
+	return nil
+}
+
+func (ks *Keyspace) mayServeTaken(p *ranje.Placement) error {
+
+	r := p.Range()
+	switch r.State {
+	case ranje.RsActive:
+		other := replacementFor(p)
+
+		if other == nil {
+			// This should never happen. Should probably revert to Ready?
+			return fmt.Errorf("placement in PsTaken but has no replacement")
+		}
+
+		if !other.GivenUp {
+			return fmt.Errorf("won't revert placement from PsTaken to PsReady unless replacement is GivenUp")
+		}
+
+		return nil
+
+	default:
+		return fmt.Errorf("unexpected range state (s=%v)", r.State)
+	}
+
 }
 
 // MayBeTaken returns whether the given placement, which is assumed to be in
@@ -238,6 +285,14 @@ func (ks *Keyspace) PlacementMayBeTaken(p *ranje.Placement) bool {
 		// p wants to be moved, but no replacement placement has been created
 		// yet. Not sure how we ended up here, but it's valid.
 		if replacement == nil {
+			return false
+		}
+
+		// There is another placement replacing this one, but we've given up on
+		// it, so will destroy that (the replacement) rather than taking this
+		// one. We might have already taken this one once, and then reverted it
+		// back because the replacement failed to become ready.
+		if replacement.GivenUp {
 			return false
 		}
 
@@ -365,13 +420,33 @@ func (ks *Keyspace) mayDropPrepared(p *ranje.Placement) error {
 		// Fetch the original placement, which we are replacing.
 		other := replacedBy(p)
 		if other == nil {
+			// This replacement has been aborted, but is not replacing anything,
+			// so can be dropped immediately.
+			if p.GivenUp {
+				return nil
+			}
+
 			// Shouldn't really be getting here; any placement which is Prepared
 			// and not replacing any other placement can immediately advance to
 			// Ready. There's nothing to take.
-			log.Printf("won't drop prepared non-replacing placement (pn=%s)", p.NodeID)
 			return fmt.Errorf("won't drop prepared non-replacing placement (pn=%s)", p.NodeID)
 		}
 
+		// If this placement is Prepared but GivenUp, it has probably failed to
+		// become ready. We *can* drop it straight away -- it's useless -- but
+		// we wait until the original has been reverted to ready to make the
+		// order of operations more predictable. There's little harm in delaying
+		// the drop a bit, and taken->ready should be quick.
+		if p.GivenUp {
+			if other.State == ranje.PsReady {
+				return nil
+
+			} else {
+				return fmt.Errorf("won't drop aborted placement until original is ready")
+			}
+		}
+
+		// TODO: wtf is going on here?
 		if !other.GivenUp {
 			log.Printf("won't drop prepared placement when other is not GivenUp (pn=%s, rn=%s)", p.NodeID, other.NodeID)
 			return fmt.Errorf("won't drop prepared placement when other is not GivenUp (pn=%s, rn=%s)", p.NodeID, other.NodeID)

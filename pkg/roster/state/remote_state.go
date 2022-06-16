@@ -20,6 +20,7 @@ const (
 	NsReadying
 	NsReady
 	NsTaking
+	//NsUntaking
 	NsTaken
 	NsDropping
 

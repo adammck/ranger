@@ -531,12 +531,11 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 			// This is the first time around. In order for this placement to
 			// move to Ready, the one it is replacing (maybe) must reliniquish
 			// it first. Otherwise we just do nothing this tick.
-			if b.ks.PlacementMayBecomeReady(p) {
+			if b.ks.PlacementMayBeServed(p) {
 				if p.Attempts >= maxServeAttempts {
 					log.Printf("given up on serving prepared placement (rID=%s, n=%s, attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
 					n.PlacementFailed(p.Range().Meta.Ident, time.Now())
 					p.GivenUp = true
-					b.drop(p, n)
 
 				} else {
 					p.Attempts += 1
@@ -545,7 +544,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 				}
 
 			} else if err := b.ks.PlacementMayBeDropped(p); err == nil {
-				p.GivenUp = true
+				p.GivenUp = true // TODO: Is this necessary?
 				b.drop(p, n)
 
 			} else {
@@ -625,10 +624,22 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 			switch ri.State {
 			case state.NsTaken:
 				if err := b.ks.PlacementMayBeDropped(p); err == nil {
+					// Should the placement advance to Dropped? This happens
+					// once the replacement is Ready.
 					b.drop(p, n)
+
+				} else if b.ks.PlacementMayBeServed(p) {
+					// Should the placement go back to Ready? This happens when
+					// the replacement was given up on, probably because it
+					// persistently failed to become Ready.
+					b.serve(p, n)
+
 				} else {
 					log.Print(err) // why not drop?
 				}
+
+			case state.NsReady:
+				b.ks.PlacementToState(p, ranje.PsReady)
 
 			case state.NsDropping:
 				// We have already decided to drop the range, and have probably

@@ -40,6 +40,7 @@ func init() {
 		{PsPrepared, PsGiveUp},
 		{PsReady, PsGiveUp},
 		{PsTaken, PsGiveUp},
+		{PsTaken, PsReady},
 
 		// Recovery?
 		{PsGiveUp, PsDropped},
