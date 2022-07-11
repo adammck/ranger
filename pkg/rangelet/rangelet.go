@@ -111,7 +111,7 @@ func (r *Rangelet) give(rm ranje.Meta, parents []api.Parent) (info.RangeInfo, er
 	if ok {
 		defer r.Unlock()
 
-		if ri.State == state.NsPreparing || ri.State == state.NsPrepared {
+		if ri.State == state.NsLoading || ri.State == state.NsInactive {
 			log.Printf("got redundant Give")
 			return *ri, nil
 		}
@@ -123,13 +123,13 @@ func (r *Rangelet) give(rm ranje.Meta, parents []api.Parent) (info.RangeInfo, er
 
 	ri = &info.RangeInfo{
 		Meta:  rm,
-		State: state.NsPreparing,
+		State: state.NsLoading,
 	}
 	r.info[rID] = ri
 	r.Unlock()
 
 	withTimeout(r.gracePeriod, func() {
-		r.runThenUpdateState(rID, state.NsPreparing, state.NsPrepared, state.NsNotFound, func() error {
+		r.runThenUpdateState(rID, state.NsLoading, state.NsInactive, state.NsNotFound, func() error {
 			return r.n.PrepareAddRange(rm, parents)
 		})
 	})
@@ -166,24 +166,24 @@ func (r *Rangelet) serve(rID ranje.Ident) (info.RangeInfo, error) {
 		return info.RangeInfo{}, status.Errorf(codes.InvalidArgument, "can't Serve unknown range: %v", rID)
 	}
 
-	if ri.State == state.NsReadying || ri.State == state.NsReady {
+	if ri.State == state.NsActivating || ri.State == state.NsActive {
 		log.Printf("got redundant Serve")
 		defer r.Unlock()
 		return *ri, nil
 	}
 
-	if ri.State != state.NsPrepared {
+	if ri.State != state.NsInactive {
 		defer r.Unlock()
 		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Serve: %v", ri.State)
 	}
 
-	// State is NsPrepared
+	// State is NsInactive
 
-	ri.State = state.NsReadying
+	ri.State = state.NsActivating
 	r.Unlock()
 
 	withTimeout(r.gracePeriod, func() {
-		r.runThenUpdateState(rID, state.NsReadying, state.NsReady, state.NsPrepared, func() error {
+		r.runThenUpdateState(rID, state.NsActivating, state.NsActive, state.NsInactive, func() error {
 			return r.n.AddRange(rID)
 		})
 	})
@@ -209,24 +209,24 @@ func (r *Rangelet) take(rID ranje.Ident) (info.RangeInfo, error) {
 		return info.RangeInfo{}, status.Errorf(codes.InvalidArgument, "can't Take unknown range: %v", rID)
 	}
 
-	if ri.State == state.NsTaking || ri.State == state.NsTaken {
+	if ri.State == state.NsDeactivating || ri.State == state.NsInactive {
 		log.Printf("got redundant Take")
 		defer r.Unlock()
 		return *ri, nil
 	}
 
-	if ri.State != state.NsReady {
+	if ri.State != state.NsActive {
 		defer r.Unlock()
 		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Take: %v", ri.State)
 	}
 
-	// State is NsReady
+	// State is NsActive
 
-	ri.State = state.NsTaking
+	ri.State = state.NsDeactivating
 	r.Unlock()
 
 	withTimeout(r.gracePeriod, func() {
-		r.runThenUpdateState(rID, state.NsTaking, state.NsTaken, state.NsReady, func() error {
+		r.runThenUpdateState(rID, state.NsDeactivating, state.NsInactive, state.NsActive, func() error {
 			return r.n.PrepareDropRange(rID)
 		})
 	})
@@ -261,18 +261,18 @@ func (r *Rangelet) drop(rID ranje.Ident) (info.RangeInfo, error) {
 		return *ri, nil
 	}
 
-	if ri.State != state.NsTaken {
+	if ri.State != state.NsInactive {
 		defer r.Unlock()
 		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Drop: %v", ri.State)
 	}
 
-	// State is NsTaken
+	// State is NsInactive
 
 	ri.State = state.NsDropping
 	r.Unlock()
 
 	withTimeout(r.gracePeriod, func() {
-		r.runThenUpdateState(rID, state.NsDropping, state.NsNotFound, state.NsTaken, func() error {
+		r.runThenUpdateState(rID, state.NsDropping, state.NsNotFound, state.NsInactive, func() error {
 			return r.n.DropRange(rID)
 		})
 	})
@@ -302,7 +302,7 @@ func (r *Rangelet) Find(k ranje.Key) (ranje.Ident, bool) {
 		// before PrepareAddShard has returned, or while DropShard is still in
 		// progress.) The client should check the state anyway, but this makes
 		// the contract simpler.
-		if ri.State == state.NsPreparing || ri.State == state.NsDropping {
+		if ri.State == state.NsLoading || ri.State == state.NsDropping {
 			continue
 		}
 
@@ -402,6 +402,7 @@ func (rglt *Rangelet) State(rID ranje.Ident) state.RemoteState {
 
 // OnLeaveState registers a callback function which will be called when the
 // given range transitions out of the given state. This is just for testing.
+// TODO: Maybe just make this OnChangeState so FakeNode can do what it likes?
 func (rglt *Rangelet) OnLeaveState(rID ranje.Ident, s state.RemoteState, f func()) {
 	rglt.Lock()
 	defer rglt.Unlock()

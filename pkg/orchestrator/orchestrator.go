@@ -369,7 +369,7 @@ func (b *Orchestrator) doMove(r *ranje.Range, opMove OpMove) error {
 
 		// No source node given, so just take the first Ready placement.
 		for _, p := range r.Placements {
-			if p.State == ranje.PsReady {
+			if p.State == ranje.PsActive {
 				src = p
 				break
 			}
@@ -472,11 +472,11 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 		ri, ok := n.Get(p.Range().Meta.Ident)
 		if ok {
 			switch ri.State {
-			case state.NsPreparing:
-				log.Printf("node %s still preparing %s", n.Ident(), p.Range().Meta.Ident)
+			case state.NsLoading:
+				log.Printf("node %s still loading %s", n.Ident(), p.Range().Meta.Ident)
 
-			case state.NsPrepared:
-				b.ks.PlacementToState(p, ranje.PsPrepared)
+			case state.NsInactive:
+				b.ks.PlacementToState(p, ranje.PsInactive)
 				return
 
 			default:
@@ -498,30 +498,40 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 			}
 		})
 
-	case ranje.PsPrepared:
+	case ranje.PsInactive:
 		ri, ok := n.Get(p.Range().Meta.Ident)
 		if !ok {
-			// The node doesn't have the placement any more! Abort.
+			// The node doesn't have the placement any more!
+			// Maybe we dropped it on purpose because it's been subsumed.
+			if b.ks.PlacementMayBeDropped(p) == nil {
+				b.ks.PlacementToState(p, ranje.PsDropped)
+				return
+			}
+
+			// Otherwise, abort. It's been forgotten.
 			log.Printf("placement missing from node (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
 			b.ks.PlacementToState(p, ranje.PsGiveUp)
 			return
 		}
 
 		switch ri.State {
-		case state.NsPrepared:
+		case state.NsInactive:
 			// This is the first time around.
 			log.Printf("will instruct %s to serve %s", n.Ident(), p.Range().Meta.Ident)
 
-		case state.NsReadying:
+		case state.NsActivating:
 			// We've already sent the Serve RPC at least once, and the node
 			// is working on it. Just keep waiting.
 			log.Printf("node %s still readying %s", n.Ident(), p.Range().Meta.Ident)
 
-		case state.NsReady:
-			b.ks.PlacementToState(p, ranje.PsReady)
+		case state.NsDropping:
+			log.Printf("node %s still dropping %s", n.Ident(), p.Range().Meta.Ident)
+
+		case state.NsActive:
+			b.ks.PlacementToState(p, ranje.PsActive)
 			return
 
-		// TODO: state.NsReadyError?
+		// TODO: state.NsActiveError?
 
 		default:
 			log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
@@ -529,20 +539,31 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 			return
 		}
 
-		// We are ready to move from Prepared to Ready, but may have to wait for
-		// the placement that this is replacing (maybe) to relinquish it first.
-		if !b.ks.PlacementMayBecomeReady(p) {
+		// We are ready to move from Inactive to Dropped, but we have to wait
+		// for the placement(s) that are replacing this to become Ready.
+		if b.ks.PlacementMayBeDropped(p) == nil {
+			b.RPC(p, "Drop", func() {
+				err := n.Drop(context.Background(), p)
+				if err != nil {
+					log.Printf("error dropping %v from %s: %v", p.LogString(), n.Ident(), err)
+				}
+			})
 			return
 		}
 
-		b.RPC(p, "Serve", func() {
-			err := n.Serve(context.Background(), p)
-			if err != nil {
-				log.Printf("error serving %v to %s: %v", p.LogString(), n.Ident(), err)
-			}
-		})
+		// We are ready to move from Prepared to Ready, but may have to wait for
+		// the placement that this is replacing (maybe) to relinquish it first.
+		if b.ks.PlacementMayBecomeReady(p) {
+			b.RPC(p, "Serve", func() {
+				err := n.Serve(context.Background(), p)
+				if err != nil {
+					log.Printf("error serving %v to %s: %v", p.LogString(), n.Ident(), err)
+				}
+			})
+			return
+		}
 
-	case ranje.PsReady:
+	case ranje.PsActive:
 		ri, ok := n.Get(p.Range().Meta.Ident)
 		if !ok {
 			// The node doesn't have the placement any more! Abort.
@@ -552,15 +573,15 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 		}
 
 		switch ri.State {
-		case state.NsReady:
+		case state.NsActive:
 			// No need to keep logging this.
 			//log.Printf("ready: %s", p.LogString())
 
-		case state.NsTaking:
-			log.Printf("node %s still taking %s", n.Ident(), p.Range().Meta.Ident)
+		case state.NsDeactivating:
+			log.Printf("node %s still deactivating %s", n.Ident(), p.Range().Meta.Ident)
 
-		case state.NsTaken:
-			b.ks.PlacementToState(p, ranje.PsTaken)
+		case state.NsInactive:
+			b.ks.PlacementToState(p, ranje.PsInactive)
 			return
 
 		// TODO: state.NsTakeError?
@@ -578,45 +599,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 		b.RPC(p, "Take", func() {
 			err := n.Take(context.Background(), p)
 			if err != nil {
-				log.Printf("error taking %v from %s: %v", p.LogString(), n.Ident(), err)
-			}
-		})
-
-	case ranje.PsTaken:
-		ri, ok := n.Get(p.Range().Meta.Ident)
-		if !ok {
-
-			// We can assume that the range has been dropped when the roster no
-			// longer has any info about it. This can happen in response to a
-			// Drop RPC or a normal probe cycle. Either way, the range is gone
-			// from the node. Nodes will never confirm that they used to have a
-			// range but and have dropped it.
-			b.ks.PlacementToState(p, ranje.PsDropped)
-			return
-
-		} else {
-			switch ri.State {
-			case state.NsTaken:
-				if err := b.ks.PlacementMayBeDropped(p); err != nil {
-					return
-				}
-
-			case state.NsDropping:
-				// We have already decided to drop the range, and have probably sent
-				// the RPC (below) already, so cannot turn back now.
-				log.Printf("node %s still dropping %s", n.Ident(), p.Range().Meta.Ident)
-
-			default:
-				log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
-				b.ks.PlacementToState(p, ranje.PsGiveUp)
-				return
-			}
-		}
-
-		b.RPC(p, "Drop", func() {
-			err := n.Drop(context.Background(), p)
-			if err != nil {
-				log.Printf("error dropping %v from %s: %v", p.LogString(), n.Ident(), err)
+				log.Printf("error deactivating %v from %s: %v", p.LogString(), n.Ident(), err)
 			}
 		})
 

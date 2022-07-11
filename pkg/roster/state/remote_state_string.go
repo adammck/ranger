@@ -9,19 +9,18 @@ func _() {
 	// Re-run the stringer command to generate them again.
 	var x [1]struct{}
 	_ = x[NsUnknown-0]
-	_ = x[NsPreparing-1]
-	_ = x[NsPrepared-2]
-	_ = x[NsReadying-3]
-	_ = x[NsReady-4]
-	_ = x[NsTaking-5]
-	_ = x[NsTaken-6]
-	_ = x[NsDropping-7]
-	_ = x[NsNotFound-8]
+	_ = x[NsInactive-1]
+	_ = x[NsActive-2]
+	_ = x[NsLoading-3]
+	_ = x[NsActivating-4]
+	_ = x[NsDeactivating-5]
+	_ = x[NsDropping-6]
+	_ = x[NsNotFound-7]
 }
 
-const _RemoteState_name = "NsUnknownNsPreparingNsPreparedNsReadyingNsReadyNsTakingNsTakenNsDroppingNsNotFound"
+const _RemoteState_name = "NsUnknownNsInactiveNsActiveNsLoadingNsActivatingNsDeactivatingNsDroppingNsNotFound"
 
-var _RemoteState_index = [...]uint8{0, 9, 20, 30, 40, 47, 55, 62, 72, 82}
+var _RemoteState_index = [...]uint8{0, 9, 19, 27, 36, 48, 62, 72, 82}
 
 func (i RemoteState) String() string {
 	if i >= RemoteState(len(_RemoteState_index)-1) {

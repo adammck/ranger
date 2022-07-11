@@ -92,14 +92,14 @@ func (ts *RosterSuite) TestCandidateByNodeID() {
 		State: ranje.RsActive,
 		Placements: []*ranje.Placement{{
 			NodeID: aRem.Ident,
-			State:  ranje.PsReady,
+			State:  ranje.PsActive,
 		}},
 	}
 
 	aInfos := map[ranje.Ident]*info.RangeInfo{
 		r.Meta.Ident: {
 			Meta:  r.Meta,
-			State: state.NsReady,
+			State: state.NsActive,
 		},
 	}
 
@@ -157,14 +157,14 @@ func (ts *RosterSuite) TestProbeOne() {
 		State: ranje.RsActive,
 		Placements: []*ranje.Placement{{
 			NodeID: rem.Ident,
-			State:  ranje.PsReady,
+			State:  ranje.PsActive,
 		}},
 	}
 
 	fakeInfos := map[ranje.Ident]*info.RangeInfo{
 		r.Meta.Ident: {
 			Meta:  r.Meta,
-			State: state.NsReady,
+			State: state.NsActive,
 			Info: info.LoadInfo{
 				Keys: 123,
 			},

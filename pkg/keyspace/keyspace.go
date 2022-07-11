@@ -165,22 +165,31 @@ func (ks *Keyspace) Ranges() ([]*ranje.Range, func()) {
 }
 
 // PlacementMayBecomeReady returns whether the given placement is permitted to
-// advance from ranje.PsPrepared to ranje.PsReady.
+// advance from ranje.PsInactive to ranje.PsActive.
 //
 // Returns error if called when the placement is in any state other than
-// ranje.PsPrepared.
+// ranje.PsInactive.
 func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) bool {
 
 	// Sanity check.
-	if p.State != ranje.PsPrepared {
+	if p.State != ranje.PsInactive {
 		log.Printf("called PlacementMayBecomeReady in weird state: %s", p.State)
 		return false
 	}
 
 	r := p.Range()
 
+	// If one of the sibling placements (on the same range) claims to be
+	// replacing this range, then it mustn't become ready. It was probably
+	// just moved from ready to Idle so that the sibling could become ready.
+	for _, p2 := range r.Placements {
+		if p2.IsReplacing == p.NodeID {
+			return false
+		}
+	}
+
 	// Gather the parent ranges
-	// TODO: Move this to a method on Keyspace
+	// TODO: Move this to a method on Keyspace, like Children.
 	parents := make([]*ranje.Range, len(r.Parents))
 	for i, rID := range r.Parents {
 		rp, err := ks.Get(rID)
@@ -193,19 +202,34 @@ func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) bool {
 	}
 
 	// If this placement is part of a child range, we must wait until all of the
-	// placements in the parent range have been taken. Otherwise, keys will be
+	// placements in the parent range have been deactivated. Otherwise, keys will be
 	// available in both the parent and child.
 	for _, rp := range parents {
 		for _, pp := range rp.Placements {
-			if pp.State == ranje.PsReady {
+			if pp.State == ranje.PsActive {
 				return false
 			}
 		}
 	}
 
+	// OTOH, if this is part of a parent range (i.e. it has children), it must
+	// not advance unless the children have all given up. (n.b. the concept of
+	// placements giving up is not in this branch, so for now hack it.)
+	children := ks.Children(r)
+	for _, rc := range children {
+		for _, pc := range rc.Placements {
+			if pc.State != ranje.PsGiveUp {
+				return false
+			}
+		}
+	}
+
+	// Count how many PsActive placements this range has. If it's fewer than the
+	// MinReady (i.e. the minimum number of active placements wanted), then this
+	// placement may become active.
 	n := 0
 	for _, pp := range r.Placements {
-		if pp.State == ranje.PsReady {
+		if pp.State == ranje.PsActive {
 			n += 1
 		}
 	}
@@ -214,7 +238,7 @@ func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) bool {
 }
 
 // MayBeTaken returns whether the given placement, which is assumed to be in
-// state ranje.PsReady, may advance to ranje.PsTaken. The only circumstance where this is
+// state ranje.PsActive, may advance to ranje.PsInactive. The only circumstance where this is
 // true is when the placement is being replaced by another replica (i.e. a move)
 // or when the entire range has been subsumed.
 //
@@ -224,7 +248,7 @@ func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) bool {
 func (ks *Keyspace) PlacementMayBeTaken(p *ranje.Placement) bool {
 
 	// Sanity check.
-	if p.State != ranje.PsReady {
+	if p.State != ranje.PsActive {
 		log.Printf("called PlacementMayBeTaken in weird state: %s", p.State)
 		return false
 	}
@@ -247,27 +271,27 @@ func (ks *Keyspace) PlacementMayBeTaken(p *ranje.Placement) bool {
 			return false
 		}
 
-		if replacement.State == ranje.PsPrepared {
+		if replacement.State == ranje.PsInactive {
 			return true
 		}
 	case ranje.RsSubsuming:
 
 		// Exit early if any of the child ranges don't have enough replicas
-		// in ranje.PsPrepared.
+		// in ranje.PsInactive.
 		for _, rc := range ks.Children(r) {
 			n := 0
 			for _, pc := range rc.Placements {
-				if pc.State == ranje.PsPrepared {
+				if pc.State == ranje.PsInactive {
 					n += 1
 				}
 			}
 			if n < rc.MinReady() {
-				//log.Printf("child range has insufficient prepared placements: %s", rID)
+				//log.Printf("child range has insufficient loaded placements: %s", rID)
 				return false
 			}
 		}
 
-		// All placements in all child ranges are prepared, i.e. ready to become
+		// All placements in all child ranges are loaded, i.e. ready to become
 		// Ready. So we can become Taken, to relinquish all the keys in range.
 		log.Printf("PlacementMayBeTaken: true (r=%s)", r)
 		return true
@@ -279,8 +303,8 @@ func (ks *Keyspace) PlacementMayBeTaken(p *ranje.Placement) bool {
 func (ks *Keyspace) PlacementMayBeDropped(p *ranje.Placement) error {
 
 	// Sanity check.
-	if p.State != ranje.PsTaken {
-		return fmt.Errorf("placment not in ranje.PsTaken")
+	if p.State != ranje.PsInactive {
+		return fmt.Errorf("placment not in ranje.PsInactive")
 	}
 
 	r := p.Range()
@@ -299,15 +323,15 @@ func (ks *Keyspace) PlacementMayBeDropped(p *ranje.Placement) error {
 		// p is in Taken, but no replacement exists? This should not have happened.
 		// Maybe placing the replacement failed and we gave up?
 		//
-		// TODO: This should cause the placement to be *Untaken*. Maybe update this
+		// TODO: This should cause the placement to be *Undeactivated*. Maybe update this
 		//       method to return the next action, i.e. Drop or Untake?
 		//
 		if replacement == nil {
-			return fmt.Errorf("placement in ranje.PsTaken with no replacement")
+			return fmt.Errorf("placement in ranje.PsInactive with no replacement")
 		}
 
-		if replacement.State != ranje.PsReady {
-			return fmt.Errorf("replacement not ranje.PsReady; is %s", replacement.State)
+		if replacement.State != ranje.PsActive {
+			return fmt.Errorf("replacement not ranje.PsActive; is %s", replacement.State)
 		}
 
 		return nil
@@ -321,7 +345,7 @@ func (ks *Keyspace) PlacementMayBeDropped(p *ranje.Placement) error {
 		for _, cr := range ks.Children(r) {
 			ready := 0
 			for _, cp := range cr.Placements {
-				if cp.State == ranje.PsReady {
+				if cp.State == ranje.PsActive {
 					ready += 1
 				}
 			}

@@ -106,8 +106,11 @@ func (n *TestNode) transition(rID ranje.Ident, src state.RemoteState) error {
 	e := n.errors[ek] // Might be nil; that's okay.
 	n.muErr.Unlock()
 
-	// Check whether a transition is already pending for this range. If so, we
-	// can return early without waiting.
+	// Check whether a barrier has been registered for this transition. If so,
+	// then notify it that the transition has been initiated (i.e. the fake node
+	// has received an RPC and is ready to transition out of the src state). (If
+	// we didn't do this, the test thread may try to assert the state of the
+	// fake node before the rangelet has even received the RPC.)
 	tr, ok := n.barriers[rID]
 	if ok {
 		delete(n.barriers, rID)
@@ -119,7 +122,7 @@ func (n *TestNode) transition(rID ranje.Ident, src state.RemoteState) error {
 	n.muBar.Unlock()
 
 	if n.strictTransitions {
-		panic(fmt.Sprintf("no transition registered for range while strict transitions enabled (rID=%v)", rID))
+		panic(fmt.Sprintf("no transition registered for range while strict transitions enabled (n=%v, rID=%v, src=%s)", n.Addr, rID, src))
 	}
 
 	return e
@@ -135,15 +138,15 @@ func (n *TestNode) GetLoadInfo(rID ranje.Ident) (api.LoadInfo, error) {
 }
 
 func (n *TestNode) PrepareAddRange(m ranje.Meta, p []api.Parent) error {
-	return n.transition(m.Ident, state.NsPreparing)
+	return n.transition(m.Ident, state.NsLoading)
 }
 
 func (n *TestNode) AddRange(rID ranje.Ident) error {
-	return n.transition(rID, state.NsReadying)
+	return n.transition(rID, state.NsActivating)
 }
 
 func (n *TestNode) PrepareDropRange(rID ranje.Ident) error {
-	return n.transition(rID, state.NsTaking)
+	return n.transition(rID, state.NsDeactivating)
 }
 
 func (n *TestNode) DropRange(rID ranje.Ident) error {
@@ -208,6 +211,7 @@ func (n *TestNode) SetReturnValue(t *testing.T, rID ranje.Ident, src state.Remot
 }
 
 func (n *TestNode) AddBarrier(t *testing.T, rID ranje.Ident, src state.RemoteState) *barrier {
+	desc := fmt.Sprintf("node=%s, range=%s, src=%s", n.Addr, rID.String(), src.String())
 	wg := &sync.WaitGroup{}
 
 	wg.Add(1)
@@ -217,7 +221,9 @@ func (n *TestNode) AddBarrier(t *testing.T, rID ranje.Ident, src state.RemoteSta
 
 	st := &stateTransition{
 		src: src,
-		bar: NewBarrier(1, wg.Wait),
+		bar: NewBarrier(desc, 1, func() {
+			wg.Wait()
+		}),
 	}
 
 	n.muBar.Lock()

@@ -23,7 +23,7 @@ func (ps *proxyServer) getClient(k string) (pbkv.KVClient, roster.Location, erro
 	loc := roster.Location{}
 
 	states := []state.RemoteState{
-		state.NsReady,
+		state.NsActive,
 	}
 
 	locations := ps.proxy.rost.LocateInState(ranje.Key(k), states)
@@ -35,7 +35,7 @@ func (ps *proxyServer) getClient(k string) (pbkv.KVClient, roster.Location, erro
 	// Prefer the ready node.
 	found := false
 	for i := range locations {
-		if locations[i].Info.State == state.NsReady {
+		if locations[i].Info.State == state.NsActive {
 			loc = locations[i]
 			found = true
 			break

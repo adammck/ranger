@@ -6,7 +6,7 @@ import (
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 )
 
-// See: ranger/pkg/proto/node.proto:RangeInfo.RemoteState
+// See: ranger/pkg/proto/node.proto:RangeNodeState
 type RemoteState uint8
 
 const (
@@ -14,14 +14,15 @@ const (
 	// Should never be in this state. Indicates a bug.
 	NsUnknown RemoteState = iota
 
-	// Valid states.
-	NsPreparing
-	NsPrepared
-	NsReadying
-	NsReady
-	NsTaking
-	NsTaken
-	NsDropping
+	// Stable states
+	NsInactive
+	NsActive
+
+	// During transitions
+	NsLoading      // Pending  -> PreReady
+	NsActivating   // PreReady -> Ready
+	NsDeactivating // Ready    -> PreReady
+	NsDropping     // PreReady -> NotFound
 
 	// Special case: This is never returned by probes, since those only include
 	// the state of ranges which the node has. This is returned by redundant
@@ -39,20 +40,21 @@ func RemoteStateFromProto(s pb.RangeNodeState) RemoteState {
 	switch s {
 	case pb.RangeNodeState_UNKNOWN:
 		return NsUnknown
-	case pb.RangeNodeState_PREPARING:
-		return NsPreparing
-	case pb.RangeNodeState_PREPARED:
-		return NsPrepared
-	case pb.RangeNodeState_READYING:
-		return NsReadying
-	case pb.RangeNodeState_READY:
-		return NsReady
-	case pb.RangeNodeState_TAKING:
-		return NsTaking
-	case pb.RangeNodeState_TAKEN:
-		return NsTaken
+
+	case pb.RangeNodeState_INACTIVE:
+		return NsInactive
+	case pb.RangeNodeState_ACTIVE:
+		return NsActive
+
+	case pb.RangeNodeState_LOADING:
+		return NsLoading
+	case pb.RangeNodeState_ACTIVATING:
+		return NsActivating
+	case pb.RangeNodeState_DEACTIVATING:
+		return NsDeactivating
 	case pb.RangeNodeState_DROPPING:
 		return NsDropping
+
 	case pb.RangeNodeState_NOT_FOUND:
 		return NsNotFound
 	}
@@ -65,20 +67,21 @@ func (rs RemoteState) ToProto() pb.RangeNodeState {
 	switch rs {
 	case NsUnknown:
 		return pb.RangeNodeState_UNKNOWN
-	case NsPreparing:
-		return pb.RangeNodeState_PREPARING
-	case NsPrepared:
-		return pb.RangeNodeState_PREPARED
-	case NsReadying:
-		return pb.RangeNodeState_READYING
-	case NsReady:
-		return pb.RangeNodeState_READY
-	case NsTaking:
-		return pb.RangeNodeState_TAKING
-	case NsTaken:
-		return pb.RangeNodeState_TAKEN
+
+	case NsInactive:
+		return pb.RangeNodeState_INACTIVE
+	case NsActive:
+		return pb.RangeNodeState_ACTIVE
+
+	case NsLoading:
+		return pb.RangeNodeState_LOADING
+	case NsActivating:
+		return pb.RangeNodeState_ACTIVATING
+	case NsDeactivating:
+		return pb.RangeNodeState_DEACTIVATING
 	case NsDropping:
 		return pb.RangeNodeState_DROPPING
+
 	case NsNotFound:
 		return pb.RangeNodeState_NOT_FOUND
 	}

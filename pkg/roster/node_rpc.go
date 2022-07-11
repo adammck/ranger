@@ -94,7 +94,7 @@ func (n *Node) Serve(ctx context.Context, p *ranje.Placement) error {
 }
 
 func (n *Node) Take(ctx context.Context, p *ranje.Placement) error {
-	log.Printf("taking %s from %s...", p.LogString(), n.Ident())
+	log.Printf("deactivating %s from %s...", p.LogString(), n.Ident())
 	rID := p.Range().Meta.Ident
 
 	// TODO: Include range parents
@@ -109,7 +109,7 @@ func (n *Node) Take(ctx context.Context, p *ranje.Placement) error {
 	// TODO: Retry a few times before giving up.
 	res, err := n.client.Take(ctx, req)
 	if err != nil {
-		log.Printf("error taking %s from %s: %v", p.LogString(), n.Ident(), err)
+		log.Printf("error deactivating %s from %s: %v", p.LogString(), n.Ident(), err)
 		return err
 	}
 
