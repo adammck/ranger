@@ -19,26 +19,17 @@ type proxyServer struct {
 	proxy *Proxy
 }
 
-func (ps *proxyServer) getClient(k string, write bool) (pbkv.KVClient, roster.Location, error) {
+func (ps *proxyServer) getClient(k string) (pbkv.KVClient, roster.Location, error) {
 	loc := roster.Location{}
 
 	states := []state.RemoteState{
 		state.NsReady,
 	}
 
-	if !write {
-		// Reads are okay while the range is being moved, too.
-		states = append(states, state.NsTaking, state.NsTaken)
-	}
-
 	locations := ps.proxy.rost.LocateInState(ranje.Key(k), states)
 
 	if len(locations) == 0 {
-		s := ""
-		if write {
-			s = " in writable state"
-		}
-		return nil, loc, status.Errorf(codes.FailedPrecondition, "no nodes have key%s", s)
+		return nil, loc, status.Errorf(codes.FailedPrecondition, "no nodes have key")
 	}
 
 	// Prefer the ready node.
@@ -65,7 +56,7 @@ func (ps *proxyServer) getClient(k string, write bool) (pbkv.KVClient, roster.Lo
 }
 
 func (ps *proxyServer) Get(ctx context.Context, req *pbkv.GetRequest) (*pbkv.GetResponse, error) {
-	client, loc, err := ps.getClient(req.Key, false)
+	client, loc, err := ps.getClient(req.Key)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +86,7 @@ func (ps *proxyServer) Put(ctx context.Context, req *pbkv.PutRequest) (*pbkv.Put
 
 	for {
 
-		client, loc, err = ps.getClient(req.Key, true)
+		client, loc, err = ps.getClient(req.Key)
 		if err == nil {
 			res, err = client.Put(ctx, req)
 			if err == nil {
