@@ -169,22 +169,32 @@ func (ks *Keyspace) Ranges() ([]*ranje.Range, func()) {
 //
 // Returns error if called when the placement is in any state other than
 // ranje.PsInactive.
-func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) bool {
+func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) error {
 
 	// Sanity check.
 	if p.State != ranje.PsInactive {
-		log.Printf("called PlacementMayBecomeReady in weird state: %s", p.State)
-		return false
+		return fmt.Errorf("called PlacementMayBecomeReady in weird state: %s", p.State)
 	}
 
 	r := p.Range()
 
+	// If this placement has been given up on, it's destined to be dropped
+	// rather than served. We might have tried to serve it and failed.
+	if p.GivenUp {
+		return fmt.Errorf("gave up")
+	}
+
 	// If one of the sibling placements (on the same range) claims to be
-	// replacing this range, then it mustn't become ready. It was probably
-	// just moved from ready to Idle so that the sibling could become ready.
+	// replacing this range, then it mustn't become ready (unless that sibling
+	// has given up). It was probably just moved from ready to Idle so that the
+	// sibling could become ready.
 	for _, p2 := range r.Placements {
 		if p2.IsReplacing == p.NodeID {
-			return false
+			if p2.GivenUp {
+				return nil
+			} else {
+				return fmt.Errorf("will be replaced by sibling")
+			}
 		}
 	}
 
@@ -194,8 +204,7 @@ func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) bool {
 	for i, rID := range r.Parents {
 		rp, err := ks.Get(rID)
 		if err != nil {
-			log.Printf("range has invalid parent: %s", rID)
-			return false
+			return fmt.Errorf("range has invalid parent: %s", rID)
 		}
 
 		parents[i] = rp
@@ -206,20 +215,19 @@ func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) bool {
 	// available in both the parent and child.
 	for _, rp := range parents {
 		for _, pp := range rp.Placements {
-			if pp.State == ranje.PsActive {
-				return false
+			if pp.State == ranje.PsActive { // TODO: != PsReady, instead?
+				return fmt.Errorf("parent placement is not PsInactive; is %s", pp.State)
 			}
 		}
 	}
 
 	// OTOH, if this is part of a parent range (i.e. it has children), it must
-	// not advance unless the children have all given up. (n.b. the concept of
-	// placements giving up is not in this branch, so for now hack it.)
+	// not advance unless the children have all given up.
 	children := ks.Children(r)
 	for _, rc := range children {
 		for _, pc := range rc.Placements {
-			if pc.State != ranje.PsGiveUp {
-				return false
+			if !pc.GivenUp {
+				return fmt.Errorf("children have not all given up")
 			}
 		}
 	}
@@ -234,7 +242,12 @@ func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) bool {
 		}
 	}
 
-	return n < r.MinReady()
+	// TODO: Isn't this bounded by MaxReady, instead?
+	if n >= r.MinReady() {
+		return fmt.Errorf("too many ready placements (n=%d, MinReady=%d)", n, r.MinReady())
+	}
+
+	return nil
 }
 
 // MayBeTaken returns whether the given placement, which is assumed to be in
@@ -257,23 +270,30 @@ func (ks *Keyspace) PlacementMayBeTaken(p *ranje.Placement) bool {
 
 	switch r.State {
 	case ranje.RsActive:
-		var replacement *ranje.Placement
-		for _, p2 := range r.Placements {
-			if p2.IsReplacing == p.NodeID {
-				replacement = p2
-				break
-			}
+		replacement := replacementFor(p)
+
+		// p wants to be moved, but no replacement placement has been created
+		// yet. Not sure how we ended up here, but it's valid.
+		if replacement == nil {
+			return false
 		}
 
-		// p wants to be moved, but no replacement placement has been created yet.
-		// Not sure how we ended up here, but it's valid.
-		if replacement == nil {
+		// There is another placement replacing this one, but we've given up on
+		// it, so will destroy that (the replacement) rather than taking this
+		// one. We might have already taken this one once, and then reverted it
+		// back because the replacement failed to become ready.
+		if replacement.GivenUp {
+			return false
+		}
+
+		if p.GiveUpOnDeactivate {
 			return false
 		}
 
 		if replacement.State == ranje.PsInactive {
 			return true
 		}
+
 	case ranje.RsSubsuming:
 
 		// Exit early if any of the child ranges don't have enough replicas
@@ -291,9 +311,12 @@ func (ks *Keyspace) PlacementMayBeTaken(p *ranje.Placement) bool {
 			}
 		}
 
+		if p.GiveUpOnDeactivate {
+			return false
+		}
+
 		// All placements in all child ranges are loaded, i.e. ready to become
 		// Ready. So we can become Taken, to relinquish all the keys in range.
-		log.Printf("PlacementMayBeTaken: true (r=%s)", r)
 		return true
 	}
 
@@ -311,32 +334,54 @@ func (ks *Keyspace) PlacementMayBeDropped(p *ranje.Placement) error {
 	switch r.State {
 	case ranje.RsActive:
 
-		// TODO: Move this (same in MayBeTaken) to r.ReplacementFor or something.
-		var replacement *ranje.Placement
-		for _, p2 := range r.Placements {
-			if p2.IsReplacing == p.NodeID {
-				replacement = p2
-				break
+		// If this placement is being replaced by another, and that other has
+		// become ready, this one can be dropped. Otherwise keep waiting.
+		if other := replacementFor(p); other != nil {
+			if other.State == ranje.PsActive {
+				return nil
+			} else {
+				return fmt.Errorf("replacement not ranje.PsActive; is %s", other.State)
 			}
 		}
 
-		// p is in Taken, but no replacement exists? This should not have happened.
-		// Maybe placing the replacement failed and we gave up?
-		//
-		// TODO: This should cause the placement to be *Undeactivated*. Maybe update this
-		//       method to return the next action, i.e. Drop or Untake?
-		//
-		if replacement == nil {
-			return fmt.Errorf("placement in ranje.PsInactive with no replacement")
+		// If this placement is replacing another, and is inactive but GivenUp,
+		// it's probably failed to activate. We *can* drop it straight away --
+		// it's useless -- but we wait until the original has been reverted to
+		// ready to make the order of operations more predictable. There's
+		// little harm in delaying the drop a bit, and reactivation (of the
+		// other placement) should be quick.
+		if other := replacedBy(p); other != nil {
+			if p.GivenUp {
+				if other.State == ranje.PsActive {
+					return nil
+				} else {
+					return fmt.Errorf("won't drop aborted placement until original is reactivated")
+				}
+			} else if other.GiveUpOnDeactivate {
+				// The other placement, for which this placement is waiting to
+				// deactivate so it can activate, has failed to deactivate! This
+				// indicates that something is very broken, but there's no point
+				// in keeping this inactive placement around forever.
+				return nil
+			}
 		}
 
-		if replacement.State != ranje.PsActive {
-			return fmt.Errorf("replacement not ranje.PsActive; is %s", replacement.State)
+		// This replacement has been aborted, but is not replacing anything,
+		// so can be dropped immediately.
+		if p.GivenUp {
+			return nil
 		}
 
-		return nil
+		// Shouldn't really be getting here; any placement which is Inactive and
+		// not replacing can be activated (via PlacementMayBecomeReady). This
+		// method shouldn't have even been called.
+		return fmt.Errorf("BUG: considering inactive activable placement for drop (pn=%s)", p.NodeID)
 
 	case ranje.RsSubsuming:
+		if p.GivenUp {
+			// wtf does this mean
+			panic("inactive placement in subsuming range has given up?")
+		}
 
 		// Can't drop until all of the child ranges have enough placements in
 		// Ready state. They might still need the contents of this parent range
@@ -359,6 +404,32 @@ func (ks *Keyspace) PlacementMayBeDropped(p *ranje.Placement) error {
 	default:
 		return fmt.Errorf("unexpected state (s=%v)", r.State)
 	}
+}
+
+func replacedBy(p *ranje.Placement) *ranje.Placement {
+	var out *ranje.Placement
+
+	for _, pp := range p.Range().Placements {
+		if p.IsReplacing == pp.NodeID {
+			out = pp
+			break
+		}
+	}
+
+	return out
+}
+
+func replacementFor(p *ranje.Placement) *ranje.Placement {
+	var out *ranje.Placement
+
+	for _, pp := range p.Range().Placements {
+		if pp.IsReplacing == p.NodeID {
+			out = pp
+			break
+		}
+	}
+
+	return out
 }
 
 func (ks *Keyspace) RangeCanBeObsoleted(r *ranje.Range) error {

@@ -22,6 +22,23 @@ type Placement struct {
 	// TODO: Change this to some kind of uuid.
 	IsReplacing string `json:",omitempty"` // NodeID
 
+	// How many times has this placement failed to advance to the next state?
+	// Orchestrator uses this to determine whether to give up or try again.
+	// Reset by ToState.
+	Attempts int
+
+	// Once this is set, the placement is destined to be destroyed. It's never
+	// unset. Might take a few ticks in order to unwind things gracefully,
+	// depending on the state which the placement and its family are in.
+	// TODO: Rename this to something more specific.
+	GivenUp bool
+
+	// The placement was attempted to be deactivated a few times, but the node
+	// refused. This is a really weird situation. But we need to stop trying
+	// eventually, so the replacements can be dropped and (presumably) an
+	// operator can be alerted.
+	GiveUpOnDeactivate bool
+
 	// Not persisted.
 	replaceDone func()
 	onReady     func()
@@ -103,6 +120,7 @@ func (p *Placement) ToState(new PlacementState) error {
 	}
 
 	p.State = new
+	p.Attempts = 0
 	p.rang.dirty = true
 
 	// TODO: Make this less weird

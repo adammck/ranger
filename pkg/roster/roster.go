@@ -371,6 +371,11 @@ func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (string, error)
 		}
 	}
 
+	rID := ranje.ZeroRange
+	if rng != nil {
+		rID = rng.Meta.Ident
+	}
+
 	// Exclude a node if:
 	//
 	// 1. It already has this range.
@@ -381,8 +386,10 @@ func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (string, error)
 	// 3. It's missing, i.e. hasn't responded to our probes in a while. It might
 	//    still come back, but let's avoid it anyway.
 	//
+	// 4. This range has failed to place on this node within the past minute.
+	//
 	for i := range nodes {
-		if rng != nil && nodes[i].HasRange(rng.Meta.Ident) {
+		if rID != ranje.ZeroRange && nodes[i].HasRange(rng.Meta.Ident) {
 			s := fmt.Sprintf("node already has range: %v", c.NodeID)
 			if c.NodeID != "" {
 				return "", errors.New(s)
@@ -412,6 +419,14 @@ func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (string, error)
 			continue
 		}
 
+		if nodes[i].PlacementFailures(rID, time.Now().Add(-1*time.Minute)) >= 1 {
+			if c.NodeID == "" {
+				s := fmt.Sprintf("node has recent failed placements: %v", nodes[i].Ident())
+				log.Print(s)
+				continue
+			}
+		}
+
 		candidates = append(candidates, i)
 	}
 
@@ -419,12 +434,22 @@ func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (string, error)
 		return "", fmt.Errorf("no candidates available (rID=%v, c=%v)", rng.Meta.Ident, c)
 	}
 
-	// Pick the node with lowest utilization.
+	// Pick the node with lowest utilization. For nodes with the exact same
+	// utilization, pick the node with the lowest (lexicographically) ident.
 	// TODO: This doesn't take into account ranges which are on the way to that
 	//       node, and is generally totally insufficient.
 
 	sort.Slice(candidates, func(i, j int) bool {
-		return nodes[candidates[i]].Utilization() < nodes[candidates[j]].Utilization()
+		ci := nodes[candidates[i]]
+		cj := nodes[candidates[j]]
+
+		ciu := ci.Utilization()
+		cju := cj.Utilization()
+		if ciu != cju {
+			return ciu < cju
+		}
+
+		return ci.Ident() < cj.Ident()
 	})
 
 	return nodes[candidates[0]].Ident(), nil
