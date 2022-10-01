@@ -198,16 +198,9 @@ func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) error {
 		}
 	}
 
-	// Gather the parent ranges
-	// TODO: Move this to a method on Keyspace, like Children.
-	parents := make([]*ranje.Range, len(r.Parents))
-	for i, rID := range r.Parents {
-		rp, err := ks.Get(rID)
-		if err != nil {
-			return fmt.Errorf("range has invalid parent: %s", rID)
-		}
-
-		parents[i] = rp
+	parents, err := ks.Parents(r)
+	if err != nil {
+		return err
 	}
 
 	// If this placement is part of a child range, we must wait until all of the
@@ -536,6 +529,23 @@ func (ks *Keyspace) Children(r *ranje.Range) []*ranje.Range {
 	}
 
 	return children
+}
+
+// Parents returns the parents of the given range, i.e. those it was split or
+// joined from. Child ranges should probably mostly ignore their parents.
+func (ks *Keyspace) Parents(r *ranje.Range) ([]*ranje.Range, error) {
+	parents := make([]*ranje.Range, len(r.Parents))
+
+	for i, rID := range r.Parents {
+		rp, err := ks.Get(rID)
+		if err != nil {
+			return nil, fmt.Errorf("range has invalid parent: %s", rID)
+		}
+
+		parents[i] = rp
+	}
+
+	return parents, nil
 }
 
 // Range returns a new range with the next available ident. This is the only
