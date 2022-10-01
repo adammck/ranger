@@ -95,8 +95,8 @@ func (p *Placement) ToState(new PlacementState) error {
 		return fmt.Errorf("invalid placement state transition: %s -> %s", old.String(), new.String())
 	}
 
-	// Special case: When entering PsReady, fire the optional callback.
-	if new == PsReady {
+	// Special case: When entering PsActive, fire the optional callback.
+	if new == PsActive {
 		if p.onReady != nil {
 			p.onReady()
 		}

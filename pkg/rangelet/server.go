@@ -158,8 +158,3 @@ func (ns *NodeServer) Info(ctx context.Context, req *pb.InfoRequest) (*pb.InfoRe
 func (ns *NodeServer) Ranges(ctx context.Context, req *pb.RangesRequest) (*pb.RangesResponse, error) {
 	panic("not imlemented!")
 }
-
-// TODO: Remove this method? Taken->Ready is no longer valid.
-func (ns *NodeServer) Untake(ctx context.Context, req *pb.UntakeRequest) (*pb.UntakeResponse, error) {
-	panic("not imlemented!")
-}

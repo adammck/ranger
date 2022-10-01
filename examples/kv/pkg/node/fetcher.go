@@ -32,7 +32,7 @@ func newFetcher(rm ranje.Meta, parents []api.Parent) *fetcher {
 
 	for _, par := range parents {
 		for _, plc := range par.Placements {
-			if plc.State == ranje.PsReady {
+			if plc.State == ranje.PsActive {
 				src := src{meta: par.Meta, node: plc.Node}
 				srcs = append(srcs, src)
 			}

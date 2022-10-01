@@ -43,18 +43,18 @@ func TestGiveFast(t *testing.T) {
 	ri, err := rglt.give(m, p)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsPrepared, ri.State)
+	assert.Equal(t, state.NsInactive, ri.State)
 
 	// Check range was created.
 	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
-	assert.Equal(t, state.NsPrepared, ri.State)
+	assert.Equal(t, state.NsInactive, ri.State)
 
 	// Check idempotency.
 	ri, err = rglt.give(m, p)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsPrepared, ri.State)
+	assert.Equal(t, state.NsInactive, ri.State)
 }
 
 func TestGiveSlow(t *testing.T) {
@@ -70,7 +70,7 @@ func TestGiveSlow(t *testing.T) {
 		ri, err := rglt.give(m, p)
 		require.NoError(t, err)
 		assert.Equal(t, ri.Meta, m)
-		assert.Equal(t, state.NsPreparing, ri.State)
+		assert.Equal(t, state.NsLoading, ri.State)
 	}
 
 	called := atomic.LoadUint32(&n.nPrepareAddRange)
@@ -78,7 +78,7 @@ func TestGiveSlow(t *testing.T) {
 
 	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
-	assert.Equal(t, state.NsPreparing, ri.State)
+	assert.Equal(t, state.NsLoading, ri.State)
 
 	// Unblock PrepareAddRange.
 	n.wgPrepareAddRange.Done()
@@ -91,13 +91,13 @@ func TestGiveSlow(t *testing.T) {
 
 	ri, ok = rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
-	assert.Equal(t, state.NsPrepared, ri.State)
+	assert.Equal(t, state.NsInactive, ri.State)
 
 	for i := 0; i < 2; i++ {
 		ri, err := rglt.give(m, p)
 		require.NoError(t, err)
 		assert.Equal(t, ri.Meta, m)
-		assert.Equal(t, state.NsPrepared, ri.State)
+		assert.Equal(t, state.NsInactive, ri.State)
 	}
 }
 
@@ -131,12 +131,12 @@ func TestGiveErrorSlow(t *testing.T) {
 
 	// Give the range. Even though the client will eventually return error from
 	// PrepareAddRange, the outer call (give succeeds because it will exceed the
-	// grace period and respond with Preparing.
+	// grace period and respond with Loading.
 	for i := 0; i < 2; i++ {
 		ri, err := rglt.give(m, p)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
-		assert.Equal(t, state.NsPreparing, ri.State)
+		assert.Equal(t, state.NsLoading, ri.State)
 	}
 
 	called := atomic.LoadUint32(&n.nPrepareAddRange)
@@ -155,7 +155,7 @@ func TestGiveErrorSlow(t *testing.T) {
 func setupServe(infos map[ranje.Ident]*info.RangeInfo, m ranje.Meta) {
 	infos[m.Ident] = &info.RangeInfo{
 		Meta:  m,
-		State: state.NsPrepared,
+		State: state.NsInactive,
 	}
 }
 
@@ -168,18 +168,18 @@ func TestServeFast(t *testing.T) {
 	ri, err := rglt.serve(m.Ident)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsReady, ri.State)
+	assert.Equal(t, state.NsActive, ri.State)
 
-	// Check state became NsReady.
+	// Check state became NsActive.
 	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
-	assert.Equal(t, state.NsReady, ri.State)
+	assert.Equal(t, state.NsActive, ri.State)
 
 	// Check idempotency.
 	ri, err = rglt.serve(m.Ident)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsReady, ri.State)
+	assert.Equal(t, state.NsActive, ri.State)
 }
 
 func TestServeSlow(t *testing.T) {
@@ -195,27 +195,27 @@ func TestServeSlow(t *testing.T) {
 	ri, err := rglt.serve(m.Ident)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsReadying, ri.State)
+	assert.Equal(t, state.NsActivating, ri.State)
 
 	// Check that state was updated.
 	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
-	assert.Equal(t, state.NsReadying, ri.State)
+	assert.Equal(t, state.NsActivating, ri.State)
 
 	// Unblock AddRange.
 	n.wgAddRange.Done()
 
-	// Wait until state is returned to NsReady.
+	// Wait until state is returned to NsActive.
 	assert.Eventually(t, func() bool {
 		ri, ok := rglt.rangeInfo(m.Ident)
-		return ok && ri.State == state.NsReady
+		return ok && ri.State == state.NsActive
 	}, waitFor, tick)
 
 	for i := 0; i < 2; i++ {
 		ri, err = rglt.serve(m.Ident)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
-		assert.Equal(t, state.NsReady, ri.State)
+		assert.Equal(t, state.NsActive, ri.State)
 	}
 }
 
@@ -238,12 +238,12 @@ func TestServeErrorFast(t *testing.T) {
 	ri, err := rglt.serve(m.Ident)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsPrepared, ri.State)
+	assert.Equal(t, state.NsInactive, ri.State)
 
 	// State was updated.
 	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
-	assert.Equal(t, state.NsPrepared, ri.State)
+	assert.Equal(t, state.NsInactive, ri.State)
 }
 
 func TestServeErrorSlow(t *testing.T) {
@@ -260,7 +260,7 @@ func TestServeErrorSlow(t *testing.T) {
 		ri, err := rglt.serve(m.Ident)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
-		assert.Equal(t, state.NsReadying, ri.State)
+		assert.Equal(t, state.NsActivating, ri.State)
 	}
 
 	called := atomic.LoadUint32(&n.nAddRange)
@@ -272,14 +272,14 @@ func TestServeErrorSlow(t *testing.T) {
 	// Wait until state returns to Prepared (because AddRange returned error).
 	require.Eventually(t, func() bool {
 		ri, ok := rglt.rangeInfo(m.Ident)
-		return ok && ri.State == state.NsPrepared
+		return ok && ri.State == state.NsInactive
 	}, waitFor, tick)
 }
 
 func setupTake(infos map[ranje.Ident]*info.RangeInfo, m ranje.Meta) {
 	infos[m.Ident] = &info.RangeInfo{
 		Meta:  m,
-		State: state.NsReady,
+		State: state.NsActive,
 	}
 }
 
@@ -292,18 +292,18 @@ func TestTakeFast(t *testing.T) {
 	ri, err := rglt.take(m.Ident)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsTaken, ri.State)
+	assert.Equal(t, state.NsInactive, ri.State)
 
-	// Check state became NsTaken.
+	// Check state became NsInactive.
 	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
-	assert.Equal(t, state.NsTaken, ri.State)
+	assert.Equal(t, state.NsInactive, ri.State)
 
 	// Check idempotency.
 	ri, err = rglt.take(m.Ident)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsTaken, ri.State)
+	assert.Equal(t, state.NsInactive, ri.State)
 }
 
 func TestTakeSlow(t *testing.T) {
@@ -320,13 +320,13 @@ func TestTakeSlow(t *testing.T) {
 		ri, err := rglt.take(m.Ident)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
-		assert.Equal(t, state.NsTaking, ri.State)
+		assert.Equal(t, state.NsDeactivating, ri.State)
 	}
 
 	// Check that state was updated.
 	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
-	assert.Equal(t, state.NsTaking, ri.State)
+	assert.Equal(t, state.NsDeactivating, ri.State)
 
 	// Unblock PrepareDropRange.
 	n.wgPrepareDropRange.Done()
@@ -334,14 +334,14 @@ func TestTakeSlow(t *testing.T) {
 	// Wait until state is updated.
 	assert.Eventually(t, func() bool {
 		ri, ok := rglt.rangeInfo(m.Ident)
-		return ok && ri.State == state.NsTaken
+		return ok && ri.State == state.NsInactive
 	}, waitFor, tick)
 
 	for i := 0; i < 2; i++ {
 		ri, err := rglt.take(m.Ident)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
-		assert.Equal(t, state.NsTaken, ri.State)
+		assert.Equal(t, state.NsInactive, ri.State)
 	}
 }
 
@@ -364,12 +364,12 @@ func TestTakeErrorFast(t *testing.T) {
 	ri, err := rglt.take(m.Ident)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsReady, ri.State)
+	assert.Equal(t, state.NsActive, ri.State)
 
 	// Check state was updated.
 	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
-	assert.Equal(t, state.NsReady, ri.State)
+	assert.Equal(t, state.NsActive, ri.State)
 }
 
 func TestTakeErrorSlow(t *testing.T) {
@@ -386,7 +386,7 @@ func TestTakeErrorSlow(t *testing.T) {
 		ri, err := rglt.take(m.Ident)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
-		assert.Equal(t, state.NsTaking, ri.State)
+		assert.Equal(t, state.NsDeactivating, ri.State)
 	}
 
 	called := atomic.LoadUint32(&n.nPrepareDropRange)
@@ -398,14 +398,14 @@ func TestTakeErrorSlow(t *testing.T) {
 	// Wait until state returns to Ready (because PrepareDropRange returned error).
 	require.Eventually(t, func() bool {
 		ri, ok := rglt.rangeInfo(m.Ident)
-		return ok && ri.State == state.NsReady
+		return ok && ri.State == state.NsActive
 	}, waitFor, tick)
 }
 
 func setupDrop(infos map[ranje.Ident]*info.RangeInfo, m ranje.Meta) {
 	infos[m.Ident] = &info.RangeInfo{
 		Meta:  m,
-		State: state.NsTaken,
+		State: state.NsInactive,
 	}
 }
 
@@ -489,12 +489,12 @@ func TestDropErrorFast(t *testing.T) {
 	ri, err := rglt.drop(m.Ident)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsTaken, ri.State)
+	assert.Equal(t, state.NsInactive, ri.State)
 
 	// Check state was updated.
 	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
-	assert.Equal(t, state.NsTaken, ri.State)
+	assert.Equal(t, state.NsInactive, ri.State)
 }
 
 func TestDropErrorSlow(t *testing.T) {
@@ -523,7 +523,7 @@ func TestDropErrorSlow(t *testing.T) {
 	// Wait until state returns to Taken (because DropRange returned error).
 	require.Eventually(t, func() bool {
 		ri, ok := rglt.rangeInfo(m.Ident)
-		return ok && ri.State == state.NsTaken
+		return ok && ri.State == state.NsInactive
 	}, waitFor, tick)
 }
 

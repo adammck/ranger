@@ -82,7 +82,7 @@ func main() {
 
 		placements := []Placement{}
 		for i, p := range r.Placements {
-			if p.Placement.State == pb.PlacementState_PS_READY {
+			if p.Placement.State == pb.PlacementState_PS_ACTIVE {
 				placements = append(placements, Placement{
 					index: i,
 					info:  p.RangeInfo.Info,

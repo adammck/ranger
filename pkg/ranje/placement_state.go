@@ -13,9 +13,8 @@ const (
 	PsUnknown PlacementState = iota
 
 	PsPending
-	PsPrepared
-	PsReady
-	PsTaken
+	PsInactive
+	PsActive
 	PsGiveUp
 	PsDropped
 )
@@ -30,16 +29,15 @@ var PlacementStateTransitions []PlacementStateTransition
 func init() {
 	PlacementStateTransitions = []PlacementStateTransition{
 		// Happy Path
-		{PsPending, PsPrepared},
-		{PsPrepared, PsReady},
-		{PsReady, PsTaken},
-		{PsTaken, PsDropped},
+		{PsPending, PsInactive}, // Give
+		{PsInactive, PsActive},  // Serve
+		{PsActive, PsInactive},  // Take
+		{PsInactive, PsDropped}, // Drop
 
-		// Error paths
+		// Node crashed (or placement mysteriously vanished)
 		{PsPending, PsGiveUp},
-		{PsPrepared, PsGiveUp},
-		{PsReady, PsGiveUp},
-		{PsTaken, PsGiveUp},
+		{PsInactive, PsGiveUp},
+		{PsActive, PsGiveUp},
 
 		// Recovery?
 		{PsGiveUp, PsDropped},
@@ -56,14 +54,11 @@ func (s PlacementState) ToProto() pb.PlacementState {
 	case PsPending:
 		return pb.PlacementState_PS_PENDING
 
-	case PsPrepared:
-		return pb.PlacementState_PS_PREPARED
+	case PsInactive:
+		return pb.PlacementState_PS_INACTIVE
 
-	case PsReady:
-		return pb.PlacementState_PS_READY
-
-	case PsTaken:
-		return pb.PlacementState_PS_TAKEN
+	case PsActive:
+		return pb.PlacementState_PS_ACTIVE
 
 	case PsGiveUp:
 		return pb.PlacementState_PS_GIVE_UP
@@ -85,14 +80,11 @@ func PlacementStateFromProto(s *pb.PlacementState) PlacementState {
 	case pb.PlacementState_PS_PENDING:
 		return PsPending
 
-	case pb.PlacementState_PS_PREPARED:
-		return PsPrepared
+	case pb.PlacementState_PS_INACTIVE:
+		return PsInactive
 
-	case pb.PlacementState_PS_READY:
-		return PsReady
-
-	case pb.PlacementState_PS_TAKEN:
-		return PsTaken
+	case pb.PlacementState_PS_ACTIVE:
+		return PsActive
 
 	case pb.PlacementState_PS_GIVE_UP:
 		return PsGiveUp

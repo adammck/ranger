@@ -54,22 +54,26 @@ message RangeInfo {
  }
 
 // TODO: Rename to RemoteState, like the non-proto type.
-// Keep synced with RangeState (in node.go for now)
+// Keep synced with roster/state.RemoteState (in pkg/roster/state/remote_state.go)
 enum RangeNodeState {
   UNKNOWN = 0;
-  PREPARING = 1;
-  PREPARED = 2;
-  READYING = 3;
-  READY = 4;
-  TAKING = 5;
-  TAKEN = 6;
-  DROPPING = 7;
+
+  // Stable states
+  INACTIVE = 1;
+  ACTIVE = 2;
+
+  // During transitions
+  LOADING = 3;      // Pending -> PreReady
+  ACTIVATING = 4;   // PreReady -> Ready
+  DEACTIVATING = 5; // Ready -> PreReady
+  DROPPING = 6;     // PreReady -> NotFound
+
   // Special case: See roster.RemoteState
-  NOT_FOUND = 8;
+  NOT_FOUND = 7;
 }
 
 // This is only for debugging purposes, for now.
-// Keep synced with ranje.RangeState (in pkg/ranje/state_range.go)
+// Keep synced with ranje.RangeState (in pkg/ranje/range_state.go)
 enum RangeState {
   RS_UNKNOWN = 0;
   RS_ACTIVE = 1;
@@ -78,13 +82,12 @@ enum RangeState {
 }
 
 // This is only for debugging purposes, for now.
-// Keep synced with ranje.PlacementState (in pkg/ranje/state_placement.go)
+// Keep synced with ranje.PlacementState (in pkg/ranje/placement_state.go)
 enum PlacementState {
   PS_UNKNOWN = 0;
   PS_PENDING = 1;
-  PS_PREPARED = 2;
-  PS_READY = 3;
-  PS_TAKEN = 4;
+  PS_INACTIVE = 2;
+  PS_ACTIVE = 3;
   PS_GIVE_UP = 5;
   PS_DROPPED = 6;
 }
