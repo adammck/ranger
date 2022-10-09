@@ -1035,15 +1035,7 @@ func TestSplit(t *testing.T) {
 
 	// 0. Initiate
 
-	op := OpSplit{
-		Range: 1,
-		Key:   "ccc",
-		Err:   make(chan error),
-	}
-
-	orch.opSplitsMu.Lock()
-	orch.opSplits[1] = op
-	orch.opSplitsMu.Unlock()
+	opErr := splitOp(orch, 1)
 
 	// 1. PrepareAddRange
 
@@ -1194,7 +1186,7 @@ func TestSplit(t *testing.T) {
 	assert.Equal(t, "{test-aaa [2:NsActive 3:NsActive]}", orch.rost.TestString())
 
 	requireStable(t, orch)
-	assertClosed(t, op.Err)
+	assertClosed(t, opErr)
 }
 
 func TestSplit_Short(t *testing.T) {
@@ -1204,16 +1196,7 @@ func TestSplit_Short(t *testing.T) {
 	defer nodes.Close()
 	requireStable(t, orch)
 
-	op := OpSplit{
-		Range: 1,
-		Key:   "ccc",
-		Err:   make(chan error),
-	}
-
-	orch.opSplitsMu.Lock()
-	orch.opSplits[1] = op
-	orch.opSplitsMu.Unlock()
-
+	splitOp(orch, 1)
 	tickUntilStable(t, orch, nodes)
 
 	// Range 1 was split into ranges 2 and 3 at ccc.
@@ -1227,16 +1210,7 @@ func TestSplit_Slow(t *testing.T) {
 	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), strictTransactions)
 	defer nodes.Close()
 	requireStable(t, orch)
-
-	op := OpSplit{
-		Range: 1,
-		Key:   "ccc",
-		Err:   make(chan error),
-	}
-
-	orch.opSplitsMu.Lock()
-	orch.opSplits[1] = op
-	orch.opSplitsMu.Unlock()
+	opErr := splitOp(orch, 1)
 
 	// 1. Split initiated by controller. Node hasn't heard about it yet.
 
@@ -1452,7 +1426,7 @@ func TestSplit_Slow(t *testing.T) {
 	assert.Equal(t, "{test-aaa [2:NsActive 3:NsActive]}", orch.rost.TestString())
 
 	requireStable(t, orch)
-	assertClosed(t, op.Err)
+	assertClosed(t, opErr)
 }
 
 func TestSplitFailure_PrepareAddRange(t *testing.T) {
@@ -1467,15 +1441,7 @@ func TestSplitFailure_PrepareAddRange(t *testing.T) {
 
 	// 0. Initiate
 
-	op := OpSplit{
-		Range: 1,
-		Key:   "ccc",
-		Err:   make(chan error),
-	}
-
-	orch.opSplitsMu.Lock()
-	orch.opSplits[1] = op
-	orch.opSplitsMu.Unlock()
+	splitOp(orch, 1)
 
 	// 1. PrepareAddRange
 
@@ -1554,15 +1520,7 @@ func TestSplitFailure_PrepareDropRange_Short(t *testing.T) {
 	// The node where the range lives will not relinquish it!
 	nodes.Get("test-aaa").SetReturnValue(t, 1, fake_node.PrepareDropRange, fmt.Errorf("failed PrepareDropRange for test"))
 
-	op := OpSplit{
-		Range: 1,
-		Key:   "ccc",
-		Err:   make(chan error),
-	}
-
-	orch.opSplitsMu.Lock()
-	orch.opSplits[1] = op
-	orch.opSplitsMu.Unlock()
+	splitOp(orch, 1)
 
 	// End up in a bad but stable situation where the original range never
 	// relinquish (that's the point), but that the successors don't activate.
@@ -1581,11 +1539,182 @@ func TestSplitFailure_PrepareDropRange(t *testing.T) {
 }
 
 func TestSplitFailure_AddRange_Short(t *testing.T) {
-	t.Skip("not implemented")
+	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
+	rosStr := "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}"
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	defer nodes.Close()
+	requireStable(t, orch)
+
+	// AddRange will always fail on node A.
+	// (But PrepareAddRange will succeed, as is the default)
+	nodes.Get("test-bbb").SetReturnValue(t, 2, fake_node.AddRange, fmt.Errorf("failed AddRange for test"))
+
+	splitOp(orch, 1)
+
+	tickUntilStable(t, orch, nodes)
+	assert.Equal(t, "{1 [-inf, +inf] RsObsolete} {2 [-inf, ccc] RsActive p0=test-ccc:PsActive} {3 (ccc, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa []} {test-bbb [3:NsActive]} {test-ccc [2:NsActive]}", orch.rost.TestString())
 }
 
 func TestSplitFailure_AddRange(t *testing.T) {
-	t.Skip("not implemented")
+	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
+	rosStr := "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}"
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	defer nodes.Close()
+	requireStable(t, orch)
+	nodes.Get("test-bbb").SetReturnValue(t, 2, fake_node.AddRange, fmt.Errorf("failed AddRange for test"))
+	splitOp(orch, 1)
+
+	tickWait(orch)
+	require.Empty(t, nodes.RPCs())
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsPending} {3 (ccc, +inf] RsActive p0=test-bbb:PsPending}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}", orch.rost.TestString())
+
+	// 1. PrepareAddRange
+
+	tickWait(orch)
+	{
+		rpcs := nodes.RPCs()
+		require.Equal(t, []string{"test-bbb"}, nIDs(rpcs))
+		bbb := rpcs["test-bbb"]
+		require.Len(t, bbb, 2)
+		require.IsType(t, &pb.GiveRequest{}, bbb[0])
+		require.IsType(t, &pb.GiveRequest{}, bbb[1])
+	}
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsPending} {3 (ccc, +inf] RsActive p0=test-bbb:PsPending}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
+
+	tickWait(orch)
+	require.Empty(t, nodes.RPCs())
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
+
+	// 2. PrepareDropRange
+
+	tickWait(orch)
+	{
+		rpcs := nodes.RPCs()
+		require.Equal(t, []string{"test-aaa"}, nIDs(rpcs))
+		aaa := rpcs["test-aaa"]
+		require.Len(t, aaa, 1)
+		require.IsType(t, &pb.TakeRequest{}, aaa[0])
+	}
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
+
+	// 3. AddRange
+
+	tickWait(orch)
+	{
+		rpcs := nodes.RPCs()
+		require.Equal(t, []string{"test-bbb"}, nIDs(rpcs))
+		bbb := rpcs["test-bbb"]
+		require.Len(t, bbb, 2)
+		require.IsType(t, &pb.ServeRequest{}, bbb[0])
+		require.IsType(t, &pb.ServeRequest{}, bbb[1])
+	}
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive 3:NsActive]} {test-ccc []}", orch.rost.TestString())
+
+	// TODO: Rename to e.g. ServeRequests to differentiate.
+	require.Equal(t, 1, mustGetPlacement(t, orch.ks, 2, "test-bbb").Attempts)
+	require.Equal(t, 1, mustGetPlacement(t, orch.ks, 3, "test-bbb").Attempts)
+
+	// Two more attempts to serve R2.
+	for attempt := 2; attempt <= 3; attempt++ {
+		tickWait(orch)
+
+		{
+			rpcs := nodes.RPCs()
+			require.Equal(t, []string{"test-bbb"}, nIDs(rpcs))
+			bbb := rpcs["test-bbb"]
+			require.Len(t, bbb, 1)
+			require.IsType(t, &pb.ServeRequest{}, bbb[0])
+			require.Equal(t, uint64(2), bbb[0].(*pb.ServeRequest).Range)
+		}
+
+		require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
+		require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive 3:NsActive]} {test-ccc []}", orch.rost.TestString())
+
+		// TODO: Rename Attemps to e.g. AddRangeAttempts.
+		require.Equal(t, attempt, mustGetPlacement(t, orch.ks, 2, "test-bbb").Attempts)
+	}
+
+	// 4. PrepareDropRange
+	// Undo the Serve that succeeded, so we can reactivate the predecessor while
+	// a new placement is found for the Serve that failed. Give can be slow, but
+	// Take and Serve should be fast.
+
+	tickWait(orch)
+	{
+		rpcs := nodes.RPCs()
+		require.Equal(t, []string{"test-bbb"}, nIDs(rpcs))
+		bbb := rpcs["test-bbb"]
+		require.Len(t, bbb, 1)
+		require.IsType(t, &pb.TakeRequest{}, bbb[0])
+		require.Equal(t, uint64(3), bbb[0].(*pb.TakeRequest).Range)
+	}
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
+	require.True(t, mustGetPlacement(t, orch.ks, 2, "test-bbb").GivenUp)
+
+	tickWait(orch)
+	require.Empty(t, nodes.RPCs())
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
+
+	// 5. AddRange
+
+	tickWait(orch)
+	{
+		rpcs := nodes.RPCs()
+		require.Equal(t, []string{"test-aaa"}, nIDs(rpcs))
+		aaa := rpcs["test-aaa"]
+		require.Len(t, aaa, 1)
+		require.IsType(t, &pb.ServeRequest{}, aaa[0])
+		require.Equal(t, uint64(1), aaa[0].(*pb.ServeRequest).Range)
+	}
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
+
+	// 6. DropRange
+
+	tickWait(orch)
+	{
+		rpcs := nodes.RPCs()
+		require.Equal(t, []string{"test-bbb"}, nIDs(rpcs))
+		bbb := rpcs["test-bbb"]
+		require.Len(t, bbb, 1)
+		require.IsType(t, &pb.DropRequest{}, bbb[0])
+		require.Equal(t, uint64(2), bbb[0].(*pb.DropRequest).Range)
+	}
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [3:NsInactive]} {test-ccc []}", orch.rost.TestString())
+
+	tickWait(orch)
+	require.Empty(t, nodes.RPCs())
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [3:NsInactive]} {test-ccc []}", orch.rost.TestString())
+
+	// 7. PrepareAddRange (retry)
+
+	tickWait(orch)
+	{
+		rpcs := nodes.RPCs()
+		require.Equal(t, []string{"test-ccc"}, nIDs(rpcs))
+		ccc := rpcs["test-ccc"]
+		require.Len(t, ccc, 1)
+		require.IsType(t, &pb.GiveRequest{}, ccc[0])
+		require.Equal(t, uint64(2), ccc[0].(*pb.GiveRequest).Range.Ident)
+	}
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-ccc:PsPending} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [3:NsInactive]} {test-ccc [2:NsInactive]}", orch.rost.TestString())
+
+	// Recovered! Let the re-placement of R3 on Nccc finish.
+
+	tickUntilStable(t, orch, nodes)
+	require.Equal(t, "{1 [-inf, +inf] RsObsolete} {2 [-inf, ccc] RsActive p0=test-ccc:PsActive} {3 (ccc, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa []} {test-bbb [3:NsActive]} {test-ccc [2:NsActive]}", orch.rost.TestString())
 }
 
 func TestSplitFailure_DropRange(t *testing.T) {
@@ -1602,15 +1731,7 @@ func TestSplitFailure_DropRange_Short(t *testing.T) {
 	// The source node will not drop the range.
 	nodes.Get("test-aaa").SetReturnValue(t, 1, fake_node.DropRange, fmt.Errorf("failed DropRange for test"))
 
-	op := OpSplit{
-		Range: 1,
-		Key:   "ccc",
-		Err:   make(chan error),
-	}
-
-	orch.opSplitsMu.Lock()
-	orch.opSplits[1] = op
-	orch.opSplitsMu.Unlock()
+	splitOp(orch, 1)
 
 	// End up in a bad but stable situation where the original range never
 	// relinquish (that's the point), but that the successors don't activate.
@@ -2253,6 +2374,22 @@ func remoteStateFromString(t *testing.T, s string) state.RemoteState {
 
 	t.Fatalf("invalid PlacementState string: %s", s)
 	return state.NsUnknown // unreachable
+}
+
+func splitOp(orch *Orchestrator, rID int) chan error {
+	ch := make(chan error)
+
+	op := OpSplit{
+		Range: 1,
+		Key:   "ccc",
+		Err:   ch,
+	}
+
+	orch.opSplitsMu.Lock()
+	orch.opSplits[1] = op
+	orch.opSplitsMu.Unlock()
+
+	return ch
 }
 
 // --------------------------------------------------------------------- helpers

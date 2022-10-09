@@ -36,6 +36,7 @@ type Orchestrator struct {
 	opMovesMu sync.RWMutex
 
 	// Same for splits.
+	// TODO: Why is this a map??
 	opSplits   map[ranje.Ident]OpSplit
 	opSplitsMu sync.RWMutex
 
