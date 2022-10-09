@@ -25,6 +25,7 @@ type Placement struct {
 	// How many times has this placement failed to advance to the next state?
 	// Orchestrator uses this to determine whether to give up or try again.
 	// Reset by ToState.
+	// TODO: Split this up into separate transitions, like DropAttempts.
 	Attempts int
 
 	// Once this is set, the placement is destined to be destroyed. It's never
@@ -38,6 +39,14 @@ type Placement struct {
 	// eventually, so the replacements can be dropped and (presumably) an
 	// operator can be alerted.
 	GiveUpOnDeactivate bool
+
+	// How many times has this place been commanded to drop?
+	DropAttempts int
+
+	// The placement is inactive, but failed to drop. Probably no harm done,
+	// except that the node can't release the resources. An operator should be
+	// alerted.
+	DropFailed bool
 
 	// Not persisted.
 	replaceDone func()

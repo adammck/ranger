@@ -1012,8 +1012,8 @@ func TestMoveFailure_DropRange(t *testing.T) {
 		assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive p1=test-bbb:PsActive:replacing(test-aaa)}", orch.ks.LogString())
 		assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [1:NsActive]}", orch.rost.TestString())
 
-		// Except this counter, which will increment forever.
-		assert.Equal(t, attempt, mustGetPlacement(t, orch.ks, 1, "test-aaa").Attempts)
+		// (Except for this counter.)
+		assert.Equal(t, attempt, mustGetPlacement(t, orch.ks, 1, "test-aaa").DropAttempts)
 	}
 
 	// Not checking stability here. Failing to drop will retry forever until an
@@ -1580,12 +1580,48 @@ func TestSplitFailure_PrepareDropRange(t *testing.T) {
 	t.Skip("not implemented")
 }
 
+func TestSplitFailure_AddRange_Short(t *testing.T) {
+	t.Skip("not implemented")
+}
+
 func TestSplitFailure_AddRange(t *testing.T) {
 	t.Skip("not implemented")
 }
 
 func TestSplitFailure_DropRange(t *testing.T) {
 	t.Skip("not implemented")
+}
+
+func TestSplitFailure_DropRange_Short(t *testing.T) {
+	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
+	rosStr := "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}"
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	defer nodes.Close()
+	requireStable(t, orch)
+
+	// The source node will not drop the range.
+	nodes.Get("test-aaa").SetReturnValue(t, 1, fake_node.DropRange, fmt.Errorf("failed DropRange for test"))
+
+	op := OpSplit{
+		Range: 1,
+		Key:   "ccc",
+		Err:   make(chan error),
+	}
+
+	orch.opSplitsMu.Lock()
+	orch.opSplits[1] = op
+	orch.opSplitsMu.Unlock()
+
+	// End up in a bad but stable situation where the original range never
+	// relinquish (that's the point), but that the successors don't activate.
+	tickUntilStable(t, orch, nodes)
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-bbb:PsActive} {3 (ccc, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsActive 3:NsActive]} {test-ccc []}", orch.rost.TestString())
+
+	// R1 is stuck until some operator comes and unsticks it.
+	// TODO: Make it possible (configurable) to automatically force drop it.
+	p := mustGetPlacement(t, orch.ks, 1, "test-aaa")
+	assert.True(t, p.DropFailed)
 }
 
 func TestJoin(t *testing.T) {

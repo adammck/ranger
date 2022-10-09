@@ -16,9 +16,11 @@ import (
 	"google.golang.org/grpc"
 )
 
+// TODO: Move these to scope.
 const maxGiveAttempts = 3
 const maxTakeAttempts = 3
 const maxServeAttempts = 3
+const maxDropAttempts = 30 // Not actually forever.
 
 type Orchestrator struct {
 	cfg  config.Config
@@ -555,15 +557,18 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 			// We are ready to move from Inactive to Dropped, but we have to wait
 			// for the placement(s) that are replacing this to become Ready.
 			if b.ks.PlacementMayBeDropped(p) == nil {
-				p.Attempts += 1
-				log.Printf("will drop %s from %s", p.Range().Meta.Ident, n.Ident())
-				b.drop(p, n)
+				if p.DropAttempts >= maxDropAttempts {
+					if !p.DropFailed {
+						log.Printf("drop failed after %d attempts (rID=%s, n=%s, attempt=%d)", p.Attempts, p.Range().Meta.Ident, n.Ident(), p.Attempts)
+						p.DropFailed = true
+					}
+				} else {
+					p.DropAttempts += 1
+					log.Printf("will drop %s from %s", p.Range().Meta.Ident, n.Ident())
+					b.drop(p, n)
+				}
 				return
 			}
-
-			// 	} else if err := b.ks.PlacementMayBeDropped(p); err == nil {
-			// 		p.GivenUp = true // TODO: Is this necessary?
-			// 		b.drop(p, n)
 
 			log.Printf("placement blocked at NsInactive (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
 			return
