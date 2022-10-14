@@ -1781,21 +1781,7 @@ func TestJoin_Slow(t *testing.T) {
 	defer nodes.Close()
 	requireStable(t, orch)
 
-	// Inject a join to get us started.
-	// TODO: Do this via the operator interface instead.
-	// TODO: Inject the target node for r3. It currently defaults to the empty
-	//       node
-
-	op := OpJoin{
-		Left:  1,
-		Right: 2,
-		Dest:  "test-ccc",
-		Err:   make(chan error),
-	}
-
-	orch.opJoinsMu.Lock()
-	orch.opJoins = append(orch.opJoins, op)
-	orch.opJoinsMu.Unlock()
+	opErr := joinOp(orch, 1, 2, "test-ccc")
 
 	// 1. Controller initiates join.
 
@@ -1951,11 +1937,64 @@ func TestJoin_Slow(t *testing.T) {
 	assert.Equal(t, "{test-aaa []} {test-bbb []} {test-ccc [3:NsActive]}", orch.rost.TestString())
 
 	requireStable(t, orch)
-	assertClosed(t, op.Err)
+	assertClosed(t, opErr)
 }
 
 func TestJoinFailure_PrepareAddRange(t *testing.T) {
-	t.Skip("not implemented")
+	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
+	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []} {test-ddd []}"
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	defer nodes.Close()
+	requireStable(t, orch)
+
+	// The new range will not be accepted by ccc.
+	nodes.Get("test-ccc").SetReturnValue(t, 3, fake_node.PrepareAddRange, fmt.Errorf("something went wrong"))
+
+	// 0. Initiate
+
+	_ = joinOp(orch, 1, 2, "test-ccc")
+
+	// 1. PrepareAddRange
+
+	tickWait(orch)
+	require.Empty(t, nodes.RPCs())
+	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsPending}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []} {test-ddd []}", orch.rost.TestString())
+
+	// Makes three attempts.
+
+	for attempt := 1; attempt <= 3; attempt++ {
+		tickWait(orch)
+		require.Len(t, nodes.RPCs(), 1) // no need to check RPC contents again. It's a Give to test-ccc.
+		require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsPending}", orch.ks.LogString())
+		require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc [3:NsNotFound]} {test-ddd []}", orch.rost.TestString())
+
+		p := mustGetPlacement(t, orch.ks, 3, "test-ccc")
+		require.Equal(t, attempt, p.Attempts)
+		require.False(t, p.GivenUp)
+	}
+
+	// Gave up on test-ccc...
+
+	tickWait(orch)
+	//assertClosed(t, opErr) // <- TODO(adammck): Fix this.
+
+	require.Empty(t, nodes.RPCs())
+	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc [3:NsNotFound]} {test-ddd []}", orch.rost.TestString())
+
+	// But for better or worse, R3 now exists, and the orchestrator will try to
+	// place it rather than giving up altogether and abandonning the range. I'm
+	// not sure if that's right -- maybe it'd be better to just give up and set
+	// the predecessors back to RsActive? -- but this way Just Works.
+
+	tickUntilStable(t, orch, nodes)
+	require.Empty(t, nodes.RPCs())
+	require.Equal(t, "{1 [-inf, ggg] RsObsolete} {2 (ggg, +inf] RsObsolete} {3 [-inf, +inf] RsActive p0=test-ddd:PsActive}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa []} {test-bbb []} {test-ccc []} {test-ddd [3:NsActive]}", orch.rost.TestString())
+
+	// Done!
+
 }
 
 func TestJoinFailure_PrepareDropRange(t *testing.T) {
@@ -2378,16 +2417,41 @@ func remoteStateFromString(t *testing.T, s string) state.RemoteState {
 
 func splitOp(orch *Orchestrator, rID int) chan error {
 	ch := make(chan error)
+	rID_ := ranje.Ident(rID)
 
 	op := OpSplit{
-		Range: 1,
+		Range: rID_,
 		Key:   "ccc",
 		Err:   ch,
 	}
 
 	orch.opSplitsMu.Lock()
-	orch.opSplits[1] = op
+	orch.opSplits[ranje.Ident(rID)] = op
 	orch.opSplitsMu.Unlock()
+
+	return ch
+}
+
+// JoinOp injects a join operation to the given orchestrator, to kick off the
+// operation at the start of a test.
+func joinOp(orch *Orchestrator, r1ID, r2ID int, dest string) chan error {
+	ch := make(chan error)
+
+	// TODO: Do this via the operator interface instead.
+
+	// TODO: Inject the target node for r3. It currently defaults to the empty
+	//       node
+
+	op := OpJoin{
+		Left:  ranje.Ident(r1ID),
+		Right: ranje.Ident(r2ID),
+		Dest:  dest,
+		Err:   ch,
+	}
+
+	orch.opJoinsMu.Lock()
+	orch.opJoins = append(orch.opJoins, op)
+	orch.opJoinsMu.Unlock()
 
 	return ch
 }

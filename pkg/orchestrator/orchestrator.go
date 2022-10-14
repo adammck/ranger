@@ -635,7 +635,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 				b.take(p, n)
 			}
 
-		} else {
+			//} else {
 			//log.Printf("placement blocked at NsReady (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
 		}
 
