@@ -242,7 +242,10 @@ func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) error {
 
 	// OTOH, if this is part of a parent range (i.e. it has children), it must
 	// not advance unless the children have all given up.
-	children := ks.Children(r)
+	children, err := ks.Children(r)
+	if err != nil {
+		return err // The keyspace is corrupt!
+	}
 	if len(children) > 0 {
 		numGivenUp := 0
 		for _, rc := range children {
@@ -362,9 +365,15 @@ func (ks *Keyspace) PlacementMayBeTaken(p *ranje.Placement) bool {
 
 	case ranje.RsSubsuming:
 
+		children, err := ks.Children(r)
+		if err != nil {
+			log.Printf("range has invalid children: %v", err)
+			return false
+		}
+
 		// Exit early if any of the child ranges don't have enough replicas
 		// in ranje.PsInactive.
-		for _, rc := range ks.Children(r) {
+		for _, rc := range children {
 			n := 0
 			for _, pc := range rc.Placements {
 				if pc.State == ranje.PsInactive && !pc.GivenUp {
@@ -490,11 +499,16 @@ func (ks *Keyspace) PlacementMayBeDropped(p *ranje.Placement) error {
 			panic("inactive placement in subsuming range has given up?")
 		}
 
+		children, err := ks.Children(r)
+		if err != nil {
+			return err // The keyspace is corrupt!
+		}
+
 		// Can't drop until all of the child ranges have enough placements in
 		// Ready state. They might still need the contents of this parent range
 		// to make themselves ready. (Or we might want to abort the split and
 		// move this parent range back to ready; not implemented yet.)
-		for _, cr := range ks.Children(r) {
+		for _, cr := range children {
 			ready := 0
 			for _, cp := range cr.Placements {
 				if cp.State == ranje.PsActive {
@@ -628,72 +642,6 @@ func (ks *Keyspace) Get(id ranje.Ident) (*ranje.Range, error) {
 	}
 
 	return nil, fmt.Errorf("no such range: %s", id.String())
-}
-
-func (ks *Keyspace) Children(r *ranje.Range) []*ranje.Range {
-	children := make([]*ranje.Range, len(r.Children))
-
-	for i, rID := range r.Children {
-		rp, err := ks.Get(rID)
-
-		if err != nil {
-			// This is actually a pretty major problem
-			// TODO: Return an error instead of logging!
-			log.Printf("range has invalid child: %s (r=%s)", rID, r)
-			continue
-		}
-
-		children[i] = rp
-	}
-
-	return children
-}
-
-// Parents returns the parents of the given range, i.e. those it was split or
-// joined from. Child ranges should probably mostly ignore their parents.
-func (ks *Keyspace) Parents(r *ranje.Range) ([]*ranje.Range, error) {
-	parents := make([]*ranje.Range, len(r.Parents))
-
-	for i, rID := range r.Parents {
-		rp, err := ks.Get(rID)
-		if err != nil {
-			return nil, fmt.Errorf("range has invalid parent: %s", rID)
-		}
-
-		parents[i] = rp
-	}
-
-	return parents, nil
-}
-
-func (ks *Keyspace) Siblings(r *ranje.Range) ([]*ranje.Range, error) {
-	// if len(r.Parents) != 1 {
-	// 	// Is this actually a problem? Just doesn't make sense.
-	// 	return nil, fmt.Errorf("BUG: ks.Siblings called for range with %d parents (expected 1)", len(r.Parents))
-	// }
-
-	rp, err := ks.Get(r.Parents[0])
-	if err != nil {
-		return nil, fmt.Errorf("CORRUPT: range has invalid parent: %s", r.Parents[0])
-	}
-
-	siblings := make([]*ranje.Range, 0)
-	for _, rID := range rp.Children {
-
-		// Exclude self.
-		if rID == r.Meta.Ident {
-			continue
-		}
-
-		rs, err := ks.Get(rID)
-		if err != nil {
-			return nil, fmt.Errorf("CORRUPT: range has invalid parent: %s", rID)
-		}
-
-		siblings = append(siblings, rs)
-	}
-
-	return siblings, nil
 }
 
 // Range returns a new range with the next available ident. This is the only
