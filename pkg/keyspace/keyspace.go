@@ -164,12 +164,9 @@ func (ks *Keyspace) Ranges() ([]*ranje.Range, func()) {
 	return ks.ranges, ks.mu.Unlock
 }
 
-// PlacementMayBecomeReady returns whether the given placement is permitted to
+// PlacementMayActivate returns whether the given placement is permitted to
 // advance from ranje.PsInactive to ranje.PsActive.
-//
-// Returns error if called when the placement is in any state other than
-// ranje.PsInactive.
-func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) error {
+func (ks *Keyspace) PlacementMayActivate(p *ranje.Placement) error {
 
 	// Sanity check.
 	if p.State != ranje.PsInactive {
@@ -279,15 +276,9 @@ func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) error {
 	return nil
 }
 
-// MayBeTaken returns whether the given placement, which is assumed to be in
-// state ranje.PsActive, may advance to ranje.PsInactive. The only circumstance where this is
-// true is when the placement is being replaced by another replica (i.e. a move)
-// or when the entire range has been subsumed.
-//
-// TODO: Implement the latter, when (re-)implementing splits and joins. This
-//       probably needs to move to the keyspace, for that.
-//
-func (ks *Keyspace) PlacementMayBeTaken(p *ranje.Placement) bool {
+// PlacementMayDeactivate returns true if the given placement is permitted to
+// move from PsActive to PsInactive.
+func (ks *Keyspace) PlacementMayDeactivate(p *ranje.Placement) bool {
 
 	// Sanity check.
 	if p.State != ranje.PsActive {
@@ -378,7 +369,9 @@ func (ks *Keyspace) PlacementMayBeTaken(p *ranje.Placement) bool {
 	return false
 }
 
-func (ks *Keyspace) PlacementMayBeDropped(p *ranje.Placement) error {
+// PlacementMayDrop returns nil if the given placement is permitted to be
+// dropped, otherwise an error indicating why not.
+func (ks *Keyspace) PlacementMayDrop(p *ranje.Placement) error {
 
 	// Sanity check.
 	if p.State != ranje.PsInactive {

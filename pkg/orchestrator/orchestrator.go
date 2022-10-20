@@ -523,7 +523,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 			}
 
 			// Maybe we dropped it on purpose because it's been subsumed.
-			if b.ks.PlacementMayBeDropped(p) == nil {
+			if b.ks.PlacementMayDrop(p) == nil {
 				b.ks.PlacementToState(p, ranje.PsDropped)
 				return
 			}
@@ -540,7 +540,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 			// This is the first time around. In order for this placement to
 			// move to Ready, the one it is replacing (maybe) must reliniquish
 			// it first.
-			if b.ks.PlacementMayBecomeReady(p) == nil {
+			if b.ks.PlacementMayActivate(p) == nil {
 				if p.Attempts >= maxServeAttempts {
 					log.Printf("given up on serving prepared placement (rID=%s, n=%s, attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
 					n.PlacementFailed(p.Range().Meta.Ident, time.Now())
@@ -557,7 +557,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 
 			// We are ready to move from Inactive to Dropped, but we have to wait
 			// for the placement(s) that are replacing this to become Ready.
-			if b.ks.PlacementMayBeDropped(p) == nil {
+			if b.ks.PlacementMayDrop(p) == nil {
 				if p.DropAttempts >= maxDropAttempts {
 					if !p.DropFailed {
 						log.Printf("drop failed after %d attempts (rID=%s, n=%s, attempt=%d)", p.Attempts, p.Range().Meta.Ident, n.Ident(), p.Attempts)
@@ -624,7 +624,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 			b.ks.PlacementToState(p, ranje.PsGiveUp)
 		}
 
-		if b.ks.PlacementMayBeTaken(p) {
+		if b.ks.PlacementMayDeactivate(p) {
 			if p.Attempts >= maxTakeAttempts {
 				log.Printf("given up on deactivating placement (rID=%s, n=%s, attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
 				p.GiveUpOnDeactivate = true
