@@ -32,7 +32,7 @@ type Placement struct {
 	// unset. Might take a few ticks in order to unwind things gracefully,
 	// depending on the state which the placement and its family are in.
 	// TODO: Rename this to something more specific.
-	GivenUp bool
+	GivenUpOnActivate bool
 
 	// The placement was attempted to be deactivated a few times, but the node
 	// refused. This is a really weird situation. But we need to stop trying

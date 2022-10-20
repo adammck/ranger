@@ -317,13 +317,13 @@ func TestPlaceFailure_AddRange(t *testing.T) {
 
 		p := mustGetPlacement(t, orch.ks, 1, "test-aaa")
 		assert.Equal(t, attempt, p.Attempts)
-		assert.False(t, p.GivenUp)
+		assert.False(t, p.GivenUpOnActivate)
 	}
 
 	tickWait(orch)
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb []}", orch.rost.TestString())
-	assert.True(t, mustGetPlacement(t, orch.ks, 1, "test-aaa").GivenUp)
+	assert.True(t, mustGetPlacement(t, orch.ks, 1, "test-aaa").GivenUpOnActivate)
 
 	// 3. DropRange(1, aaa)
 
@@ -914,7 +914,7 @@ func TestMoveFailure_AddRange(t *testing.T) {
 
 		p := mustGetPlacement(t, orch.ks, 1, "test-bbb")
 		assert.Equal(t, attempt, p.Attempts)
-		assert.False(t, p.GivenUp)
+		assert.False(t, p.GivenUpOnActivate)
 	}
 
 	// Replacement (on bbb) is marked as GivenUp.
@@ -922,7 +922,7 @@ func TestMoveFailure_AddRange(t *testing.T) {
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive p1=test-bbb:PsInactive:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
-	assert.True(t, mustGetPlacement(t, orch.ks, 1, "test-bbb").GivenUp)
+	assert.True(t, mustGetPlacement(t, orch.ks, 1, "test-bbb").GivenUpOnActivate)
 
 	// 4. AddRange(1, aaa)
 	log.Print("4")
@@ -1656,7 +1656,7 @@ func TestSplitFailure_AddRange(t *testing.T) {
 	}
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
-	require.True(t, mustGetPlacement(t, orch.ks, 2, "test-bbb").GivenUp)
+	require.True(t, mustGetPlacement(t, orch.ks, 2, "test-bbb").GivenUpOnActivate)
 
 	tickWait(orch)
 	require.Empty(t, nodes.RPCs())
@@ -1971,7 +1971,7 @@ func TestJoinFailure_PrepareAddRange(t *testing.T) {
 
 		p := mustGetPlacement(t, orch.ks, 3, "test-ccc")
 		require.Equal(t, attempt, p.Attempts)
-		require.False(t, p.GivenUp)
+		require.False(t, p.GivenUpOnActivate)
 	}
 
 	// Gave up on test-ccc...

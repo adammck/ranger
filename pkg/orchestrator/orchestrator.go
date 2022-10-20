@@ -517,7 +517,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 
 			// The node doesn't have the placement any more! Maybe we tried to
 			// activate it but gave up.
-			if p.GivenUp {
+			if p.GivenUpOnActivate {
 				destroy = true
 				return
 			}
@@ -544,7 +544,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 				if p.Attempts >= maxServeAttempts {
 					log.Printf("given up on serving prepared placement (rID=%s, n=%s, attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
 					n.PlacementFailed(p.Range().Meta.Ident, time.Now())
-					p.GivenUp = true
+					p.GivenUpOnActivate = true
 
 				} else {
 					p.Attempts += 1

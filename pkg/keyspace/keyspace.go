@@ -184,7 +184,7 @@ func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) error {
 
 	// If this placement has been given up on, it's destined to be dropped
 	// rather than served. We might have tried to serve it and failed.
-	if p.GivenUp {
+	if p.GivenUpOnActivate {
 		return fmt.Errorf("gave up")
 	}
 
@@ -194,7 +194,7 @@ func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) error {
 	// sibling could become ready.
 	for _, p2 := range r.Placements {
 		if p2.IsReplacing == p.NodeID {
-			if p2.GivenUp {
+			if p2.GivenUpOnActivate {
 				return nil
 			} else {
 				return fmt.Errorf("will be replaced by sibling")
@@ -226,7 +226,7 @@ func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) error {
 		// The parent is still subsuming.
 		for _, rs := range fam.Siblings {
 			for _, rsp := range rs.Placements {
-				if rsp.GivenUp { // TODO: Rename to rsp.GivenUpOnServe
+				if rsp.GivenUpOnActivate {
 					// Sibling has given up on serving. This split has
 					// failed. Take to start rewinding it.
 					return fmt.Errorf("sibling is GivenUp; parent will be recalling")
@@ -251,7 +251,7 @@ func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) error {
 					return fmt.Errorf("has active child")
 				}
 
-				if pc.GivenUp {
+				if pc.GivenUpOnActivate {
 					numGivenUp += 1
 				}
 			}
@@ -313,7 +313,7 @@ func (ks *Keyspace) PlacementMayBeTaken(p *ranje.Placement) bool {
 			// it, so will destroy that (the replacement) rather than taking this
 			// one. We might have already taken this one once, and then reverted it
 			// back because the replacement failed to become ready.
-			if replacement.GivenUp {
+			if replacement.GivenUpOnActivate {
 				return false
 			}
 
@@ -340,7 +340,7 @@ func (ks *Keyspace) PlacementMayBeTaken(p *ranje.Placement) bool {
 			// The parent is still subsuming.
 			for _, rs := range fam.Siblings {
 				for _, rsp := range rs.Placements {
-					if rsp.GivenUp { // TODO: Rename to rsp.GivenUpOnServe
+					if rsp.GivenUpOnActivate {
 						// Sibling has given up on serving. This split has
 						// failed. Take to start rewinding it.
 						return true
@@ -356,7 +356,7 @@ func (ks *Keyspace) PlacementMayBeTaken(p *ranje.Placement) bool {
 		for _, rc := range fam.Children {
 			n := 0
 			for _, pc := range rc.Placements {
-				if pc.State == ranje.PsInactive && !pc.GivenUp {
+				if pc.State == ranje.PsInactive && !pc.GivenUpOnActivate {
 					n += 1
 				}
 			}
@@ -411,7 +411,7 @@ func (ks *Keyspace) PlacementMayBeDropped(p *ranje.Placement) error {
 		// little harm in delaying the drop a bit, and reactivation (of the
 		// other placement) should be quick.
 		if other := replacedBy(p); other != nil {
-			if p.GivenUp {
+			if p.GivenUpOnActivate {
 				if other.State == ranje.PsActive {
 					return nil
 				} else {
@@ -426,7 +426,7 @@ func (ks *Keyspace) PlacementMayBeDropped(p *ranje.Placement) error {
 			}
 		}
 
-		if !p.GivenUp {
+		if !p.GivenUpOnActivate {
 			// This shouldn't happen. Any placement which is Inactive and not
 			// replacing can be activated (via PlacementMayBecomeReady). This
 			// method shouldn't have even been called.
@@ -471,7 +471,7 @@ func (ks *Keyspace) PlacementMayBeDropped(p *ranje.Placement) error {
 		}
 
 	case ranje.RsSubsuming:
-		if p.GivenUp {
+		if p.GivenUpOnActivate {
 			// wtf does this mean
 			panic("inactive placement in subsuming range has given up?")
 		}
@@ -486,7 +486,7 @@ func (ks *Keyspace) PlacementMayBeDropped(p *ranje.Placement) error {
 				if cp.State == ranje.PsActive {
 					ready += 1
 				}
-				if cp.GivenUp {
+				if cp.GivenUpOnActivate {
 					return fmt.Errorf("child range has placement given up, which will be dropped")
 				}
 			}
