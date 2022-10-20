@@ -540,7 +540,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 			// This is the first time around. In order for this placement to
 			// move to Ready, the one it is replacing (maybe) must reliniquish
 			// it first.
-			if b.ks.PlacementMayActivate(p) == nil {
+			if err := b.ks.PlacementMayActivate(p); err == nil {
 				if p.Attempts >= maxServeAttempts {
 					log.Printf("given up on serving prepared placement (rID=%s, n=%s, attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
 					n.PlacementFailed(p.Range().Meta.Ident, time.Now())
@@ -553,11 +553,13 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 				}
 
 				return
+			} else {
+				log.Printf("will not serve (rID=%s, n=%s, err=%s)", p.Range().Meta.Ident, n.Ident(), err)
 			}
 
 			// We are ready to move from Inactive to Dropped, but we have to wait
 			// for the placement(s) that are replacing this to become Ready.
-			if b.ks.PlacementMayDrop(p) == nil {
+			if err := b.ks.PlacementMayDrop(p); err == nil {
 				if p.DropAttempts >= maxDropAttempts {
 					if !p.DropFailed {
 						log.Printf("drop failed after %d attempts (rID=%s, n=%s, attempt=%d)", p.Attempts, p.Range().Meta.Ident, n.Ident(), p.Attempts)
@@ -569,9 +571,10 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 					b.drop(p, n)
 				}
 				return
+			} else {
+				log.Printf("will not drop (rID=%s, n=%s, err=%s)", p.Range().Meta.Ident, n.Ident(), err)
 			}
 
-			log.Printf("placement blocked at NsInactive (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
 			return
 
 		case state.NsActivating:

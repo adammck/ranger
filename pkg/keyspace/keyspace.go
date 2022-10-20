@@ -210,16 +210,16 @@ func (ks *Keyspace) PlacementMayActivate(p *ranje.Placement) error {
 		}
 	}
 
-	subsumeInProgress := false
+	parentIsSubsuming := false
 	if len(fam.Parents) > 0 {
 		for _, rp := range fam.Parents {
 			if rp.State == ranje.RsSubsuming {
-				subsumeInProgress = true
+				parentIsSubsuming = true
 				break
 			}
 		}
 	}
-	if subsumeInProgress {
+	if parentIsSubsuming {
 		// The parent is still subsuming.
 		for _, rs := range fam.Siblings {
 			for _, rsp := range rs.Placements {
@@ -232,6 +232,18 @@ func (ks *Keyspace) PlacementMayActivate(p *ranje.Placement) error {
 		}
 	}
 
+	// Join?
+	if r.State == ranje.RsSubsuming {
+		for _, rs := range fam.Siblings {
+			for _, rsp := range rs.Placements {
+				if rsp.GiveUpOnDeactivate {
+					return nil
+				}
+			}
+		}
+	}
+
+	// Split?
 	// OTOH, if this is part of a parent range (i.e. it has children), it must
 	// not advance unless the children have all given up.
 	if len(fam.Children) > 0 {
@@ -253,6 +265,8 @@ func (ks *Keyspace) PlacementMayActivate(p *ranje.Placement) error {
 				}
 			}
 		}
+		// TODO: Shouldn't this be...?
+		//   if numGivenUp < len(children) {
 		if numGivenUp == 0 {
 			return fmt.Errorf("children have not all given up")
 		}
@@ -357,6 +371,14 @@ func (ks *Keyspace) PlacementMayDeactivate(p *ranje.Placement) bool {
 			}
 		}
 
+		for _, sib := range fam.Siblings {
+			for _, sp := range sib.Placements {
+				if sp.GiveUpOnDeactivate {
+					return false
+				}
+			}
+		}
+
 		if p.GiveUpOnDeactivate {
 			return false
 		}
@@ -370,7 +392,67 @@ func (ks *Keyspace) PlacementMayDeactivate(p *ranje.Placement) bool {
 }
 
 // PlacementMayDrop returns nil if the given placement is permitted to be
-// dropped, otherwise an error indicating why not.
+// dropped.
+func (ks *Keyspace) PlacementMayDropNew(p *ranje.Placement) error {
+
+	// Sanity check.
+	if p.State != ranje.PsInactive {
+		return fmt.Errorf("placment not in ranje.PsInactive")
+	}
+
+	r := p.Range()
+	_, err := ks.Family(r.Meta.Ident)
+	if err != nil {
+		return fmt.Errorf("error getting range family for R%d: %v", r.Meta.Ident, err)
+	}
+
+	switch r.State {
+	case ranje.RsActive:
+
+		// If this placement is being replaced by another, and that other has
+		// become ready, this one can be dropped. Otherwise keep waiting.
+		if other := replacementFor(p); other != nil {
+			if other.State == ranje.PsActive {
+				return nil
+			} else {
+				return fmt.Errorf("replacement not ranje.PsActive; is %s", other.State)
+			}
+
+			// If this placement is replacing another, and is inactive but GivenUp,
+			// it's probably failed to activate. We *can* drop it straight away --
+			// it's useless -- but we wait until the original has been reverted to
+			// ready to make the order of operations more predictable. There's
+			// little harm in delaying the drop a bit, and reactivation (of the
+			// other placement) should be quick.
+		} else if other := replacedBy(p); other != nil {
+			if p.GivenUpOnActivate {
+				if other.State == ranje.PsActive {
+					return nil
+				} else {
+					return fmt.Errorf("won't drop aborted placement until original is reactivated")
+				}
+			} else if other.GiveUpOnDeactivate {
+				// The other placement, for which this placement is waiting to
+				// deactivate so it can activate, has failed to deactivate! This
+				// indicates that something is very broken, but there's no point
+				// in keeping this inactive placement around forever.
+				return nil
+			}
+		} else if p.GivenUpOnActivate {
+			return nil
+		}
+
+	case ranje.RsSubsuming:
+		return fmt.Errorf("drop not implemented for rsSubsuming yet")
+
+	case ranje.RsObsolete:
+		// Shouldn't even have placements in this state!
+		return fmt.Errorf("range is obsolete")
+	}
+
+	return fmt.Errorf("nope")
+}
+
 func (ks *Keyspace) PlacementMayDrop(p *ranje.Placement) error {
 
 	// Sanity check.
@@ -387,81 +469,77 @@ func (ks *Keyspace) PlacementMayDrop(p *ranje.Placement) error {
 	switch r.State {
 	case ranje.RsActive:
 
-		// If this placement is being replaced by another, and that other has
-		// become ready, this one can be dropped. Otherwise keep waiting.
-		if other := replacementFor(p); other != nil {
-			if other.State == ranje.PsActive {
-				return nil
-			} else {
-				return fmt.Errorf("replacement not ranje.PsActive; is %s", other.State)
+		// If any of this range's parents in Subsuming,
+		subsumeInProgress := false
+		for _, rp := range fam.Parents {
+			if rp.State == ranje.RsSubsuming {
+				subsumeInProgress = true
+				break
 			}
 		}
-
-		// If this placement is replacing another, and is inactive but GivenUp,
-		// it's probably failed to activate. We *can* drop it straight away --
-		// it's useless -- but we wait until the original has been reverted to
-		// ready to make the order of operations more predictable. There's
-		// little harm in delaying the drop a bit, and reactivation (of the
-		// other placement) should be quick.
-		if other := replacedBy(p); other != nil {
-			if p.GivenUpOnActivate {
+		if !subsumeInProgress {
+			// If this placement is being replaced by another, and that other has
+			// become ready, this one can be dropped. Otherwise keep waiting.
+			if other := replacementFor(p); other != nil {
 				if other.State == ranje.PsActive {
 					return nil
 				} else {
-					return fmt.Errorf("won't drop aborted placement until original is reactivated")
+					return fmt.Errorf("replacement not ranje.PsActive; is %s", other.State)
 				}
-			} else if other.GiveUpOnDeactivate {
-				// The other placement, for which this placement is waiting to
-				// deactivate so it can activate, has failed to deactivate! This
-				// indicates that something is very broken, but there's no point
-				// in keeping this inactive placement around forever.
+
+				// If this placement is replacing another, and is inactive but GivenUp,
+				// it's probably failed to activate. We *can* drop it straight away --
+				// it's useless -- but we wait until the original has been reverted to
+				// ready to make the order of operations more predictable. There's
+				// little harm in delaying the drop a bit, and reactivation (of the
+				// other placement) should be quick.
+			} else if other := replacedBy(p); other != nil {
+				if p.GivenUpOnActivate {
+					if other.State == ranje.PsActive {
+						return nil
+					} else {
+						return fmt.Errorf("won't drop aborted placement until original is reactivated")
+					}
+				} else if other.GiveUpOnDeactivate {
+					// The other placement, for which this placement is waiting to
+					// deactivate so it can activate, has failed to deactivate! This
+					// indicates that something is very broken, but there's no point
+					// in keeping this inactive placement around forever.
+					return nil
+				}
+			} else if p.GivenUpOnActivate {
 				return nil
+			}
+
+			return fmt.Errorf("not subsuming; no idea")
+		}
+
+		// Don't want to start dropping children
+		for _, rp := range fam.Parents {
+			for _, rsp := range rp.Placements {
+				if rsp.State != ranje.PsActive {
+					return fmt.Errorf("has parent with non-active placement")
+				}
+			}
+		}
+
+		// Parent placements are all active. We either haven't started
+		// deactivating them yet, or we tried and gave up and reactivated
+		// them.
+
+		for _, rp := range fam.Parents {
+			for _, rsp := range rp.Placements {
+				if rsp.GiveUpOnDeactivate {
+					return fmt.Errorf("has parent wedged by GiveUpOnDeactivate")
+				}
 			}
 		}
 
 		if !p.GivenUpOnActivate {
-			// This shouldn't happen. Any placement which is Inactive and not
-			// replacing can be activated (via PlacementMayBecomeReady). This
-			// method shouldn't have even been called.
-			return fmt.Errorf("BUG: considering inactive activable placement for drop (pn=%s)", p.NodeID)
+			return fmt.Errorf("haven't given up")
 		}
 
-		// If any of this range's parents are still in Subsuming...
-		subsumeInProgress := false
-		if len(fam.Parents) > 0 {
-			for _, rp := range fam.Parents {
-				if rp.State == ranje.RsSubsuming {
-
-					for _, rsp := range rp.Placements {
-						if rsp.State != ranje.PsActive {
-							return fmt.Errorf("parent is inactive")
-						}
-					}
-
-					subsumeInProgress = true
-					break
-				}
-			}
-		}
-		if subsumeInProgress {
-			// The parent is still subsuming.
-			for _, rs := range fam.Siblings {
-				for _, rsp := range rs.Placements {
-					if rsp.State == ranje.PsActive {
-						return fmt.Errorf("not dropping inactive placement with active sibling (r=%s, pn=%s)", rs.Meta.Ident, rsp.NodeID)
-					}
-				}
-			}
-			// Subsume is in progress, but all sibling placements are inactive,
-			// so this placement can be dropped.
-			return nil
-
-		} else {
-			// This range is independent (i.e. no longer dependent on the state
-			// of its parent(s)). This replacement has been aborted, but is not
-			// replacing anything, so can be dropped immediately.
-			return nil
-		}
+		return nil
 
 	case ranje.RsSubsuming:
 		if p.GivenUpOnActivate {
