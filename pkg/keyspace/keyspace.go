@@ -177,6 +177,10 @@ func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) error {
 	}
 
 	r := p.Range()
+	fam, err := ks.Family(r.Meta.Ident)
+	if err != nil {
+		return fmt.Errorf("error getting range family for R%d: %v", r.Meta.Ident, err)
+	}
 
 	// If this placement has been given up on, it's destined to be dropped
 	// rather than served. We might have tried to serve it and failed.
@@ -198,15 +202,10 @@ func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) error {
 		}
 	}
 
-	parents, err := ks.Parents(r)
-	if err != nil {
-		return err // The keyspace is corrupt!
-	}
-
 	// If this placement is part of a child range, we must wait until all of the
 	// placements in the parent range have been deactivated. Otherwise, keys
 	// will be available in both the parent and child.
-	for _, rp := range parents {
+	for _, rp := range fam.Parents {
 		for _, pp := range rp.Placements {
 			if pp.State == ranje.PsActive { // TODO: != PsReady, instead?
 				return fmt.Errorf("parent placement is not PsInactive; is %s", pp.State)
@@ -215,8 +214,8 @@ func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) error {
 	}
 
 	subsumeInProgress := false
-	if len(parents) > 0 {
-		for _, rp := range parents {
+	if len(fam.Parents) > 0 {
+		for _, rp := range fam.Parents {
 			if rp.State == ranje.RsSubsuming {
 				subsumeInProgress = true
 				break
@@ -225,11 +224,7 @@ func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) error {
 	}
 	if subsumeInProgress {
 		// The parent is still subsuming.
-		siblings, err := ks.Siblings(r)
-		if err != nil {
-			return err // The keyspace is corrupt!
-		}
-		for _, rs := range siblings {
+		for _, rs := range fam.Siblings {
 			for _, rsp := range rs.Placements {
 				if rsp.GivenUp { // TODO: Rename to rsp.GivenUpOnServe
 					// Sibling has given up on serving. This split has
@@ -242,13 +237,9 @@ func (ks *Keyspace) PlacementMayBecomeReady(p *ranje.Placement) error {
 
 	// OTOH, if this is part of a parent range (i.e. it has children), it must
 	// not advance unless the children have all given up.
-	children, err := ks.Children(r)
-	if err != nil {
-		return err // The keyspace is corrupt!
-	}
-	if len(children) > 0 {
+	if len(fam.Children) > 0 {
 		numGivenUp := 0
-		for _, rc := range children {
+		for _, rc := range fam.Children {
 			for _, pc := range rc.Placements {
 
 				// TODO: Is this right?
@@ -305,6 +296,11 @@ func (ks *Keyspace) PlacementMayBeTaken(p *ranje.Placement) bool {
 	}
 
 	r := p.Range()
+	fam, err := ks.Family(r.Meta.Ident)
+	if err != nil {
+		log.Printf("error getting range family for R%d: %v", r.Meta.Ident, err)
+		return false
+	}
 
 	switch r.State {
 	case ranje.RsActive:
@@ -331,14 +327,9 @@ func (ks *Keyspace) PlacementMayBeTaken(p *ranje.Placement) bool {
 		}
 
 		// If any of this range's parents are still in Subsuming...
-		parents, err := ks.Parents(r)
-		if err != nil {
-			//return err // The keyspace is corrupt!
-			return false
-		}
 		subsumeInProgress := false
-		if len(parents) > 0 {
-			for _, rp := range parents {
+		if len(fam.Parents) > 0 {
+			for _, rp := range fam.Parents {
 				if rp.State == ranje.RsSubsuming {
 					subsumeInProgress = true
 					break
@@ -347,12 +338,7 @@ func (ks *Keyspace) PlacementMayBeTaken(p *ranje.Placement) bool {
 		}
 		if subsumeInProgress {
 			// The parent is still subsuming.
-			siblings, err := ks.Siblings(r)
-			if err != nil {
-				//return err // The keyspace is corrupt!
-				return false
-			}
-			for _, rs := range siblings {
+			for _, rs := range fam.Siblings {
 				for _, rsp := range rs.Placements {
 					if rsp.GivenUp { // TODO: Rename to rsp.GivenUpOnServe
 						// Sibling has given up on serving. This split has
@@ -365,15 +351,9 @@ func (ks *Keyspace) PlacementMayBeTaken(p *ranje.Placement) bool {
 
 	case ranje.RsSubsuming:
 
-		children, err := ks.Children(r)
-		if err != nil {
-			log.Printf("range has invalid children: %v", err)
-			return false
-		}
-
 		// Exit early if any of the child ranges don't have enough replicas
 		// in ranje.PsInactive.
-		for _, rc := range children {
+		for _, rc := range fam.Children {
 			n := 0
 			for _, pc := range rc.Placements {
 				if pc.State == ranje.PsInactive && !pc.GivenUp {
@@ -406,6 +386,11 @@ func (ks *Keyspace) PlacementMayBeDropped(p *ranje.Placement) error {
 	}
 
 	r := p.Range()
+	fam, err := ks.Family(r.Meta.Ident)
+	if err != nil {
+		return fmt.Errorf("error getting range family for R%d: %v", r.Meta.Ident, err)
+	}
+
 	switch r.State {
 	case ranje.RsActive:
 
@@ -449,13 +434,9 @@ func (ks *Keyspace) PlacementMayBeDropped(p *ranje.Placement) error {
 		}
 
 		// If any of this range's parents are still in Subsuming...
-		parents, err := ks.Parents(r)
-		if err != nil {
-			return err // The keyspace is corrupt!
-		}
 		subsumeInProgress := false
-		if len(parents) > 0 {
-			for _, rp := range parents {
+		if len(fam.Parents) > 0 {
+			for _, rp := range fam.Parents {
 				if rp.State == ranje.RsSubsuming {
 
 					for _, rsp := range rp.Placements {
@@ -471,11 +452,7 @@ func (ks *Keyspace) PlacementMayBeDropped(p *ranje.Placement) error {
 		}
 		if subsumeInProgress {
 			// The parent is still subsuming.
-			siblings, err := ks.Siblings(r)
-			if err != nil {
-				return err // The keyspace is corrupt!
-			}
-			for _, rs := range siblings {
+			for _, rs := range fam.Siblings {
 				for _, rsp := range rs.Placements {
 					if rsp.State == ranje.PsActive {
 						return fmt.Errorf("not dropping inactive placement with active sibling (r=%s, pn=%s)", rs.Meta.Ident, rsp.NodeID)
@@ -499,16 +476,11 @@ func (ks *Keyspace) PlacementMayBeDropped(p *ranje.Placement) error {
 			panic("inactive placement in subsuming range has given up?")
 		}
 
-		children, err := ks.Children(r)
-		if err != nil {
-			return err // The keyspace is corrupt!
-		}
-
 		// Can't drop until all of the child ranges have enough placements in
 		// Ready state. They might still need the contents of this parent range
 		// to make themselves ready. (Or we might want to abort the split and
 		// move this parent range back to ready; not implemented yet.)
-		for _, cr := range children {
+		for _, cr := range fam.Children {
 			ready := 0
 			for _, cp := range cr.Placements {
 				if cp.State == ranje.PsActive {

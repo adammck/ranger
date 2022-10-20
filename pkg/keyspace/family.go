@@ -24,19 +24,19 @@ func (ks *Keyspace) Family(rID ranje.Ident) (*RangeFamily, error) {
 	}
 	f.Range = r
 
-	s, err := ks.Siblings(r)
+	s, err := siblings(ks, r)
 	if err != nil {
 		return nil, err
 	}
 	f.Siblings = s
 
-	p, err := ks.Parents(r)
+	p, err := parents(ks, r)
 	if err != nil {
 		return nil, err
 	}
 	f.Parents = p
 
-	c, err := ks.Children(r)
+	c, err := children(ks, r)
 	if err != nil {
 		return nil, err
 	}
@@ -45,11 +45,11 @@ func (ks *Keyspace) Family(rID ranje.Ident) (*RangeFamily, error) {
 	return f, nil
 }
 
-// ---- old stuff, remove it all ----
+// TODO: These helpers are all private now, refactor them.
 
-// Geneses returns all of the ranges which have no parents. Usually there'll be
+// geneses returns all of the ranges which have no parents. Usually there'll be
 // exactly one, but that isn't an invariant.
-func (ks *Keyspace) Geneses() []*ranje.Range {
+func geneses(ks *Keyspace) []*ranje.Range {
 	out := []*ranje.Range{}
 
 	for _, r := range ks.ranges {
@@ -61,8 +61,7 @@ func (ks *Keyspace) Geneses() []*ranje.Range {
 	return out
 }
 
-// TODO: Remove this method, use Family instead.
-func (ks *Keyspace) Children(r *ranje.Range) ([]*ranje.Range, error) {
+func children(ks *Keyspace, r *ranje.Range) ([]*ranje.Range, error) {
 	children := make([]*ranje.Range, len(r.Children))
 
 	for i, rID := range r.Children {
@@ -77,10 +76,9 @@ func (ks *Keyspace) Children(r *ranje.Range) ([]*ranje.Range, error) {
 	return children, nil
 }
 
-// Parents returns the parents of the given range, i.e. those it was split or
+// parents returns the parents of the given range, i.e. those it was split or
 // joined from. Child ranges should probably mostly ignore their parents.
-// TODO: Remove this method, use Family instead.
-func (ks *Keyspace) Parents(r *ranje.Range) ([]*ranje.Range, error) {
+func parents(ks *Keyspace, r *ranje.Range) ([]*ranje.Range, error) {
 	parents := make([]*ranje.Range, len(r.Parents))
 
 	for i, rID := range r.Parents {
@@ -95,14 +93,13 @@ func (ks *Keyspace) Parents(r *ranje.Range) ([]*ranje.Range, error) {
 	return parents, nil
 }
 
-// TODO: Remove this method, use Family instead.
-func (ks *Keyspace) Siblings(r *ranje.Range) ([]*ranje.Range, error) {
+func siblings(ks *Keyspace, r *ranje.Range) ([]*ranje.Range, error) {
 	if len(r.Parents) == 0 {
 		// Special case: If the range has no parents, then it is a genesis
 		// range, i.e. it was spawned when the keyspace was created, not by
 		// splitting or joining any other range.
 		siblings := make([]*ranje.Range, 0)
-		for _, rr := range ks.Geneses() {
+		for _, rr := range geneses(ks) {
 			if rr != r {
 				siblings = append(siblings, rr)
 			}
