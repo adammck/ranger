@@ -2045,11 +2045,46 @@ func TestJoinFailure_PrepareDropRange(t *testing.T) {
 	requireStable(t, orch)
 }
 
-func TestJoinFailure_AddRange(t *testing.T) {
-	t.Skip("not implemented")
+func TestJoinFailure_AddRange_Short(t *testing.T) {
+	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
+	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []}"
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	defer nodes.Close()
+	requireStable(t, orch)
+
+	// The new/child range will not activate on ccc.
+	nodes.Get("test-ccc").SetReturnValue(t, 3, fake_node.AddRange, fmt.Errorf("failed AddRange (ccc, 1) for test"))
+
+	joinOp(orch, 1, 2, "test-ccc")
+
+	// The child range will be placed on ccc, but fail to activate a few times
+	// and eventually give up.
+	tickUntil(t, orch, nodes, func(ks, ro string) bool {
+		return mustGetPlacement(t, orch.ks, 3, "test-ccc").GivenUpOnActivate
+	})
+
+	// This is a bad state to be in! But it's valid, because the parent ranges
+	// must be deactivated before the child range can be activated.
+	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsInactive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsInactive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive]} {test-ccc [3:NsInactive]}", orch.rost.TestString())
+
+	// Couple of ticks later, the parent ranges are reactivated.
+	tickWait(orch)
+	tickWait(orch)
+	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []}", orch.rost.TestString())
+
+	// The above is arguably the end of the test, but fast forward to the stable
+	// situation, which is that the placement which refused to activate (on ccc)
+	// is eventually dropped, and a new placement is created and placed
+	// somewhere else (aaa).
+	tickUntilStable(t, orch, nodes)
+	assert.Equal(t, "{1 [-inf, ggg] RsObsolete} {2 (ggg, +inf] RsObsolete} {3 [-inf, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [3:NsActive]} {test-bbb []} {test-ccc []}", orch.rost.TestString())
+
 }
 
-func TestJoinFailure_DropRange(t *testing.T) {
+func TestJoinFailure_DropRange_Short(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []}"
 	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
