@@ -2050,7 +2050,26 @@ func TestJoinFailure_AddRange(t *testing.T) {
 }
 
 func TestJoinFailure_DropRange(t *testing.T) {
-	t.Skip("not implemented")
+	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
+	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []}"
+	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	defer nodes.Close()
+	requireStable(t, orch)
+
+	// The left side of the join will not be released by aaa.
+	nodes.Get("test-aaa").SetReturnValue(t, 1, fake_node.DropRange, fmt.Errorf("failed DropRange for test"))
+
+	joinOp(orch, 1, 2, "test-ccc")
+
+	// End up in a basically fine state, with the joined range active on ccc,
+	// the right (non-stuck) side of the parent dropped, and the left (stuck)
+	// side inactive but still hanging around on aaa.
+	tickUntilStable(t, orch, nodes)
+	assert.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsInactive} {2 (ggg, +inf] RsObsolete} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
+	assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb []} {test-ccc [3:NsActive]}", orch.rost.TestString())
+
+	p := mustGetPlacement(t, orch.ks, 1, "test-aaa")
+	assert.True(t, p.DropFailed)
 }
 
 func TestMissingPlacement(t *testing.T) {
