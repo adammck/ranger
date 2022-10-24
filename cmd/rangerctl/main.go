@@ -6,8 +6,10 @@ import (
 	"encoding/base64"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	pb "github.com/adammck/ranger/pkg/proto/gen"
@@ -37,13 +39,13 @@ func main() {
 
 	addr := flag.String("addr", "localhost:5000", "controller address")
 	printReq := flag.Bool("request", false, "print gRPC request instead of sending it")
+	render := flag.Bool("render", false, "render results using graphviz")
 	flag.Parse()
 
 	if flag.NArg() == 0 {
 		flag.Usage()
 		os.Exit(1)
 	}
-
 	// TODO: Catch signals for cancellation.
 	ctx := context.Background()
 
@@ -52,11 +54,23 @@ func main() {
 
 	conn, err := grpc.DialContext(ctxDial, *addr, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
-		fmt.Printf("Error dialing controller: %v\n", err)
+		fmt.Fprintf(w, "Error dialing controller: %v\n", err)
 		os.Exit(1)
 	}
 
 	action := flag.Arg(0)
+
+	if *render {
+		if *printReq {
+			fmt.Fprintf(w, "Error: -render and -request can't both be given\n")
+			os.Exit(1)
+		}
+		if action != "ranges" {
+			fmt.Fprintf(w, "Error: -render is only supported for 'ranges' action\n")
+			os.Exit(1)
+		}
+	}
+
 	switch action {
 	case "ranges":
 		if flag.NArg() != 1 {
@@ -65,7 +79,7 @@ func main() {
 		}
 
 		client := pb.NewDebugClient(conn)
-		cmdRanges(*printReq, client, ctx)
+		cmdRanges(*printReq, *render, client, ctx)
 
 	case "range", "r":
 		if flag.NArg() != 2 {
@@ -170,7 +184,7 @@ func main() {
 	}
 }
 
-func cmdRanges(printReq bool, client pb.DebugClient, ctx context.Context) {
+func cmdRanges(printReq bool, render bool, client pb.DebugClient, ctx context.Context) {
 	w := flag.CommandLine.Output()
 
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -190,7 +204,13 @@ func cmdRanges(printReq bool, client pb.DebugClient, ctx context.Context) {
 		os.Exit(1)
 	}
 
-	output(res)
+	if render {
+		// Fancy output
+		renderRangesOutput(os.Stdout, res)
+	} else {
+		// Normal output
+		output(res)
+	}
 }
 
 func cmdRange(printReq bool, client pb.DebugClient, ctx context.Context, rID uint64) {
@@ -351,4 +371,91 @@ func output(res protoreflect.ProtoMessage) {
 	}
 
 	fmt.Println(opts.Format(res))
+}
+
+func renderRangesOutput(w io.Writer, res *pb.RangesListResponse) {
+	fmt.Fprint(w, "digraph G {\n")
+
+	for _, r := range res.Ranges {
+		placements := []string{}
+		for _, p := range r.Placements {
+			placements = append(placements, fmt.Sprintf("%s:%s", p.Placement.Node, p.Placement.State))
+		}
+
+		// Not an attr because it's an HTML string, so needs angle bracket delimiters.
+		label := fmt.Sprintf("<b>R%d</b><br/>%s<br/>%s<br/>%s", r.Meta.Ident, renderRange(r.Meta.Start, r.Meta.End), r.State, strings.Join(placements, "\\n"))
+
+		attrs := map[string]string{
+			"shape": "rect",
+			"style": "filled",
+
+			// Defaults for unknown states; probably changed below.
+			"color":     "black",
+			"fontcolor": "black",
+			"fillcolor": "white",
+		}
+
+		switch r.State {
+		case pb.RangeState_RS_ACTIVE:
+			attrs["color"] = "#006000"
+			attrs["fontcolor"] = "#006000"
+			attrs["fillcolor"] = "#eeffee"
+		case pb.RangeState_RS_SUBSUMING:
+			attrs["color"] = "#600000"
+			attrs["fontcolor"] = "#600000"
+			attrs["fillcolor"] = "#ffeeee"
+		case pb.RangeState_RS_OBSOLETE:
+			attrs["color"] = "#cccccc"
+			attrs["fontcolor"] = "#cccccc"
+		}
+
+		fmt.Fprintf(w, "  R%d [label=<%s>", r.Meta.Ident, label)
+		for k, v := range attrs {
+			fmt.Fprintf(w, " %s=\"%s\"", k, v)
+		}
+		fmt.Fprintf(w, "]\n")
+	}
+
+	// Build a set of obsolete ranges, for fancy edge colors.
+	obs := map[uint64]struct{}{}
+	for _, r := range res.Ranges {
+		if r.State == pb.RangeState_RS_OBSOLETE {
+			obs[r.Meta.Ident] = struct{}{}
+		}
+	}
+
+	for _, r := range res.Ranges {
+		for _, child := range r.Children {
+
+			// Make edges ending at obsolete nodes lighter, since they're
+			// probably not important any more, and to match the node border.
+			col := "#888888"
+			if _, ok := obs[child]; ok {
+				col = "#cccccc"
+			}
+
+			fmt.Fprintf(w, "  R%d -> R%d [color=\"%s\"]\n", r.Meta.Ident, child, col)
+		}
+	}
+
+	fmt.Fprint(w, "}\n")
+}
+
+// Hacked from ranje.Meta.String
+func renderRange(start, end []byte) string {
+	var s, e string
+
+	if len(start) == 0 {
+		s = "[-inf"
+	} else {
+		s = fmt.Sprintf("(%s", start)
+	}
+
+	if len(end) == 0 {
+		e = "+inf]"
+	} else {
+		e = fmt.Sprintf("%s]", end)
+	}
+
+	return fmt.Sprintf("%s, %s", s, e)
 }
