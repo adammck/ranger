@@ -391,68 +391,6 @@ func (ks *Keyspace) PlacementMayDeactivate(p *ranje.Placement) bool {
 	return false
 }
 
-// PlacementMayDrop returns nil if the given placement is permitted to be
-// dropped.
-func (ks *Keyspace) PlacementMayDropNew(p *ranje.Placement) error {
-
-	// Sanity check.
-	if p.State != ranje.PsInactive {
-		return fmt.Errorf("placment not in ranje.PsInactive")
-	}
-
-	r := p.Range()
-	_, err := ks.Family(r.Meta.Ident)
-	if err != nil {
-		return fmt.Errorf("error getting range family for R%d: %v", r.Meta.Ident, err)
-	}
-
-	switch r.State {
-	case ranje.RsActive:
-
-		// If this placement is being replaced by another, and that other has
-		// become ready, this one can be dropped. Otherwise keep waiting.
-		if other := replacementFor(p); other != nil {
-			if other.State == ranje.PsActive {
-				return nil
-			} else {
-				return fmt.Errorf("replacement not ranje.PsActive; is %s", other.State)
-			}
-
-			// If this placement is replacing another, and is inactive but GivenUp,
-			// it's probably failed to activate. We *can* drop it straight away --
-			// it's useless -- but we wait until the original has been reverted to
-			// ready to make the order of operations more predictable. There's
-			// little harm in delaying the drop a bit, and reactivation (of the
-			// other placement) should be quick.
-		} else if other := replacedBy(p); other != nil {
-			if p.GivenUpOnActivate {
-				if other.State == ranje.PsActive {
-					return nil
-				} else {
-					return fmt.Errorf("won't drop aborted placement until original is reactivated")
-				}
-			} else if other.GiveUpOnDeactivate {
-				// The other placement, for which this placement is waiting to
-				// deactivate so it can activate, has failed to deactivate! This
-				// indicates that something is very broken, but there's no point
-				// in keeping this inactive placement around forever.
-				return nil
-			}
-		} else if p.GivenUpOnActivate {
-			return nil
-		}
-
-	case ranje.RsSubsuming:
-		return fmt.Errorf("drop not implemented for rsSubsuming yet")
-
-	case ranje.RsObsolete:
-		// Shouldn't even have placements in this state!
-		return fmt.Errorf("range is obsolete")
-	}
-
-	return fmt.Errorf("nope")
-}
-
 func (ks *Keyspace) PlacementMayDrop(p *ranje.Placement) error {
 
 	// Sanity check.
