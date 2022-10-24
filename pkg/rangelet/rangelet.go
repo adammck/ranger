@@ -84,12 +84,12 @@ func (r *Rangelet) runThenUpdateState(rID ranje.Ident, old state.RemoteState, su
 	defer r.Unlock()
 
 	// Special case: Ranges are never actually in NotFound; it's a signal to
-	// delete them. This happens when a PrepareAddShard fails, or a DropShard
+	// delete them. This happens when a PrepareAddRange fails, or a DropRange
 	// succeeds; either way, the range is gone.
 	if s == state.NsNotFound {
 		delete(r.info, rID)
 		r.runCallback(rID, old, s)
-		log.Printf("range deleted: %v", rID)
+		log.Printf("[rglt] range deleted: %v", rID)
 		return
 	}
 
@@ -100,7 +100,7 @@ func (r *Rangelet) runThenUpdateState(rID ranje.Ident, old state.RemoteState, su
 
 	ri.State = s
 	r.runCallback(rID, old, s)
-	log.Printf("state is now %v (rID=%v)", s, rID)
+	log.Printf("[rglt] state is now %v (rID=%v)", s, rID)
 }
 
 func (r *Rangelet) give(rm ranje.Meta, parents []api.Parent) (info.RangeInfo, error) {
@@ -112,7 +112,7 @@ func (r *Rangelet) give(rm ranje.Meta, parents []api.Parent) (info.RangeInfo, er
 		defer r.Unlock()
 
 		if ri.State == state.NsLoading || ri.State == state.NsInactive {
-			log.Printf("got redundant Give")
+			log.Printf("[rglt] got redundant Give")
 			return *ri, nil
 		}
 
@@ -167,7 +167,7 @@ func (r *Rangelet) serve(rID ranje.Ident) (info.RangeInfo, error) {
 	}
 
 	if ri.State == state.NsActivating || ri.State == state.NsActive {
-		log.Printf("got redundant Serve")
+		log.Printf("[rglt] got redundant Serve")
 		defer r.Unlock()
 		return *ri, nil
 	}
@@ -210,7 +210,7 @@ func (r *Rangelet) take(rID ranje.Ident) (info.RangeInfo, error) {
 	}
 
 	if ri.State == state.NsDeactivating || ri.State == state.NsInactive {
-		log.Printf("got redundant Take")
+		log.Printf("[rglt] got redundant Take")
 		defer r.Unlock()
 		return *ri, nil
 	}
@@ -248,7 +248,7 @@ func (r *Rangelet) drop(rID ranje.Ident) (info.RangeInfo, error) {
 	ri, ok := r.info[rID]
 	if !ok {
 		r.Unlock()
-		log.Printf("got redundant Drop (no such range; maybe drop complete)")
+		log.Printf("[rglt] got redundant Drop (no such range; maybe drop complete)")
 
 		// Return success! The caller wanted the range to be dropped, and we
 		// don't have the range. So (hopefully) we dropped it already.
@@ -256,7 +256,7 @@ func (r *Rangelet) drop(rID ranje.Ident) (info.RangeInfo, error) {
 	}
 
 	if ri.State == state.NsDropping {
-		log.Printf("got redundant Drop (drop in progress)")
+		log.Printf("[rglt] got redundant Drop (drop in progress)")
 		defer r.Unlock()
 		return *ri, nil
 	}
@@ -299,7 +299,7 @@ func (r *Rangelet) Find(k ranje.Key) (ranje.Ident, bool) {
 
 		// Play dumb in some cases: a range can be known to the rangelet but
 		// unknown to the client, in these states. (Find might have been called
-		// before PrepareAddShard has returned, or while DropShard is still in
+		// before PrepareAddRange has returned, or while DropRange is still in
 		// progress.) The client should check the state anyway, but this makes
 		// the contract simpler.
 		if ri.State == state.NsLoading || ri.State == state.NsDropping {
@@ -320,6 +320,23 @@ func (r *Rangelet) Len() int {
 	return len(r.info)
 }
 
+// Force the Rangelet to forget about the given range, without calling any of
+// the interface methods or performing any cleanup. It'll just vanish from probe
+// responses. This should only ever be called by the node when it has decided to
+// drop the range and wants to tell the controller that.
+func (r *Rangelet) ForceDrop(rID ranje.Ident) error {
+	r.Lock()
+	defer r.Unlock()
+
+	_, ok := r.info[rID]
+	if !ok {
+		return fmt.Errorf("no such range: %d", rID)
+	}
+
+	delete(r.info, rID)
+	return nil
+}
+
 func (r *Rangelet) gatherLoadInfo() error {
 
 	// Can't gather the range IDs in advance and release the lock, because the
@@ -334,15 +351,15 @@ func (r *Rangelet) gatherLoadInfo() error {
 		if err == api.NotFound {
 			// No problem. The Rangelet knows about this range, but the client
 			// doesn't, for whatever reason. Probably racing PrepareAddRange.
-			log.Printf("GetLoadInfo(%v): NotFound", rID)
+			log.Printf("[rglt] GetLoadInfo(%v): NotFound", rID)
 			continue
 
 		} else if err != nil {
-			log.Printf("GetLoadInfo(%v): %v", rID, err)
+			log.Printf("[rglt] GetLoadInfo(%v): %v", rID, err)
 			continue
 		}
 
-		//log.Printf("GetLoadInfo(%v): %#v", rID, info)
+		//log.Printf("[rglt] GetLoadInfo(%v): %#v", rID, info)
 		updateLoadInfo(&ri.Info, info)
 	}
 
@@ -356,9 +373,7 @@ func (r *Rangelet) gatherLoadInfo() error {
 func updateLoadInfo(rostLI *info.LoadInfo, rgltLI api.LoadInfo) {
 	rostLI.Keys = uint64(rgltLI.Keys)
 	rostLI.Splits = make([]ranje.Key, len(rgltLI.Splits))
-	for i, s := range rgltLI.Splits {
-		rostLI.Splits[i] = s
-	}
+	copy(rostLI.Splits, rgltLI.Splits)
 }
 
 func (r *Rangelet) walk(f func(*info.RangeInfo)) {
@@ -451,11 +466,9 @@ func withTimeout(timeout time.Duration, f func()) bool {
 
 	select {
 	case <-ch:
-		log.Print("finished!")
 		return true
 
 	case <-time.After(timeout):
-		log.Print("timed out")
 		return false
 	}
 }

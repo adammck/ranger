@@ -1,6 +1,7 @@
 package keyspace
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -14,7 +15,7 @@ func TestPlacementMayBecomeReady(t *testing.T) {
 	examples := []struct {
 		name   string
 		input  []*ranje.Range
-		output [][]bool
+		output [][]string // error string; empty is nil
 	}{
 		{
 			name: "initial",
@@ -25,8 +26,8 @@ func TestPlacementMayBecomeReady(t *testing.T) {
 					Placements: []*ranje.Placement{{NodeID: "n1", State: ranje.PsInactive}},
 				},
 			},
-			output: [][]bool{
-				{true}, // n1
+			output: [][]string{
+				{""}, // n1
 			},
 		},
 		{
@@ -51,10 +52,10 @@ func TestPlacementMayBecomeReady(t *testing.T) {
 					Placements: []*ranje.Placement{{NodeID: "n3", State: ranje.PsInactive}},
 				},
 			},
-			output: [][]bool{
-				{false}, // n1, should not advance, because subsumed
-				{false}, // n2, same
-				{true},  // n3
+			output: [][]string{
+				{"children have not all given up"}, // n1, should not advance, because subsumed
+				{"children have not all given up"}, // n2, same
+				{""},                               // n3
 			},
 		},
 	}
@@ -66,7 +67,18 @@ func TestPlacementMayBecomeReady(t *testing.T) {
 
 		for r := 0; r < len(ex.input); r++ {
 			for p := 0; p < len(ex.input[r].Placements); p++ {
-				assert.Equal(t, ex.output[r][p], ks.PlacementMayBecomeReady(ex.input[r].Placements[p]), "r=%d, p=%d", r, p)
+				expected := ex.output[r][p] // error string; empty is nil
+				actual := ks.PlacementMayActivate(ex.input[r].Placements[p])
+				msg := fmt.Sprintf("example=%s, range=%d, placement=%d", ex.name, r, p)
+
+				if expected == "" {
+					assert.NoError(t, actual, msg)
+					continue
+				}
+
+				if assert.Error(t, actual, msg) {
+					assert.Equal(t, expected, actual.Error(), msg)
+				}
 			}
 		}
 	}
@@ -128,7 +140,7 @@ func TestPlacementMayBeTaken(t *testing.T) {
 
 		for r := 0; r < len(ex.input); r++ {
 			for p := 0; p < len(ex.input[r].Placements); p++ {
-				assert.Equal(t, ex.output[r][p], ks.PlacementMayBeTaken(ex.input[r].Placements[p]))
+				assert.Equal(t, ex.output[r][p], ks.PlacementMayDeactivate(ex.input[r].Placements[p]))
 			}
 		}
 	}

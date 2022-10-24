@@ -21,6 +21,15 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 )
 
+type Action uint8
+
+const (
+	PrepareAddRange Action = iota
+	AddRange
+	PrepareDropRange
+	DropRange
+)
+
 type stateTransition struct {
 	src state.RemoteState
 	bar *barrier
@@ -28,7 +37,7 @@ type stateTransition struct {
 
 type ErrKey struct {
 	rID ranje.Ident
-	src state.RemoteState
+	act Action
 }
 
 type TestNode struct {
@@ -37,6 +46,7 @@ type TestNode struct {
 	rglt *rangelet.Rangelet
 
 	loadInfos map[ranje.Ident]api.LoadInfo
+	muInfos   sync.Mutex
 
 	// Keep requests sent to this node.
 	// Call RPCs() to fetch and clear.
@@ -94,12 +104,12 @@ func (n *TestNode) Listen(ctx context.Context, srv *grpc.Server) func() {
 	return closer
 }
 
-func (n *TestNode) transition(rID ranje.Ident, src state.RemoteState) error {
+func (n *TestNode) transition(rID ranje.Ident, act Action) error {
 	n.muBar.Lock()
 
 	ek := ErrKey{
 		rID: rID,
-		src: src,
+		act: act,
 	}
 
 	n.muErr.Lock()
@@ -122,13 +132,16 @@ func (n *TestNode) transition(rID ranje.Ident, src state.RemoteState) error {
 	n.muBar.Unlock()
 
 	if n.strictTransitions {
-		panic(fmt.Sprintf("no transition registered for range while strict transitions enabled (n=%v, rID=%v, src=%s)", n.Addr, rID, src))
+		panic(fmt.Sprintf("no transition registered for range while strict transitions enabled (n=%v, rID=%v, act=%d)", n.Addr, rID, act))
 	}
 
 	return e
 }
 
 func (n *TestNode) GetLoadInfo(rID ranje.Ident) (api.LoadInfo, error) {
+	n.muInfos.Lock()
+	defer n.muInfos.Unlock()
+
 	li, ok := n.loadInfos[rID]
 	if !ok {
 		return api.LoadInfo{}, api.NotFound
@@ -138,19 +151,20 @@ func (n *TestNode) GetLoadInfo(rID ranje.Ident) (api.LoadInfo, error) {
 }
 
 func (n *TestNode) PrepareAddRange(m ranje.Meta, p []api.Parent) error {
-	return n.transition(m.Ident, state.NsLoading)
+	return n.transition(m.Ident, PrepareAddRange)
 }
 
 func (n *TestNode) AddRange(rID ranje.Ident) error {
-	return n.transition(rID, state.NsActivating)
+	return n.transition(rID, AddRange)
 }
 
 func (n *TestNode) PrepareDropRange(rID ranje.Ident) error {
-	return n.transition(rID, state.NsDeactivating)
+	return n.transition(rID, PrepareDropRange)
 }
 
 func (n *TestNode) DropRange(rID ranje.Ident) error {
-	return n.transition(rID, state.NsDropping)
+	// TODO: Remove placement from loadinfos if transition succeeds?
+	return n.transition(rID, DropRange)
 }
 
 // From: https://harrigan.xyz/blog/testing-go-grpc-server-using-an-in-memory-buffer-with-bufconn/
@@ -198,16 +212,18 @@ func (n *TestNode) withTestInterceptor() grpc.DialOption {
 	return grpc.WithUnaryInterceptor(n.testInterceptor)
 }
 
-func (n *TestNode) SetReturnValue(t *testing.T, rID ranje.Ident, src state.RemoteState, err error) {
+// SetReturnValue sets the value which should be returned from the given action
+// (i.e. one of the state-transitioning methods of the Rangelet interface) for
+// the given range on this test node.
+func (n *TestNode) SetReturnValue(t *testing.T, rID ranje.Ident, act Action, err error) {
 	ek := ErrKey{
 		rID: rID,
-		src: src,
+		act: act,
 	}
 
 	n.muErr.Lock()
-	defer n.muErr.Unlock()
-
 	n.errors[ek] = err
+	n.muErr.Unlock()
 }
 
 func (n *TestNode) AddBarrier(t *testing.T, rID ranje.Ident, src state.RemoteState) *barrier {
@@ -231,6 +247,13 @@ func (n *TestNode) AddBarrier(t *testing.T, rID ranje.Ident, src state.RemoteSta
 	n.muBar.Unlock()
 
 	return st.bar
+}
+
+func (n *TestNode) ForceDrop(rID ranje.Ident) {
+	n.muInfos.Lock()
+	defer n.muInfos.Unlock()
+	delete(n.loadInfos, rID)
+	n.rglt.ForceDrop(rID)
 }
 
 func (n *TestNode) Ranges(ctx context.Context, req *pb.RangesRequest) (*pb.RangesResponse, error) {
