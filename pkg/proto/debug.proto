@@ -27,7 +27,13 @@ message PlacementWithRangeInfo {
 message RangeResponse {
   RangeMeta meta = 1;
   RangeState state = 2;
-  repeated PlacementWithRangeInfo placements = 3;
+
+  // These two are obviously redundant when all ranges are dumped, but the
+  // output is intended to be useful, not correct.
+  repeated uint64 parents = 3;
+  repeated uint64 children = 4;
+
+  repeated PlacementWithRangeInfo placements = 5;
 }
 
 message NodesListRequest {

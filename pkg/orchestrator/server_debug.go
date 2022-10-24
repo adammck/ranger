@@ -18,9 +18,21 @@ type debugServer struct {
 }
 
 func rangeResponse(r *ranje.Range, rost *roster.Roster) *pb.RangeResponse {
+	parents := make([]uint64, len(r.Parents))
+	for i, r := range r.Parents {
+		parents[i] = r.ToProto()
+	}
+
+	children := make([]uint64, len(r.Children))
+	for i, r := range r.Children {
+		children[i] = r.ToProto()
+	}
+
 	res := &pb.RangeResponse{
-		Meta:  r.Meta.ToProto(),
-		State: r.State.ToProto(),
+		Meta:     r.Meta.ToProto(),
+		State:    r.State.ToProto(),
+		Parents:  parents,
+		Children: children,
 	}
 
 	for _, p := range r.Placements {
