@@ -112,10 +112,149 @@ func TestOperations(t *testing.T) {
 
 	ops, err := ks.Operations()
 	require.NoError(t, err)
-	require.Len(t, ops, 2)
-
 	require.Contains(t, ops, &JoinOp{parents: []*ranje.Range{r4, r5}, child: r8})
 	require.Contains(t, ops, &SplitOp{parent: r3, children: []*ranje.Range{r6, r7}})
+	require.Len(t, ops, 2)
+}
+
+func TestNoOperations(t *testing.T) {
+	r1 := &ranje.Range{
+		State:    ranje.RsActive,
+		Children: []ranje.Ident{},
+		Meta:     ranje.Meta{Ident: 1, Start: ranje.ZeroKey, End: ranje.ZeroKey},
+	}
+
+	pers := &FakePersister{
+		ranges: []*ranje.Range{
+			r1}}
+
+	ks, err := New(configForTest(), pers)
+	require.NoError(t, err)
+
+	ops, err := ks.Operations()
+	require.NoError(t, err)
+	require.Empty(t, ops)
+}
+
+func TestSplitIntoThree(t *testing.T) {
+
+	//          ┌─────┐
+	//    ┌─────│ 1 s │─────┐
+	//    │     └─────┘     │
+	//    │        │        │
+	//    ▼        ▼        ▼
+	// ┌─────┐  ┌─────┐  ┌─────┐
+	// │ 2 a │  │ 3 a │  │ 4 a │
+	// └─────┘  └─────┘  └─────┘
+	//
+	// Hypothetical split into three child ranges. The keyspace doesn't prevent
+	// this (currently), though doesn't provide any methods to make it so. It's
+	// supported by default by the operations interface, just because it would
+	// be more work to prevent it.
+
+	r1 := &ranje.Range{
+		State:    ranje.RsSplitting,
+		Children: []ranje.Ident{2, 3, 4},
+		Meta:     ranje.Meta{Ident: 1},
+	}
+
+	r2 := &ranje.Range{
+		State:    ranje.RsActive,
+		Parents:  []ranje.Ident{1},
+		Children: []ranje.Ident{},
+		Meta:     ranje.Meta{Ident: 2, End: ranje.Key("bbb")},
+	}
+
+	r3 := &ranje.Range{
+		State:    ranje.RsActive,
+		Parents:  []ranje.Ident{1},
+		Children: []ranje.Ident{},
+		Meta:     ranje.Meta{Ident: 3, Start: ranje.Key("bbb"), End: ranje.Key("ccc")},
+	}
+
+	r4 := &ranje.Range{
+		State:    ranje.RsActive,
+		Parents:  []ranje.Ident{1},
+		Children: []ranje.Ident{},
+		Meta:     ranje.Meta{Ident: 4, Start: ranje.Key("ccc")},
+	}
+
+	pers := &FakePersister{
+		ranges: []*ranje.Range{
+			r1, r2, r3, r4}}
+
+	ks, err := New(configForTest(), pers)
+	require.NoError(t, err)
+
+	ops, err := ks.Operations()
+	require.NoError(t, err)
+	require.Contains(t, ops, &SplitOp{parent: r1, children: []*ranje.Range{r2, r3, r4}})
+	require.Len(t, ops, 1)
+}
+
+func TestJoinFromThree(t *testing.T) {
+
+	//          ┌─────┐
+	//    ┌─────│ 1 o │─────┐
+	//    │     └─────┘     │
+	//    │        │        │
+	//    ▼        ▼        ▼
+	// ┌─────┐  ┌─────┐  ┌─────┐
+	// │ 2 j │  │ 3 j │  │ 4 j │
+	// └─────┘  └─────┘  └─────┘
+	//    │        │        │
+	//    │        ▼        │
+	//    │     ┌─────┐     │
+	//    └────▶│ 5 a │◀────┘
+	//          └─────┘
+	//
+	// Hypothetical join from three ranges into one.
+
+	r1 := &ranje.Range{
+		State:    ranje.RsObsolete,
+		Children: []ranje.Ident{2, 3, 4},
+		Meta:     ranje.Meta{Ident: 1},
+	}
+
+	r2 := &ranje.Range{
+		State:    ranje.RsJoining,
+		Parents:  []ranje.Ident{1},
+		Children: []ranje.Ident{5},
+		Meta:     ranje.Meta{Ident: 2, End: ranje.Key("bbb")},
+	}
+
+	r3 := &ranje.Range{
+		State:    ranje.RsJoining,
+		Parents:  []ranje.Ident{1},
+		Children: []ranje.Ident{5},
+		Meta:     ranje.Meta{Ident: 3, Start: ranje.Key("bbb"), End: ranje.Key("ccc")},
+	}
+
+	r4 := &ranje.Range{
+		State:    ranje.RsJoining,
+		Parents:  []ranje.Ident{1},
+		Children: []ranje.Ident{5},
+		Meta:     ranje.Meta{Ident: 4, Start: ranje.Key("ccc")},
+	}
+
+	r5 := &ranje.Range{
+		State:    ranje.RsActive,
+		Parents:  []ranje.Ident{2, 3, 4},
+		Children: []ranje.Ident{},
+		Meta:     ranje.Meta{Ident: 5},
+	}
+
+	pers := &FakePersister{
+		ranges: []*ranje.Range{
+			r1, r2, r3, r4, r5}}
+
+	ks, err := New(configForTest(), pers)
+	require.NoError(t, err)
+
+	ops, err := ks.Operations()
+	require.NoError(t, err)
+	require.Contains(t, ops, &JoinOp{parents: []*ranje.Range{r2, r3, r4}, child: r5})
+	require.Len(t, ops, 1)
 }
 
 func TestPlacementMayBecomeReady(t *testing.T) {

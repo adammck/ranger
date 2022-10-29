@@ -1,6 +1,7 @@
 package keyspace
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/adammck/ranger/pkg/ranje"
@@ -25,7 +26,11 @@ func (ks *Keyspace) Operations() ([]Operation, error) {
 		// Construct the operation from this range, however it's connected.
 		op, err := opFromRange(ks, r)
 		if err != nil {
-			return nil, fmt.Errorf("finding operations: %w", err)
+			if err == ErrNoParents {
+				continue
+			} else {
+				return nil, fmt.Errorf("finding operations: %w", err)
+			}
 		}
 		ops = append(ops, op)
 
@@ -86,48 +91,86 @@ func rangesFromOp(op Operation) []ranje.Ident {
 	return out
 }
 
-func splitOpFromParent(ks *Keyspace, rID ranje.Ident) (Operation, error) {
-	r, err := ks.Get(rID)
-	if err != nil {
-		return nil, err
-	}
-
-	children := make([]*ranje.Range, len(r.Children))
-	for i := range r.Children {
-		children[i], err = ks.Get(r.Children[i])
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return &SplitOp{parent: r, children: children}, nil
-}
-
-func joinOpFromChild(ks *Keyspace, r *ranje.Range) (Operation, error) {
-	parents := make([]*ranje.Range, len(r.Parents))
-	var err error
-	for i := range r.Parents {
-		parents[i], err = ks.Get(r.Parents[i])
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return &JoinOp{parents: parents, child: r}, nil
-}
+var ErrNoParents = errors.New("given range has no parents")
 
 func opFromRange(ks *Keyspace, r *ranje.Range) (op Operation, err error) {
 	if r.State != ranje.RsActive {
 		panic("bug: called opFromRange with non-active range")
 	}
 
+	// Special case: Zero parents means this is a genesis range. So long as it's
+	// active (above), that's fine. Otherwise we would expect all leaf ranges
+	// to have at least one parent.
 	pl := len(r.Parents)
-	if pl == 1 {
-		return splitOpFromParent(ks, r.Parents[0])
-	} else if pl == 2 {
-		return joinOpFromChild(ks, r)
+	if pl == 0 {
+		return nil, ErrNoParents
 	}
 
-	return nil, fmt.Errorf("can't infer operation type for rID=%d, given len(parents)=%d", r.Meta.Ident, pl)
+	// Keep track of the state of parent ranges as we iterate through them. (If
+	// we find any that don't match, the keyspace is borked.)
+	var sp ranje.RangeState
 
+	parents := make([]*ranje.Range, len(r.Parents))
+	for i := range r.Parents {
+		rp, err := ks.Get(r.Parents[i])
+		if err != nil {
+			return nil, err
+		}
+		if i == 0 {
+			sp = rp.State
+		} else {
+			if rp.State != sp {
+				return nil, fmt.Errorf(
+					"parents of rID=%d in inconsistent state; got %s and %s",
+					r.Meta.Ident, sp, rp.State)
+			}
+		}
+		parents[i] = rp
+	}
+
+	if sp == ranje.RsSplitting {
+		if len(parents) != 1 {
+			return nil, fmt.Errorf(
+				"too many parents for split of rID=%d: %d",
+				r.Meta.Ident, len(parents))
+		}
+
+		rp := parents[0]
+
+		// Fetch all the children of the parent range. This will include the
+		// range this function was called with and its siblings.
+		children := make([]*ranje.Range, len(rp.Children))
+		for i := range rp.Children {
+			children[i], err = ks.Get(rp.Children[i])
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		return &SplitOp{parent: rp, children: children}, nil
+	}
+
+	if sp != ranje.RsJoining {
+		return nil, fmt.Errorf(
+			"unexpected state for parents of rID=%d: %s",
+			r.Meta.Ident, sp)
+	}
+
+	// We could return the JoinOp now, but just do one more sanity check that
+	// all of the parents have exactly one child, which is the range we started
+	// with. Otherwise we might be trying to do some kind of weird future op.
+	for i := range parents {
+		if len(parents[i].Children) != 1 {
+			return nil, fmt.Errorf(
+				"wrong number of children for parent of rID=%d: %d",
+				r.Meta.Ident, len(parents[i].Children))
+		}
+		if parents[i].Children[0] != r.Meta.Ident {
+			return nil, fmt.Errorf(
+				"wrong child of rID=%d: %d",
+				parents[i].Meta.Ident, parents[i].Children[0])
+		}
+	}
+
+	return &JoinOp{parents: parents, child: r}, nil
 }
