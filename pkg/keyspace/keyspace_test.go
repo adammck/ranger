@@ -112,8 +112,8 @@ func TestOperations(t *testing.T) {
 
 	ops, err := ks.Operations()
 	require.NoError(t, err)
-	require.Contains(t, ops, &JoinOp{parents: []*ranje.Range{r4, r5}, child: r8})
-	require.Contains(t, ops, &SplitOp{parent: r3, children: []*ranje.Range{r6, r7}})
+	require.Contains(t, ops, &Operation{Parents: []*ranje.Range{r4, r5}, Children: []*ranje.Range{r8}})
+	require.Contains(t, ops, &Operation{Parents: []*ranje.Range{r3}, Children: []*ranje.Range{r6, r7}})
 	require.Len(t, ops, 2)
 }
 
@@ -188,7 +188,7 @@ func TestSplitIntoThree(t *testing.T) {
 
 	ops, err := ks.Operations()
 	require.NoError(t, err)
-	require.Contains(t, ops, &SplitOp{parent: r1, children: []*ranje.Range{r2, r3, r4}})
+	require.Contains(t, ops, &Operation{Parents: []*ranje.Range{r1}, Children: []*ranje.Range{r2, r3, r4}})
 	require.Len(t, ops, 1)
 }
 
@@ -253,7 +253,7 @@ func TestJoinFromThree(t *testing.T) {
 
 	ops, err := ks.Operations()
 	require.NoError(t, err)
-	require.Contains(t, ops, &JoinOp{parents: []*ranje.Range{r2, r3, r4}, child: r5})
+	require.Contains(t, ops, &Operation{Parents: []*ranje.Range{r2, r3, r4}, Children: []*ranje.Range{r5}})
 	require.Len(t, ops, 1)
 }
 
@@ -294,7 +294,7 @@ func TestSplitIntoOne(t *testing.T) {
 
 	ops, err := ks.Operations()
 	require.NoError(t, err)
-	require.Contains(t, ops, &SplitOp{parent: r1, children: []*ranje.Range{r2}})
+	require.Contains(t, ops, &Operation{Parents: []*ranje.Range{r1}, Children: []*ranje.Range{r2}})
 	require.Len(t, ops, 1)
 }
 
@@ -333,7 +333,7 @@ func TestJoinFromOne(t *testing.T) {
 
 	ops, err := ks.Operations()
 	require.NoError(t, err)
-	require.Contains(t, ops, &JoinOp{parents: []*ranje.Range{r1}, child: r2})
+	require.Contains(t, ops, &Operation{Parents: []*ranje.Range{r1}, Children: []*ranje.Range{r2}})
 	require.Len(t, ops, 1)
 }
 

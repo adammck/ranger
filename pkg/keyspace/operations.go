@@ -9,7 +9,7 @@ import (
 
 // Operations returns the operations (splits, joins) which are currently in
 // progress. Invalidated after any kind of transformation.
-func (ks *Keyspace) Operations() ([]Operation, error) {
+func (ks *Keyspace) Operations() ([]*Operation, error) {
 
 	// Build a set of active ranges to consider. This is churning through the
 	// whole range history, but only really needs the leaf ranges. Keep an index
@@ -21,7 +21,7 @@ func (ks *Keyspace) Operations() ([]Operation, error) {
 		}
 	}
 
-	ops := []Operation{}
+	ops := []*Operation{}
 	for _, r := range ranges {
 		// Construct the operation from this range, however it's connected.
 		op, err := opFromRange(ks, r)
@@ -44,48 +44,20 @@ func (ks *Keyspace) Operations() ([]Operation, error) {
 	return ops, nil
 }
 
-type Operation interface {
-	Parents() []*ranje.Range
-	Children() []*ranje.Range
+type Operation struct {
+	Parents  []*ranje.Range
+	Children []*ranje.Range
 }
 
-type SplitOp struct {
-	parent   *ranje.Range
-	children []*ranje.Range
-}
+func rangesFromOp(op *Operation) []ranje.Ident {
+	out := make([]ranje.Ident, len(op.Parents)+len(op.Children))
 
-func (s *SplitOp) Parents() []*ranje.Range {
-	return []*ranje.Range{s.parent}
-}
-
-func (s *SplitOp) Children() []*ranje.Range {
-	return s.children
-}
-
-type JoinOp struct {
-	parents []*ranje.Range
-	child   *ranje.Range
-}
-
-func (j *JoinOp) Parents() []*ranje.Range {
-	return j.parents
-}
-
-func (j *JoinOp) Children() []*ranje.Range {
-	return []*ranje.Range{j.child}
-}
-
-func rangesFromOp(op Operation) []ranje.Ident {
-	p := op.Parents()
-	c := op.Children()
-	out := make([]ranje.Ident, len(p)+len(c))
-
-	for i, r := range p {
+	for i, r := range op.Parents {
 		out[i] = r.Meta.Ident
 	}
 
-	for i, r := range c {
-		out[len(p)+i] = r.Meta.Ident
+	for i, r := range op.Children {
+		out[len(op.Parents)+i] = r.Meta.Ident
 	}
 
 	return out
@@ -93,7 +65,7 @@ func rangesFromOp(op Operation) []ranje.Ident {
 
 var ErrNoParents = errors.New("given range has no parents")
 
-func opFromRange(ks *Keyspace, r *ranje.Range) (op Operation, err error) {
+func opFromRange(ks *Keyspace, r *ranje.Range) (op *Operation, err error) {
 	if r.State != ranje.RsActive {
 		panic("bug: called opFromRange with non-active range")
 	}
@@ -147,7 +119,7 @@ func opFromRange(ks *Keyspace, r *ranje.Range) (op Operation, err error) {
 			}
 		}
 
-		return &SplitOp{parent: rp, children: children}, nil
+		return &Operation{Parents: parents, Children: children}, nil
 	}
 
 	if sp != ranje.RsJoining {
@@ -172,5 +144,5 @@ func opFromRange(ks *Keyspace, r *ranje.Range) (op Operation, err error) {
 		}
 	}
 
-	return &JoinOp{parents: parents, child: r}, nil
+	return &Operation{Parents: parents, Children: []*ranje.Range{r}}, nil
 }
