@@ -75,17 +75,7 @@ func (r *Range) LogString() string {
 		}
 	}
 
-	// Hack: These two states used to be a single state called RsSubsuming, and
-	// all the tests expect to see that string, so stick with it for now.
-	// TODO(adammck): Fix the tests, obviously.
-	rs := ""
-	if r.State == RsJoining || r.State == RsSplitting {
-		rs = "RsSubsuming"
-	} else {
-		rs = r.State.String()
-	}
-
-	return fmt.Sprintf("{%s %s%s}", r.Meta, rs, ps)
+	return fmt.Sprintf("{%s %s%s}", r.Meta, r.State, ps)
 }
 
 // TODO: Make this less weird.
