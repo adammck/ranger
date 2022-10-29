@@ -257,6 +257,86 @@ func TestJoinFromThree(t *testing.T) {
 	require.Len(t, ops, 1)
 }
 
+func TestSplitIntoOne(t *testing.T) {
+
+	// ┌─────┐
+	// │ 1 s │
+	// └─────┘
+	//    │
+	//    ▼
+	// ┌─────┐
+	// │ 2 a │
+	// └─────┘
+	//
+	// Another hypothetical split of one into... one? This should definitely not
+	// happen, but it's not the concern of the Operation interface, so make sure
+	// we don't do anything too weird with it.
+
+	r1 := &ranje.Range{
+		State:    ranje.RsSplitting,
+		Children: []ranje.Ident{2},
+		Meta:     ranje.Meta{Ident: 1},
+	}
+
+	r2 := &ranje.Range{
+		State:    ranje.RsActive,
+		Parents:  []ranje.Ident{1},
+		Children: []ranje.Ident{},
+		Meta:     ranje.Meta{Ident: 2},
+	}
+
+	pers := &FakePersister{
+		ranges: []*ranje.Range{
+			r1, r2}}
+
+	ks, err := New(configForTest(), pers)
+	require.NoError(t, err)
+
+	ops, err := ks.Operations()
+	require.NoError(t, err)
+	require.Contains(t, ops, &SplitOp{parent: r1, children: []*ranje.Range{r2}})
+	require.Len(t, ops, 1)
+}
+
+func TestJoinFromOne(t *testing.T) {
+
+	// ┌─────┐
+	// │ 1 j │
+	// └─────┘
+	//    │
+	//    ▼
+	// ┌─────┐
+	// │ 2 a │
+	// └─────┘
+	//
+	// Sure, why not.
+
+	r1 := &ranje.Range{
+		State:    ranje.RsJoining,
+		Children: []ranje.Ident{2},
+		Meta:     ranje.Meta{Ident: 1},
+	}
+
+	r2 := &ranje.Range{
+		State:    ranje.RsActive,
+		Parents:  []ranje.Ident{1},
+		Children: []ranje.Ident{},
+		Meta:     ranje.Meta{Ident: 2},
+	}
+
+	pers := &FakePersister{
+		ranges: []*ranje.Range{
+			r1, r2}}
+
+	ks, err := New(configForTest(), pers)
+	require.NoError(t, err)
+
+	ops, err := ks.Operations()
+	require.NoError(t, err)
+	require.Contains(t, ops, &JoinOp{parents: []*ranje.Range{r1}, child: r2})
+	require.Len(t, ops, 1)
+}
+
 func TestPlacementMayBecomeReady(t *testing.T) {
 	examples := []struct {
 		name   string
