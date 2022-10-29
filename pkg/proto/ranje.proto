@@ -77,8 +77,9 @@ enum RangeNodeState {
 enum RangeState {
   RS_UNKNOWN = 0;
   RS_ACTIVE = 1;
-  RS_SUBSUMING = 2;
-  RS_OBSOLETE = 3;
+  RS_SPLITTING = 2;
+  RS_JOINING = 3;
+  RS_OBSOLETE = 4;
 }
 
 // This is only for debugging purposes, for now.

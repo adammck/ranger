@@ -101,6 +101,13 @@ func (ks *Keyspace) SanityCheck() error {
 		seen[r.Meta.Ident] = struct{}{}
 	}
 
+	// Check for any ranges in an unknown state.
+	for i := range ks.ranges {
+		if ks.ranges[i].State == ranje.RsUnknown {
+			return fmt.Errorf("range in unknown state (rID=%v)", ks.ranges[i].Meta.Ident)
+		}
+	}
+
 	// Check that leaf ranges (i.e. those with no children) cover the entire
 	// keyspace with no overlaps. This must always be the case; we only persist
 	// valid configurations, and do it transactionally.
@@ -129,7 +136,7 @@ func (ks *Keyspace) SanityCheck() error {
 	})
 
 	for i, r := range leafs {
-		if r.State == ranje.RsSubsuming || r.State == ranje.RsObsolete {
+		if r.State != ranje.RsActive {
 			return fmt.Errorf("non-active leaf range with no children (rID=%v)", r.Meta.Ident)
 		}
 
@@ -213,7 +220,7 @@ func (ks *Keyspace) PlacementMayActivate(p *ranje.Placement) error {
 	parentIsSubsuming := false
 	if len(fam.Parents) > 0 {
 		for _, rp := range fam.Parents {
-			if rp.State == ranje.RsSubsuming {
+			if rp.State == ranje.RsSplitting || rp.State == ranje.RsJoining {
 				parentIsSubsuming = true
 				break
 			}
@@ -233,7 +240,7 @@ func (ks *Keyspace) PlacementMayActivate(p *ranje.Placement) error {
 	}
 
 	// Join?
-	if r.State == ranje.RsSubsuming {
+	if r.State == ranje.RsJoining {
 		for _, rs := range fam.Siblings {
 			for _, rsp := range rs.Placements {
 				if rsp.GiveUpOnDeactivate {
@@ -335,7 +342,7 @@ func (ks *Keyspace) PlacementMayDeactivate(p *ranje.Placement) bool {
 		subsumeInProgress := false
 		if len(fam.Parents) > 0 {
 			for _, rp := range fam.Parents {
-				if rp.State == ranje.RsSubsuming {
+				if rp.State == ranje.RsSplitting || rp.State == ranje.RsJoining {
 					subsumeInProgress = true
 					break
 				}
@@ -354,7 +361,7 @@ func (ks *Keyspace) PlacementMayDeactivate(p *ranje.Placement) bool {
 			}
 		}
 
-	case ranje.RsSubsuming:
+	case ranje.RsSplitting, ranje.RsJoining:
 
 		// Exit early if any of the child ranges don't have enough replicas
 		// in ranje.PsInactive.
@@ -410,7 +417,7 @@ func (ks *Keyspace) PlacementMayDrop(p *ranje.Placement) error {
 		// If any of this range's parents in Subsuming,
 		subsumeInProgress := false
 		for _, rp := range fam.Parents {
-			if rp.State == ranje.RsSubsuming {
+			if rp.State == ranje.RsSplitting || rp.State == ranje.RsJoining {
 				subsumeInProgress = true
 				break
 			}
@@ -479,7 +486,7 @@ func (ks *Keyspace) PlacementMayDrop(p *ranje.Placement) error {
 
 		return nil
 
-	case ranje.RsSubsuming:
+	case ranje.RsSplitting, ranje.RsJoining:
 		if p.GivenUpOnActivate {
 			// wtf does this mean
 			panic("inactive placement in subsuming range has given up?")
@@ -538,9 +545,9 @@ func replacementFor(p *ranje.Placement) *ranje.Placement {
 }
 
 func (ks *Keyspace) RangeCanBeObsoleted(r *ranje.Range) error {
-	if r.State != ranje.RsSubsuming {
+	if r.State != ranje.RsSplitting && r.State != ranje.RsJoining {
 		// This should not be called in any other state.
-		return fmt.Errorf("range not in ranje.RsSubsuming")
+		return fmt.Errorf("range not in ranje.RsSplitting nor ranje.RsJoining")
 	}
 
 	if l := len(r.Placements); l > 0 {
@@ -580,7 +587,7 @@ func (ks *Keyspace) Split(r *ranje.Range, k ranje.Key) (one *ranje.Range, two *r
 	// Change the state of the splitting range directly via Range.toState rather
 	// than Keyspace.ToState as (usually!) recommended, because we don't want
 	// to persist the change until the two new ranges have been created, below.
-	err = r.ToState(ranje.RsSubsuming)
+	err = r.ToState(ranje.RsSplitting)
 	if err != nil {
 		// The error is clear enough, no need to wrap it.
 		return
@@ -747,7 +754,7 @@ func (ks *Keyspace) JoinTwo(one *ranje.Range, two *ranje.Range) (*ranje.Range, e
 	}
 
 	for _, r := range []*ranje.Range{one, two} {
-		err := r.ToState(ranje.RsSubsuming)
+		err := r.ToState(ranje.RsJoining)
 		if err != nil {
 			// The error is clear enough, no need to wrap it.
 			return nil, err

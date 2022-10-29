@@ -32,6 +32,7 @@ func TestFamily(t *testing.T) {
 	// R2 and R4 were joined into R6.
 	// R5 and R6 are currently being joined into R7.
 	// R7 is the only active range remaining.
+	// TODO(adammck): Add an ongoing split to this test.
 
 	r1 := &ranje.Range{
 		State:      ranje.RsObsolete,
@@ -65,7 +66,7 @@ func TestFamily(t *testing.T) {
 	}
 
 	r5 := &ranje.Range{
-		State:      ranje.RsSubsuming,
+		State:      ranje.RsJoining,
 		Parents:    []ranje.Ident{3},
 		Children:   []ranje.Ident{7},
 		Meta:       ranje.Meta{Ident: 5, Start: ranje.Key("t")},
@@ -73,7 +74,7 @@ func TestFamily(t *testing.T) {
 	}
 
 	r6 := &ranje.Range{
-		State:      ranje.RsSubsuming,
+		State:      ranje.RsJoining,
 		Parents:    []ranje.Ident{2, 4},
 		Children:   []ranje.Ident{7},
 		Meta:       ranje.Meta{Ident: 6, End: ranje.Key("t")},

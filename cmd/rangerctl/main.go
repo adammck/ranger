@@ -400,7 +400,7 @@ func renderRangesOutput(w io.Writer, res *pb.RangesListResponse) {
 			attrs["color"] = "#006000"
 			attrs["fontcolor"] = "#006000"
 			attrs["fillcolor"] = "#eeffee"
-		case pb.RangeState_RS_SUBSUMING:
+		case pb.RangeState_RS_SPLITTING, pb.RangeState_RS_JOINING:
 			attrs["color"] = "#600000"
 			attrs["fontcolor"] = "#600000"
 			attrs["fillcolor"] = "#ffeeee"

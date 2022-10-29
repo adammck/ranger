@@ -34,13 +34,13 @@ func TestPlacementMayBecomeReady(t *testing.T) {
 			name: "joining",
 			input: []*ranje.Range{
 				{
-					State:      ranje.RsSubsuming,
+					State:      ranje.RsJoining,
 					Children:   []ranje.Ident{3},
 					Meta:       ranje.Meta{Ident: 1, Start: ranje.ZeroKey, End: ranje.Key("ggg")},
 					Placements: []*ranje.Placement{{NodeID: "n1", State: ranje.PsInactive}},
 				},
 				{
-					State:      ranje.RsSubsuming,
+					State:      ranje.RsJoining,
 					Children:   []ranje.Ident{3},
 					Meta:       ranje.Meta{Ident: 2, Start: ranje.Key("ggg"), End: ranje.ZeroKey},
 					Placements: []*ranje.Placement{{NodeID: "n2", State: ranje.PsInactive}},
@@ -107,13 +107,13 @@ func TestPlacementMayBeTaken(t *testing.T) {
 			name: "joining",
 			input: []*ranje.Range{
 				{
-					State:      ranje.RsSubsuming,
+					State:      ranje.RsJoining,
 					Children:   []ranje.Ident{3},
 					Meta:       ranje.Meta{Ident: 1, Start: ranje.ZeroKey, End: ranje.Key("ggg")},
 					Placements: []*ranje.Placement{{NodeID: "n1", State: ranje.PsActive}},
 				},
 				{
-					State:      ranje.RsSubsuming,
+					State:      ranje.RsJoining,
 					Children:   []ranje.Ident{3},
 					Meta:       ranje.Meta{Ident: 2, Start: ranje.Key("ggg"), End: ranje.ZeroKey},
 					Placements: []*ranje.Placement{{NodeID: "n2", State: ranje.PsActive}},

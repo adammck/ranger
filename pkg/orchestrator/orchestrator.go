@@ -304,7 +304,16 @@ func (b *Orchestrator) tickRange(r *ranje.Range) {
 			}
 		}
 
-	case ranje.RsSubsuming:
+	case ranje.RsSplitting:
+		err := b.ks.RangeCanBeObsoleted(r)
+		if err != nil {
+			log.Printf("may not be obsoleted: %v (p=%v)", err, r)
+		} else {
+			// No error, so ready to obsolete the range.
+			b.ks.RangeToState(r, ranje.RsObsolete)
+		}
+
+	case ranje.RsJoining:
 		err := b.ks.RangeCanBeObsoleted(r)
 		if err != nil {
 			log.Printf("may not be obsoleted: %v (p=%v)", err, r)
