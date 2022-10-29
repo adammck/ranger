@@ -11,6 +11,113 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestOperations(t *testing.T) {
+
+	//               ┌─────┐
+	//         ┌─────│ 1 o │─────┐
+	//         │     └─────┘     │
+	//         ▼                 ▼
+	//      ┌─────┐           ┌─────┐
+	//    ┌─│ 2 o │─┐       ┌─│ 3 s │─┐
+	//    │ └─────┘ │       │ └─────┘ │
+	//    ▼         ▼       ▼         ▼
+	// ┌─────┐   ┌─────┐ ┌─────┐   ┌─────┐
+	// │ 4 j │   │ 5 j │ │ 6 a │   │ 7 a │
+	// └─────┘   └─────┘ └─────┘   └─────┘
+	//    │         │
+	//    └────┬────┘
+	//         ▼
+	//      ┌─────┐
+	//      │ 8 a │
+	//      └─────┘
+	//
+	// R1 obsolete (was split into R2, R3 at ccc)
+	// R2 obsolete (was split into R4, R5 at bbb)
+	// R3 splitting into R6, R7 at ddd
+	// R4 joining with R5 into R8
+	// R5 joining with R4 into R8
+	// R6 active (splitting from R3)
+	// R7 active (splitting from R7)
+	// R8 active (joining from R4, R5)
+
+	r1 := &ranje.Range{
+		State:      ranje.RsObsolete,
+		Children:   []ranje.Ident{2, 3},
+		Meta:       ranje.Meta{Ident: 1, Start: ranje.ZeroKey, End: ranje.ZeroKey},
+		Placements: []*ranje.Placement{},
+	}
+
+	r2 := &ranje.Range{
+		State:      ranje.RsObsolete,
+		Parents:    []ranje.Ident{1},
+		Children:   []ranje.Ident{4, 5},
+		Meta:       ranje.Meta{Ident: 2, End: ranje.Key("ccc")},
+		Placements: []*ranje.Placement{},
+	}
+
+	r3 := &ranje.Range{
+		State:      ranje.RsSplitting,
+		Parents:    []ranje.Ident{1},
+		Children:   []ranje.Ident{6, 7},
+		Meta:       ranje.Meta{Ident: 3, Start: ranje.Key("ccc")},
+		Placements: []*ranje.Placement{},
+	}
+
+	r4 := &ranje.Range{
+		State:      ranje.RsJoining,
+		Parents:    []ranje.Ident{2},
+		Children:   []ranje.Ident{8},
+		Meta:       ranje.Meta{Ident: 4, End: ranje.Key("bbb")},
+		Placements: []*ranje.Placement{},
+	}
+
+	r5 := &ranje.Range{
+		State:      ranje.RsJoining,
+		Parents:    []ranje.Ident{2},
+		Children:   []ranje.Ident{8},
+		Meta:       ranje.Meta{Ident: 5, Start: ranje.Key("bbb")},
+		Placements: []*ranje.Placement{},
+	}
+
+	r6 := &ranje.Range{
+		State:      ranje.RsActive,
+		Parents:    []ranje.Ident{3},
+		Children:   []ranje.Ident{},
+		Meta:       ranje.Meta{Ident: 6, Start: ranje.Key("ccc"), End: ranje.Key("ddd")},
+		Placements: []*ranje.Placement{},
+	}
+
+	r7 := &ranje.Range{
+		State:      ranje.RsActive,
+		Parents:    []ranje.Ident{3},
+		Children:   []ranje.Ident{},
+		Meta:       ranje.Meta{Ident: 7, Start: ranje.Key("ddd")},
+		Placements: []*ranje.Placement{},
+	}
+
+	r8 := &ranje.Range{
+		State:      ranje.RsActive,
+		Parents:    []ranje.Ident{4, 5},
+		Children:   []ranje.Ident{},
+		Meta:       ranje.Meta{Ident: 8, End: ranje.Key("ccc")},
+		Placements: []*ranje.Placement{},
+	}
+
+	pers := &FakePersister{
+		ranges: []*ranje.Range{
+			r1, r2, r3, r4, r5, r6, r7, r8}}
+
+	ks, err := New(configForTest(), pers)
+	require.NoError(t, err)
+
+	ops, err := ks.Operations()
+	require.NoError(t, err)
+	require.Len(t, ops, 2)
+
+	require.Contains(t, ops, &JoinOp{parents: []*ranje.Range{r4, r5}, child: r8})
+	require.Contains(t, ops, &SplitOp{parent: r3, children: []*ranje.Range{r6, r7}})
+}
+
 func TestPlacementMayBecomeReady(t *testing.T) {
 	examples := []struct {
 		name   string
