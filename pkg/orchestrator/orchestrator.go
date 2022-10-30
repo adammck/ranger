@@ -669,19 +669,17 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			b.ks.PlacementToState(p, ranje.PsGiveUp)
 		}
 
-		if b.ks.PlacementMayDeactivate(p, r, op) {
+		if err := b.ks.PlacementMayDeactivate(p, r, op); err == nil {
 			if p.Attempts >= maxTakeAttempts {
 				log.Printf("given up on deactivating placement (rID=%s, n=%s, attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
 				p.GiveUpOnDeactivate = true
-
 			} else {
 				p.Attempts += 1
 				log.Printf("will take %s from %s (attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
 				b.take(p, n)
 			}
-
-			//} else {
-			//log.Printf("placement blocked at NsReady (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
+		} else {
+			log.Printf("will not deactivate (rID=%s, n=%s, err=%s)", p.Range().Meta.Ident, n.Ident(), err)
 		}
 
 	case ranje.PsGiveUp:

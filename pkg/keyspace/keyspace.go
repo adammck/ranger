@@ -174,108 +174,14 @@ func (ks *Keyspace) Ranges() ([]*ranje.Range, func()) {
 // PlacementMayActivate returns whether the given placement is permitted to
 // advance from ranje.PsInactive to ranje.PsActive.
 func (ks *Keyspace) PlacementMayActivate(p *ranje.Placement, r *ranje.Range, op *Operation) error {
-
-	// Sanity check.
 	if p.State != ranje.PsInactive {
-		return fmt.Errorf("called PlacementMayBecomeReady in weird state: %s", p.State)
-	}
-
-	fam, err := ks.Family(r.Meta.Ident)
-	if err != nil {
-		return fmt.Errorf("error getting range family for R%d: %v", r.Meta.Ident, err)
+		return fmt.Errorf("placment not in ranje.PsInactive")
 	}
 
 	// If this placement has been given up on, it's destined to be dropped
 	// rather than served. We might have tried to serve it and failed.
 	if p.GivenUpOnActivate {
 		return fmt.Errorf("gave up")
-	}
-
-	// If one of the sibling placements (on the same range) claims to be
-	// replacing this range, then it mustn't become ready (unless that sibling
-	// has given up). It was probably just moved from ready to Idle so that the
-	// sibling could become ready.
-	for _, p2 := range r.Placements {
-		if p2.IsReplacing == p.NodeID {
-			if p2.GivenUpOnActivate {
-				return nil
-			} else {
-				return fmt.Errorf("will be replaced by sibling")
-			}
-		}
-	}
-
-	// If this placement is part of a child range, we must wait until all of the
-	// placements in the parent range have been deactivated. Otherwise, keys
-	// will be available in both the parent and child.
-	for _, rp := range fam.Parents {
-		for _, pp := range rp.Placements {
-			if pp.State == ranje.PsActive { // TODO: != PsReady, instead?
-				return fmt.Errorf("parent placement is not PsInactive; is %s", pp.State)
-			}
-		}
-	}
-
-	parentIsSubsuming := false
-	if len(fam.Parents) > 0 {
-		for _, rp := range fam.Parents {
-			if rp.State == ranje.RsSplitting || rp.State == ranje.RsJoining {
-				parentIsSubsuming = true
-				break
-			}
-		}
-	}
-	if parentIsSubsuming {
-		// The parent is still subsuming.
-		for _, rs := range fam.Siblings {
-			for _, rsp := range rs.Placements {
-				if rsp.GivenUpOnActivate {
-					// Sibling has given up on serving. This split has
-					// failed. Take to start rewinding it.
-					return fmt.Errorf("sibling is GivenUp; parent will be recalling")
-				}
-			}
-		}
-	}
-
-	// Join?
-	if r.State == ranje.RsJoining {
-		for _, rs := range fam.Siblings {
-			for _, rsp := range rs.Placements {
-				if rsp.GiveUpOnDeactivate {
-					return nil
-				}
-			}
-		}
-	}
-
-	// Split?
-	// OTOH, if this is part of a parent range (i.e. it has children), it must
-	// not advance unless the children have all given up.
-	if len(fam.Children) > 0 {
-		numGivenUp := 0
-		for _, rc := range fam.Children {
-			for _, pc := range rc.Placements {
-
-				// TODO: Is this right?
-				// if !pc.GivenUp {
-				// 	return fmt.Errorf("children have not all given up")
-				// }
-
-				if pc.State == ranje.PsActive {
-					return fmt.Errorf("has active child")
-				}
-
-				if pc.GivenUpOnActivate {
-					numGivenUp += 1
-				}
-			}
-		}
-		// TODO: Shouldn't this be...?
-		//   if numGivenUp < len(children) {
-		if numGivenUp == 0 {
-			return fmt.Errorf("children have not all given up")
-		}
 	}
 
 	// Count how many PsActive placements this range has. If it's fewer than the
@@ -293,171 +199,241 @@ func (ks *Keyspace) PlacementMayActivate(p *ranje.Placement, r *ranje.Range, op 
 		return fmt.Errorf("too many ready placements (n=%d, MinReady=%d)", n, r.MinReady())
 	}
 
+	if op == nil {
+
+		// If one of the sibling placements (on the same range) claims to be
+		// replacing this range, then it mustn't become ready (unless that sibling
+		// has given up). It was probably just moved from ready to Idle so that the
+		// sibling could become ready.
+		if other := replacementFor(p); other != nil {
+			if !other.GivenUpOnActivate {
+				return fmt.Errorf("will be replaced by sibling")
+			}
+		}
+
+		return nil
+	}
+
+	if op.IsChild(r.Meta.Ident) {
+		// If this placement is part of a child range, we must wait until all of the
+		// placements in the parent range have been deactivated. Otherwise, keys
+		// will be available in both the parent and child.
+		for _, rp := range op.Parents() {
+			for _, pp := range rp.Placements {
+				if pp.State == ranje.PsActive {
+					return fmt.Errorf("parent placement is not PsInactive; is %s", pp.State)
+				}
+			}
+		}
+
+		// The parent is still subsuming.
+		for _, rs := range op.Children() {
+			for _, rsp := range rs.Placements {
+				if rsp.GivenUpOnActivate {
+					// Sibling has given up on serving. This split has
+					// failed. Take to start rewinding it.
+					return fmt.Errorf("sibling is GivenUp; parent will be recalling")
+				}
+			}
+		}
+	}
+
+	if op.IsParent(r.Meta.Ident) {
+
+		// Definitely can't reactivate if any of the children are active.
+		for _, rc := range op.Children() {
+			for _, pc := range rc.Placements {
+				if pc.State == ranje.PsActive {
+					return fmt.Errorf("has active child")
+				}
+			}
+		}
+
+		// Two reasons to re-activate a parent: one of the other parents has
+		// given up on deactivating, or one of the children have given up on
+		// activating. Either way, the operation is being recalled.
+
+		parentsGivenUp := 0
+		for _, rs := range op.Parents() {
+			for _, rsp := range rs.Placements {
+				if rsp.GiveUpOnDeactivate {
+					parentsGivenUp += 1
+				}
+			}
+		}
+
+		childrenGivenUp := 0
+		for _, rc := range op.Children() {
+			for _, pc := range rc.Placements {
+				if pc.GivenUpOnActivate {
+					childrenGivenUp += 1
+				}
+			}
+		}
+
+		if parentsGivenUp == 0 && childrenGivenUp == 0 {
+			return fmt.Errorf("children have not all given up")
+		}
+	}
+
 	return nil
 }
 
 // PlacementMayDeactivate returns true if the given placement is permitted to
 // move from PsActive to PsInactive.
-func (ks *Keyspace) PlacementMayDeactivate(p *ranje.Placement, r *ranje.Range, op *Operation) bool {
-
-	// Sanity check.
+func (ks *Keyspace) PlacementMayDeactivate(p *ranje.Placement, r *ranje.Range, op *Operation) error {
 	if p.State != ranje.PsActive {
-		log.Printf("called PlacementMayBeTaken in weird state: %s", p.State)
-		return false
+		return fmt.Errorf("placment not in ranje.PsActive")
 	}
 
-	fam, err := ks.Family(r.Meta.Ident)
-	if err != nil {
-		log.Printf("error getting range family for R%d: %v", r.Meta.Ident, err)
-		return false
+	if p.GiveUpOnDeactivate {
+		return fmt.Errorf("gave up")
 	}
 
-	switch r.State {
-	case ranje.RsActive:
+	if op == nil {
 
 		// If this placement is being replaced by another...
-		replacement := replacementFor(p)
-		if replacement != nil {
+		if other := replacementFor(p); other != nil {
 
 			// There is another placement replacing this one, but we've given up on
 			// it, so will destroy that (the replacement) rather than taking this
 			// one. We might have already taken this one once, and then reverted it
 			// back because the replacement failed to become ready.
-			if replacement.GivenUpOnActivate {
-				return false
+			if other.GivenUpOnActivate {
+				return fmt.Errorf("replacement has given up")
 			}
 
-			if p.GiveUpOnDeactivate {
-				return false
+			if other.State != ranje.PsInactive {
+				return fmt.Errorf("replacement is not inactive")
 			}
 
-			if replacement.State == ranje.PsInactive {
-				return true
-			}
+			return nil
 		}
 
-		// If any of this range's parents are still in Subsuming...
-		subsumeInProgress := false
-		if len(fam.Parents) > 0 {
-			for _, rp := range fam.Parents {
-				if rp.State == ranje.RsSplitting || rp.State == ranje.RsJoining {
-					subsumeInProgress = true
-					break
-				}
-			}
-		}
-		if subsumeInProgress {
-			// The parent is still subsuming.
-			for _, rs := range fam.Siblings {
-				for _, rsp := range rs.Placements {
-					if rsp.GivenUpOnActivate {
-						// Sibling has given up on serving. This split has
-						// failed. Take to start rewinding it.
-						return true
-					}
-				}
-			}
+		// Is this placement replacing some other? It's already in active, so
+		// the other must have already become inactive. There is no reason we'd
+		// turn around now.
+		if other := replacedBy(p); other != nil {
+			return fmt.Errorf("replacing other")
 		}
 
-	case ranje.RsSplitting, ranje.RsJoining:
-
-		// Exit early if any of the child ranges don't have enough replicas
-		// in ranje.PsInactive.
-		for _, rc := range fam.Children {
-			n := 0
-			for _, pc := range rc.Placements {
-				if pc.State == ranje.PsInactive && !pc.GivenUpOnActivate {
-					n += 1
-				}
-			}
-			if n < rc.MinReady() {
-				//log.Printf("child range has insufficient loaded placements: %s", rID)
-				return false
-			}
-		}
-
-		for _, sib := range fam.Siblings {
-			for _, sp := range sib.Placements {
-				if sp.GiveUpOnDeactivate {
-					return false
-				}
-			}
-		}
-
-		if p.GiveUpOnDeactivate {
-			return false
-		}
-
-		// All placements in all child ranges are loaded, i.e. ready to become
-		// Ready. So we can become Taken, to relinquish all the keys in range.
-		return true
+		// Otherwise, no operation is in progress and the placement isn't being
+		// replaced, so there is no reason that we'd deactivate.
+		return fmt.Errorf("no reason")
 	}
 
-	return false
+	if op.IsChild(r.Meta.Ident) {
+
+		// Only reason to deactivate a child is that one of the other children
+		// have given up on becoming activated and we're going to recall the
+		// operation back to the parents.
+
+		for _, rs := range op.Children() {
+			for _, rsp := range rs.Placements {
+				if rsp.GivenUpOnActivate {
+					return nil
+				}
+			}
+		}
+
+		return fmt.Errorf("no problem")
+	}
+
+	if op.IsParent(r.Meta.Ident) {
+
+		// Can't deactivate if the children haven't activated yet.
+		for _, rc := range op.Children() {
+			for _, pc := range rc.Placements {
+				if pc.State != ranje.PsInactive {
+					return fmt.Errorf("child not inactive")
+				}
+			}
+		}
+
+		for _, pr := range op.Parents() {
+			for _, prp := range pr.Placements {
+				if prp.GiveUpOnDeactivate {
+					return fmt.Errorf("parent has not given up on deactivation")
+				}
+			}
+		}
+
+		for _, rc := range op.Children() {
+			childrenGivenUp := 0
+			for _, pc := range rc.Placements {
+				if !pc.GivenUpOnActivate {
+					childrenGivenUp += 1
+				}
+			}
+			if childrenGivenUp == 0 {
+				return fmt.Errorf("not enough children given up on activation")
+			}
+		}
+
+		return nil
+	}
+
+	// Shouldn't reach here. This is a bug.
+	panic("unsure whether to deactivate")
 }
 
 func (ks *Keyspace) PlacementMayDrop(p *ranje.Placement, r *ranje.Range, op *Operation) error {
-
-	// Sanity check.
 	if p.State != ranje.PsInactive {
 		return fmt.Errorf("placment not in ranje.PsInactive")
 	}
 
-	fam, err := ks.Family(r.Meta.Ident)
-	if err != nil {
-		return fmt.Errorf("error getting range family for R%d: %v", r.Meta.Ident, err)
-	}
-
-	switch r.State {
-	case ranje.RsActive:
-
-		// If any of this range's parents in Subsuming,
-		subsumeInProgress := false
-		for _, rp := range fam.Parents {
-			if rp.State == ranje.RsSplitting || rp.State == ranje.RsJoining {
-				subsumeInProgress = true
-				break
+	if op == nil {
+		// Is this placement being replaced by some other? Can drop as soon as
+		// that other placement becomes active.
+		if other := replacementFor(p); other != nil {
+			if other.State != ranje.PsActive {
+				return fmt.Errorf("replacement not ranje.PsActive; is %s", other.State)
 			}
+
+			return nil
 		}
-		if !subsumeInProgress {
-			// If this placement is being replaced by another, and that other has
-			// become ready, this one can be dropped. Otherwise keep waiting.
-			if other := replacementFor(p); other != nil {
+
+		// Is this placement replacing some other?
+		if other := replacedBy(p); other != nil {
+
+			// If this placement (the replacement) has failed to activate, the
+			// other placement should be reactivated and this one should be
+			// dropped. In order to make that a bit safer and more orderly,
+			// delay the drop until after the other one has reactivated.
+			if p.GivenUpOnActivate {
 				if other.State == ranje.PsActive {
 					return nil
 				} else {
-					return fmt.Errorf("replacement not ranje.PsActive; is %s", other.State)
+					return fmt.Errorf("won't drop aborted placement until original is reactivated")
 				}
-
-				// If this placement is replacing another, and is inactive but GivenUp,
-				// it's probably failed to activate. We *can* drop it straight away --
-				// it's useless -- but we wait until the original has been reverted to
-				// ready to make the order of operations more predictable. There's
-				// little harm in delaying the drop a bit, and reactivation (of the
-				// other placement) should be quick.
-			} else if other := replacedBy(p); other != nil {
-				if p.GivenUpOnActivate {
-					if other.State == ranje.PsActive {
-						return nil
-					} else {
-						return fmt.Errorf("won't drop aborted placement until original is reactivated")
-					}
-				} else if other.GiveUpOnDeactivate {
-					// The other placement, for which this placement is waiting to
-					// deactivate so it can activate, has failed to deactivate! This
-					// indicates that something is very broken, but there's no point
-					// in keeping this inactive placement around forever.
-					return nil
-				}
-			} else if p.GivenUpOnActivate {
-				return nil
 			}
 
-			return fmt.Errorf("not subsuming; no idea")
+			// If the other placement has failed to deactivate, might as well
+			// drop this one (the replacements) while an operator intervenes.
+			if other.GiveUpOnDeactivate {
+				return nil
+			}
 		}
 
-		// Don't want to start dropping children
-		for _, rp := range fam.Parents {
+		// Not replacing any other placement, just floating around...? Not sure
+		// what's going on here, but the placement has probably been placed and
+		// is about to be activated, so don't drop it unless that's already been
+		// tried and failed.
+
+		if p.GivenUpOnActivate {
+			return nil
+		}
+
+		return fmt.Errorf("no reason to drop")
+	}
+
+	if op.IsChild(r.Meta.Ident) {
+
+		// This range is a child range of an operation, so dropping placements
+		// will only happen under failure conditions. Generally it's the parents
+		// which are dropped because their children have replaced them.
+
+		for _, rp := range op.Parents() {
 			for _, rsp := range rp.Placements {
 				if rsp.State != ranje.PsActive {
 					return fmt.Errorf("has parent with non-active placement")
@@ -465,35 +441,28 @@ func (ks *Keyspace) PlacementMayDrop(p *ranje.Placement, r *ranje.Range, op *Ope
 			}
 		}
 
-		// Parent placements are all active. We either haven't started
-		// deactivating them yet, or we tried and gave up and reactivated
-		// them.
-
-		for _, rp := range fam.Parents {
+		for _, rp := range op.Children() {
 			for _, rsp := range rp.Placements {
-				if rsp.GiveUpOnDeactivate {
-					return fmt.Errorf("has parent wedged by GiveUpOnDeactivate")
+				if rsp.State != ranje.PsInactive {
+					return fmt.Errorf("has sibling with non-inactive placement")
 				}
 			}
 		}
 
-		if !p.GivenUpOnActivate {
-			return fmt.Errorf("haven't given up")
-		}
-
-		return nil
-
-	case ranje.RsSplitting, ranje.RsJoining:
 		if p.GivenUpOnActivate {
-			// wtf does this mean
-			panic("inactive placement in subsuming range has given up?")
+			return nil
 		}
+
+		return fmt.Errorf("not dropping inactive child; probably on the way to activate")
+	}
+
+	if op.IsParent(r.Meta.Ident) {
 
 		// Can't drop until all of the child ranges have enough placements in
 		// Ready state. They might still need the contents of this parent range
 		// to make themselves ready. (Or we might want to abort the split and
 		// move this parent range back to ready; not implemented yet.)
-		for _, cr := range fam.Children {
+		for _, cr := range op.Children() {
 			ready := 0
 			for _, cp := range cr.Placements {
 				if cp.State == ranje.PsActive {
@@ -509,10 +478,9 @@ func (ks *Keyspace) PlacementMayDrop(p *ranje.Placement, r *ranje.Range, op *Ope
 		}
 
 		return nil
-
-	default:
-		return fmt.Errorf("unexpected state (s=%v)", r.State)
 	}
+
+	return fmt.Errorf("not a child, not a parent? rID=%v", r.Meta.Ident)
 }
 
 func replacedBy(p *ranje.Placement) *ranje.Placement {

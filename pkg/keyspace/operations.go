@@ -79,6 +79,16 @@ func NewOperation(parents, children []*ranje.Range) *Operation {
 
 }
 
+func (op *Operation) Parents() []*ranje.Range {
+	// TODO: Can this method be removed? Whatever callers doing moved in here.
+	return op.parents
+}
+
+func (op *Operation) Children() []*ranje.Range {
+	// TODO: Can this method be removed? Whatever callers doing moved in here.
+	return op.children
+}
+
 func (op *Operation) Ranges() []*ranje.Range {
 	out := make([]*ranje.Range, len(op.parents)+len(op.children))
 

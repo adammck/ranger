@@ -351,6 +351,22 @@ func TestJoinFromOne(t *testing.T) {
 	require.Len(t, ops, 1)
 }
 
+func getOneOperation(t *testing.T, ks *Keyspace, i int) (*Operation, error) {
+	ops, err := ks.Operations()
+	if err != nil {
+		return nil, err
+	}
+
+	switch len(ops) {
+	case 0:
+		return nil, nil
+	case 1:
+		return ops[0], nil
+	}
+
+	return nil, fmt.Errorf("bug in test: only supports zero or one ops")
+}
+
 func TestPlacementMayBecomeReady(t *testing.T) {
 	examples := []struct {
 		name   string
@@ -400,15 +416,18 @@ func TestPlacementMayBecomeReady(t *testing.T) {
 		},
 	}
 
-	for _, ex := range examples {
+	for i, ex := range examples {
 		pers := &FakePersister{ranges: ex.input}
 		ks, err := New(configForTest(), pers)
-		require.NoError(t, err)
+		require.NoError(t, err, "i=%d", i)
+
+		op, err := getOneOperation(t, ks, i)
+		require.NoError(t, err, "i=%d", i)
 
 		for r := 0; r < len(ex.input); r++ {
 			for p := 0; p < len(ex.input[r].Placements); p++ {
 				expected := ex.output[r][p] // error string; empty is nil
-				actual := ks.PlacementMayActivate(ex.input[r].Placements[p], ex.input[r], nil)
+				actual := ks.PlacementMayActivate(ex.input[r].Placements[p], ex.input[r], op)
 				msg := fmt.Sprintf("example=%s, range=%d, placement=%d", ex.name, r, p)
 
 				if expected == "" {
@@ -428,7 +447,7 @@ func TestPlacementMayBeTaken(t *testing.T) {
 	examples := []struct {
 		name   string
 		input  []*ranje.Range
-		output [][]bool
+		output [][]string
 	}{
 		{
 			name: "ready with no replacement",
@@ -439,8 +458,8 @@ func TestPlacementMayBeTaken(t *testing.T) {
 					Placements: []*ranje.Placement{{NodeID: "n1", State: ranje.PsActive}},
 				},
 			},
-			output: [][]bool{
-				{false}, // n1
+			output: [][]string{
+				{"no reason"}, // n1
 			},
 		},
 		{
@@ -465,22 +484,36 @@ func TestPlacementMayBeTaken(t *testing.T) {
 					Placements: []*ranje.Placement{{NodeID: "n3", State: ranje.PsInactive}},
 				},
 			},
-			output: [][]bool{
-				{true},  // n1
-				{true},  // n2
-				{false}, // n3
+			output: [][]string{
+				{""},                               // n1
+				{""},                               // n2
+				{"placment not in ranje.PsActive"}, // n3
 			},
 		},
 	}
 
-	for _, ex := range examples {
+	for i, ex := range examples {
 		pers := &FakePersister{ranges: ex.input}
 		ks, err := New(configForTest(), pers)
-		require.NoError(t, err)
+		require.NoError(t, err, "i=%d", i)
+
+		op, err := getOneOperation(t, ks, i)
+		require.NoError(t, err, "i=%d", i)
 
 		for r := 0; r < len(ex.input); r++ {
 			for p := 0; p < len(ex.input[r].Placements); p++ {
-				assert.Equal(t, ex.output[r][p], ks.PlacementMayDeactivate(ex.input[r].Placements[p], ex.input[r], nil))
+				expected := ex.output[r][p] // error string; empty is nil
+				actual := ks.PlacementMayDeactivate(ex.input[r].Placements[p], ex.input[r], op)
+				msg := fmt.Sprintf("example=%s, range=%d, placement=%d", ex.name, r, p)
+
+				if expected == "" {
+					assert.NoError(t, actual, msg)
+					continue
+				}
+
+				if assert.Error(t, actual, msg) {
+					assert.Equal(t, expected, actual.Error(), msg)
+				}
 			}
 		}
 	}

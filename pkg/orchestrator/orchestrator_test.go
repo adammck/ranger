@@ -1137,12 +1137,7 @@ func TestSplit(t *testing.T) {
 	// 4. DropRange
 
 	tickWait(orch)
-	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
-		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 1) {
-			ProtoEqual(t, &pb.DropRequest{Range: 1}, aaa[0])
-		}
-	}
-
+	require.Equal(t, "Drop(R1, test-aaa)", rpcsToString(nodes.RPCs()))
 	assert.Equal(t, "{1 [-inf, +inf] RsSplitting p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [2:NsActive 3:NsActive]}", orch.rost.TestString())
 
