@@ -87,6 +87,7 @@ func (b *Orchestrator) Tick() {
 	defer unlock()
 
 	// Any joins?
+	// TODO: Extract this to a function.
 
 	func() {
 		b.opJoinsMu.RLock()
@@ -158,8 +159,44 @@ func (b *Orchestrator) Tick() {
 		b.opJoins = []OpJoin{}
 	}()
 
+	// Keep track of which ranges we've already ticked, since we do those
+	// involved in ops first.
+	visited := map[ranje.Ident]struct{}{}
+
+	ops, err := b.ks.Operations()
+	if err == nil {
+		for _, op := range ops {
+			for _, rs := range [][]*ranje.Range{op.Parents, op.Children} {
+				for _, r := range rs {
+					b.tickRange(r, op)
+					visited[r.Meta.Ident] = struct{}{}
+				}
+			}
+		}
+	} else {
+		// TODO: Once ticks are cleanly abortable, return err instead of this.
+		log.Printf("error reading in-flight operations: %v", err)
+	}
+
+	// Iterate over all ranges... or at least all the ranges which existed when
+	// keyspace.Ranges returned, which doesn't include any that we just created
+	// from joins above, or any we create from splits while ticking. This is a
+	// big mess.
 	for _, r := range rs {
-		b.tickRange(r)
+
+		// Don't bother ticking Obsolete ranges. They never change.
+		// TODO: Don't include them in the first place!
+		if r.State == ranje.RsObsolete {
+			continue
+		}
+
+		// Skip the range if it has already been ticked by the operations loop,
+		// above. I think we need to refactor this.
+		if _, ok := visited[r.Meta.Ident]; ok {
+			continue
+		}
+
+		b.tickRange(r, nil)
 	}
 
 	// TODO: Persist here, instead of after individual state updates?
@@ -171,7 +208,7 @@ func (b *Orchestrator) WaitRPCs() {
 	b.rpcWG.Wait()
 }
 
-func (b *Orchestrator) tickRange(r *ranje.Range) {
+func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 	switch r.State {
 	case ranje.RsActive:
 
@@ -335,7 +372,7 @@ func (b *Orchestrator) tickRange(r *ranje.Range) {
 	toDestroy := []int{}
 
 	for i, p := range r.Placements {
-		if b.tickPlacement(p) {
+		if b.tickPlacement(p, r, op) {
 			toDestroy = append(toDestroy, i)
 		}
 	}
@@ -422,7 +459,7 @@ func (b *Orchestrator) doMove(r *ranje.Range, opMove OpMove) error {
 	return nil
 }
 
-func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
+func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *keyspace.Operation) (destroy bool) {
 	destroy = false
 
 	// Get the node that this placement is on.
@@ -549,7 +586,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement) (destroy bool) {
 			// This is the first time around. In order for this placement to
 			// move to Ready, the one it is replacing (maybe) must reliniquish
 			// it first.
-			if err := b.ks.PlacementMayActivate(p); err == nil {
+			if err := b.ks.PlacementMayActivate(p, r, op); err == nil {
 				if p.Attempts >= maxServeAttempts {
 					log.Printf("given up on serving prepared placement (rID=%s, n=%s, attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
 					n.PlacementFailed(p.Range().Meta.Ident, time.Now())

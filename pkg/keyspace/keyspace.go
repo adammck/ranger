@@ -173,14 +173,13 @@ func (ks *Keyspace) Ranges() ([]*ranje.Range, func()) {
 
 // PlacementMayActivate returns whether the given placement is permitted to
 // advance from ranje.PsInactive to ranje.PsActive.
-func (ks *Keyspace) PlacementMayActivate(p *ranje.Placement) error {
+func (ks *Keyspace) PlacementMayActivate(p *ranje.Placement, r *ranje.Range, op *Operation) error {
 
 	// Sanity check.
 	if p.State != ranje.PsInactive {
 		return fmt.Errorf("called PlacementMayBecomeReady in weird state: %s", p.State)
 	}
 
-	r := p.Range()
 	fam, err := ks.Family(r.Meta.Ident)
 	if err != nil {
 		return fmt.Errorf("error getting range family for R%d: %v", r.Meta.Ident, err)

@@ -394,7 +394,7 @@ func TestPlacementMayBecomeReady(t *testing.T) {
 		for r := 0; r < len(ex.input); r++ {
 			for p := 0; p < len(ex.input[r].Placements); p++ {
 				expected := ex.output[r][p] // error string; empty is nil
-				actual := ks.PlacementMayActivate(ex.input[r].Placements[p])
+				actual := ks.PlacementMayActivate(ex.input[r].Placements[p], ex.input[r], nil)
 				msg := fmt.Sprintf("example=%s, range=%d, placement=%d", ex.name, r, p)
 
 				if expected == "" {

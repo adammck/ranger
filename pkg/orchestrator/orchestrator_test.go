@@ -1706,11 +1706,6 @@ func TestJoin_Slow(t *testing.T) {
 
 	// 1. Controller initiates join.
 
-	tickWait(orch)
-	assert.Empty(t, nodes.RPCs())
-	assert.Equal(t, "{1 [-inf, ggg] RsJoining p0=test-aaa:PsActive} {2 (ggg, +inf] RsJoining p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsPending}", orch.ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []}", orch.rost.TestString())
-
 	c3PAR := nodes.Get("test-ccc").AddBarrier(t, 3, state.NsLoading)
 	tickWait(orch, c3PAR)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-ccc"}, nIDs(rpcs)) {
@@ -1876,12 +1871,6 @@ func TestJoinFailure_PrepareAddRange(t *testing.T) {
 	_ = joinOp(orch, 1, 2, "test-ccc")
 
 	// 1. PrepareAddRange
-
-	tickWait(orch)
-	require.Empty(t, nodes.RPCs())
-	require.Equal(t, "{1 [-inf, ggg] RsJoining p0=test-aaa:PsActive} {2 (ggg, +inf] RsJoining p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsPending}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []} {test-ddd []}", orch.rost.TestString())
-
 	// Makes three attempts.
 
 	for attempt := 1; attempt <= 3; attempt++ {
@@ -1929,11 +1918,6 @@ func TestJoinFailure_PrepareDropRange(t *testing.T) {
 	_ = joinOp(orch, 1, 2, "test-ccc")
 
 	// 1. PrepareAddRange
-
-	tickWait(orch)
-	require.Empty(t, nodes.RPCs())
-	require.Equal(t, "{1 [-inf, ggg] RsJoining p0=test-aaa:PsActive} {2 (ggg, +inf] RsJoining p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsPending}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []} {test-ddd []}", orch.rost.TestString())
 
 	tickWait(orch)
 	require.Equal(t, "Give(R3, test-ccc)", rpcsToString(nodes.RPCs()))
