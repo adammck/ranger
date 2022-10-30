@@ -166,11 +166,9 @@ func (b *Orchestrator) Tick() {
 	ops, err := b.ks.Operations()
 	if err == nil {
 		for _, op := range ops {
-			for _, rs := range [][]*ranje.Range{op.Parents, op.Children} {
-				for _, r := range rs {
-					b.tickRange(r, op)
-					visited[r.Meta.Ident] = struct{}{}
-				}
+			for _, r := range op.Ranges() {
+				b.tickRange(r, op)
+				visited[r.Meta.Ident] = struct{}{}
 			}
 		}
 	} else {

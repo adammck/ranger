@@ -112,9 +112,23 @@ func TestOperations(t *testing.T) {
 
 	ops, err := ks.Operations()
 	require.NoError(t, err)
-	require.Contains(t, ops, &Operation{Parents: []*ranje.Range{r4, r5}, Children: []*ranje.Range{r8}})
-	require.Contains(t, ops, &Operation{Parents: []*ranje.Range{r3}, Children: []*ranje.Range{r6, r7}})
 	require.Len(t, ops, 2)
+
+	require.Equal(t, ops[0], NewOperation([]*ranje.Range{r3}, []*ranje.Range{r6, r7}))
+	for rID, b := range map[ranje.Ident]bool{1: false, 2: false, 3: true, 4: false, 5: false, 6: false, 7: false, 8: false} {
+		require.Equal(t, b, ops[0].IsParent(rID), "i=0, rID=%v", rID)
+	}
+	for rID, b := range map[ranje.Ident]bool{1: false, 2: false, 3: false, 4: false, 5: false, 6: true, 7: true, 8: false} {
+		require.Equal(t, b, ops[0].IsChild(rID), "i=0, rID=%v", rID)
+	}
+
+	require.Equal(t, ops[1], NewOperation([]*ranje.Range{r4, r5}, []*ranje.Range{r8}))
+	for rID, b := range map[ranje.Ident]bool{1: false, 2: false, 3: false, 4: true, 5: true, 6: false, 7: false, 8: false} {
+		require.Equal(t, b, ops[1].IsParent(rID), "i=0, rID=%v", rID)
+	}
+	for rID, b := range map[ranje.Ident]bool{1: false, 2: false, 3: false, 4: false, 5: false, 6: false, 7: false, 8: true} {
+		require.Equal(t, b, ops[1].IsChild(rID), "i=0, rID=%v", rID)
+	}
 }
 
 func TestNoOperations(t *testing.T) {
@@ -188,7 +202,7 @@ func TestSplitIntoThree(t *testing.T) {
 
 	ops, err := ks.Operations()
 	require.NoError(t, err)
-	require.Contains(t, ops, &Operation{Parents: []*ranje.Range{r1}, Children: []*ranje.Range{r2, r3, r4}})
+	require.Contains(t, ops, NewOperation([]*ranje.Range{r1}, []*ranje.Range{r2, r3, r4}))
 	require.Len(t, ops, 1)
 }
 
@@ -253,7 +267,7 @@ func TestJoinFromThree(t *testing.T) {
 
 	ops, err := ks.Operations()
 	require.NoError(t, err)
-	require.Contains(t, ops, &Operation{Parents: []*ranje.Range{r2, r3, r4}, Children: []*ranje.Range{r5}})
+	require.Contains(t, ops, NewOperation([]*ranje.Range{r2, r3, r4}, []*ranje.Range{r5}))
 	require.Len(t, ops, 1)
 }
 
@@ -294,7 +308,7 @@ func TestSplitIntoOne(t *testing.T) {
 
 	ops, err := ks.Operations()
 	require.NoError(t, err)
-	require.Contains(t, ops, &Operation{Parents: []*ranje.Range{r1}, Children: []*ranje.Range{r2}})
+	require.Contains(t, ops, NewOperation([]*ranje.Range{r1}, []*ranje.Range{r2}))
 	require.Len(t, ops, 1)
 }
 
@@ -333,7 +347,7 @@ func TestJoinFromOne(t *testing.T) {
 
 	ops, err := ks.Operations()
 	require.NoError(t, err)
-	require.Contains(t, ops, &Operation{Parents: []*ranje.Range{r1}, Children: []*ranje.Range{r2}})
+	require.Contains(t, ops, NewOperation([]*ranje.Range{r1}, []*ranje.Range{r2}))
 	require.Len(t, ops, 1)
 }
 
@@ -466,7 +480,7 @@ func TestPlacementMayBeTaken(t *testing.T) {
 
 		for r := 0; r < len(ex.input); r++ {
 			for p := 0; p < len(ex.input[r].Placements); p++ {
-				assert.Equal(t, ex.output[r][p], ks.PlacementMayDeactivate(ex.input[r].Placements[p]))
+				assert.Equal(t, ex.output[r][p], ks.PlacementMayDeactivate(ex.input[r].Placements[p], ex.input[r], nil))
 			}
 		}
 	}

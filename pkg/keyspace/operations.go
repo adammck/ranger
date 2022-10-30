@@ -3,6 +3,8 @@ package keyspace
 import (
 	"errors"
 	"fmt"
+	"math"
+	"sort"
 
 	"github.com/adammck/ranger/pkg/ranje"
 )
@@ -36,31 +38,79 @@ func (ks *Keyspace) Operations() ([]*Operation, error) {
 
 		// Remove all of the ranges which are part of this operation from the
 		// list, so we don't waste time constructing duplicate operations.
-		for _, rID := range rangesFromOp(op) {
-			delete(ranges, rID)
+		for _, r := range op.Ranges() {
+			delete(ranges, r.Meta.Ident)
 		}
 	}
+
+	// Return in arbitrary but stable order.
+	sort.Slice(ops, func(a, b int) bool {
+		return ops[a].sort < ops[b].sort
+	})
 
 	return ops, nil
 }
 
 type Operation struct {
-	Parents  []*ranje.Range
-	Children []*ranje.Range
+	parents  []*ranje.Range
+	children []*ranje.Range
+
+	// Calculated at init just to provide sort stability for tests.
+	sort int
 }
 
-func rangesFromOp(op *Operation) []ranje.Ident {
-	out := make([]ranje.Ident, len(op.Parents)+len(op.Children))
+func NewOperation(parents, children []*ranje.Range) *Operation {
+	sort := ranje.Ident(math.MaxInt)
 
-	for i, r := range op.Parents {
-		out[i] = r.Meta.Ident
+	// Sort by the lowest range ID in each operation.
+	for _, rs := range [][]*ranje.Range{parents, children} {
+		for _, r := range rs {
+			if r.Meta.Ident < sort {
+				sort = r.Meta.Ident
+			}
+		}
 	}
 
-	for i, r := range op.Children {
-		out[len(op.Parents)+i] = r.Meta.Ident
+	return &Operation{
+		parents:  parents,
+		children: children,
+		sort:     int(sort),
+	}
+
+}
+
+func (op *Operation) Ranges() []*ranje.Range {
+	out := make([]*ranje.Range, len(op.parents)+len(op.children))
+
+	// Copy the first half as-is.
+	copy(out, op.parents)
+
+	// The second half offset by the width of the first part.
+	for i, r := range op.children {
+		out[len(op.parents)+i] = r
 	}
 
 	return out
+}
+
+func (op *Operation) IsParent(rID ranje.Ident) bool {
+	for _, rr := range op.parents {
+		if rID == rr.Meta.Ident {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (op *Operation) IsChild(rID ranje.Ident) bool {
+	for _, rr := range op.children {
+		if rID == rr.Meta.Ident {
+			return true
+		}
+	}
+
+	return false
 }
 
 var ErrNoParents = errors.New("given range has no parents")
@@ -119,7 +169,7 @@ func opFromRange(ks *Keyspace, r *ranje.Range) (op *Operation, err error) {
 			}
 		}
 
-		return &Operation{Parents: parents, Children: children}, nil
+		return NewOperation(parents, children), nil
 	}
 
 	if sp != ranje.RsJoining {
@@ -144,5 +194,5 @@ func opFromRange(ks *Keyspace, r *ranje.Range) (op *Operation, err error) {
 		}
 	}
 
-	return &Operation{Parents: parents, Children: []*ranje.Range{r}}, nil
+	return NewOperation(parents, []*ranje.Range{r}), nil
 }
