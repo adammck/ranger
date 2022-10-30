@@ -1997,27 +1997,27 @@ func TestJoinFailure_PrepareDropRange(t *testing.T) {
 
 	tickWait(orch)
 	require.Equal(t, "Serve(R3, test-ccc)", rpcsToString(nodes.RPCs()))
-	require.Equal(t, "{1 [-inf, ggg] RsObsolete} {2 (ggg, +inf] RsJoining p0=test-bbb:PsInactive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{1 [-inf, ggg] RsJoining} {2 (ggg, +inf] RsJoining p0=test-bbb:PsInactive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa []} {test-bbb [2:NsInactive]} {test-ccc [3:NsActive]} {test-ddd []}", orch.rost.TestString())
 
 	tickWait(orch)
 	require.Empty(t, rpcsToString(nodes.RPCs()))
-	require.Equal(t, "{1 [-inf, ggg] RsObsolete} {2 (ggg, +inf] RsJoining p0=test-bbb:PsInactive} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
+	require.Equal(t, "{1 [-inf, ggg] RsJoining} {2 (ggg, +inf] RsJoining p0=test-bbb:PsInactive} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa []} {test-bbb [2:NsInactive]} {test-ccc [3:NsActive]} {test-ddd []}", orch.rost.TestString())
 
 	tickWait(orch)
 	require.Equal(t, "Drop(R2, test-bbb)", rpcsToString(nodes.RPCs()))
-	require.Equal(t, "{1 [-inf, ggg] RsObsolete} {2 (ggg, +inf] RsJoining p0=test-bbb:PsInactive} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
+	require.Equal(t, "{1 [-inf, ggg] RsJoining} {2 (ggg, +inf] RsJoining p0=test-bbb:PsInactive} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa []} {test-bbb []} {test-ccc [3:NsActive]} {test-ddd []}", orch.rost.TestString())
 
 	tickWait(orch)
 	require.Empty(t, rpcsToString(nodes.RPCs()))
-	require.Equal(t, "{1 [-inf, ggg] RsObsolete} {2 (ggg, +inf] RsJoining p0=test-bbb:PsDropped} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
+	require.Equal(t, "{1 [-inf, ggg] RsJoining} {2 (ggg, +inf] RsJoining p0=test-bbb:PsDropped} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa []} {test-bbb []} {test-ccc [3:NsActive]} {test-ddd []}", orch.rost.TestString())
 
 	tickWait(orch)
 	require.Empty(t, rpcsToString(nodes.RPCs()))
-	require.Equal(t, "{1 [-inf, ggg] RsObsolete} {2 (ggg, +inf] RsJoining} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
+	require.Equal(t, "{1 [-inf, ggg] RsJoining} {2 (ggg, +inf] RsJoining} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa []} {test-bbb []} {test-ccc [3:NsActive]} {test-ddd []}", orch.rost.TestString())
 
 	tickWait(orch)
@@ -2084,7 +2084,7 @@ func TestJoinFailure_DropRange_Short(t *testing.T) {
 	// the right (non-stuck) side of the parent dropped, and the left (stuck)
 	// side inactive but still hanging around on aaa.
 	tickUntilStable(t, orch, nodes)
-	assert.Equal(t, "{1 [-inf, ggg] RsJoining p0=test-aaa:PsInactive} {2 (ggg, +inf] RsObsolete} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
+	assert.Equal(t, "{1 [-inf, ggg] RsJoining p0=test-aaa:PsInactive} {2 (ggg, +inf] RsJoining} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb []} {test-ccc [3:NsActive]}", orch.rost.TestString())
 
 	p := mustGetPlacement(t, orch.ks, 1, "test-aaa")

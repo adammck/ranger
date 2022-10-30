@@ -113,6 +113,28 @@ func (op *Operation) IsChild(rID ranje.Ident) bool {
 	return false
 }
 
+// CheckComplete checks the status of the operation, and if complete, marks the
+// parent ranges as obsolete and returns true.
+// TODO: Maybe just make the ks a field on Operation.
+func (op *Operation) CheckComplete(ks *Keyspace) (bool, error) {
+
+	for _, r := range op.parents {
+		if l := len(r.Placements); l > 0 {
+			return false, nil
+		}
+	}
+
+	for _, r := range op.parents {
+		err := ks.RangeToState(r, ranje.RsObsolete)
+		if err != nil {
+			return false, fmt.Errorf("while completing operation: %w", err)
+		}
+	}
+
+	return true, nil
+
+}
+
 var ErrNoParents = errors.New("given range has no parents")
 
 func opFromRange(ks *Keyspace, r *ranje.Range) (op *Operation, err error) {

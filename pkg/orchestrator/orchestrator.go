@@ -166,6 +166,18 @@ func (b *Orchestrator) Tick() {
 	ops, err := b.ks.Operations()
 	if err == nil {
 		for _, op := range ops {
+
+			// Complete the operation if we can. This marks all of the parent
+			// ranges as RsObsolete if their placements have all been dropped.
+			_, err = op.CheckComplete(b.ks)
+			if err != nil {
+				log.Printf("error completing operation: %v", err)
+			}
+
+			// Note that we don't return here; we still tick the now-obsolete
+			// ranges rather than introduce weird rules about which ranges will
+			// and will not be ticked.
+
 			for _, r := range op.Ranges() {
 				b.tickRange(r, op)
 				visited[r.Meta.Ident] = struct{}{}
@@ -339,23 +351,9 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 			}
 		}
 
-	case ranje.RsSplitting:
-		err := b.ks.RangeCanBeObsoleted(r, op)
-		if err != nil {
-			log.Printf("may not be obsoleted: %v (p=%v)", err, r)
-		} else {
-			// No error, so ready to obsolete the range.
-			b.ks.RangeToState(r, ranje.RsObsolete)
-		}
-
-	case ranje.RsJoining:
-		err := b.ks.RangeCanBeObsoleted(r, op)
-		if err != nil {
-			log.Printf("may not be obsoleted: %v (p=%v)", err, r)
-		} else {
-			// No error, so ready to obsolete the range.
-			b.ks.RangeToState(r, ranje.RsObsolete)
-		}
+	case ranje.RsSplitting, ranje.RsJoining:
+		// Skip parent ranges of operations in flight. The only thing to do is
+		// check whether they're complete, which we do before calling tick.
 
 	case ranje.RsObsolete:
 		// TODO: Skip obsolete ranges in Tick. There's never anything to do with
