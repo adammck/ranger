@@ -298,7 +298,7 @@ func (ks *Keyspace) PlacementMayActivate(p *ranje.Placement, r *ranje.Range, op 
 
 // PlacementMayDeactivate returns true if the given placement is permitted to
 // move from PsActive to PsInactive.
-func (ks *Keyspace) PlacementMayDeactivate(p *ranje.Placement) bool {
+func (ks *Keyspace) PlacementMayDeactivate(p *ranje.Placement, r *ranje.Range, op *Operation) bool {
 
 	// Sanity check.
 	if p.State != ranje.PsActive {
@@ -306,7 +306,6 @@ func (ks *Keyspace) PlacementMayDeactivate(p *ranje.Placement) bool {
 		return false
 	}
 
-	r := p.Range()
 	fam, err := ks.Family(r.Meta.Ident)
 	if err != nil {
 		log.Printf("error getting range family for R%d: %v", r.Meta.Ident, err)
@@ -397,14 +396,13 @@ func (ks *Keyspace) PlacementMayDeactivate(p *ranje.Placement) bool {
 	return false
 }
 
-func (ks *Keyspace) PlacementMayDrop(p *ranje.Placement) error {
+func (ks *Keyspace) PlacementMayDrop(p *ranje.Placement, r *ranje.Range, op *Operation) error {
 
 	// Sanity check.
 	if p.State != ranje.PsInactive {
 		return fmt.Errorf("placment not in ranje.PsInactive")
 	}
 
-	r := p.Range()
 	fam, err := ks.Family(r.Meta.Ident)
 	if err != nil {
 		return fmt.Errorf("error getting range family for R%d: %v", r.Meta.Ident, err)
@@ -543,7 +541,7 @@ func replacementFor(p *ranje.Placement) *ranje.Placement {
 	return out
 }
 
-func (ks *Keyspace) RangeCanBeObsoleted(r *ranje.Range) error {
+func (ks *Keyspace) RangeCanBeObsoleted(r *ranje.Range, op *Operation) error {
 	if r.State != ranje.RsSplitting && r.State != ranje.RsJoining {
 		// This should not be called in any other state.
 		return fmt.Errorf("range not in ranje.RsSplitting nor ranje.RsJoining")

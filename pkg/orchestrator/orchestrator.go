@@ -340,7 +340,7 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 		}
 
 	case ranje.RsSplitting:
-		err := b.ks.RangeCanBeObsoleted(r)
+		err := b.ks.RangeCanBeObsoleted(r, op)
 		if err != nil {
 			log.Printf("may not be obsoleted: %v (p=%v)", err, r)
 		} else {
@@ -349,7 +349,7 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 		}
 
 	case ranje.RsJoining:
-		err := b.ks.RangeCanBeObsoleted(r)
+		err := b.ks.RangeCanBeObsoleted(r, op)
 		if err != nil {
 			log.Printf("may not be obsoleted: %v (p=%v)", err, r)
 		} else {
@@ -567,7 +567,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			}
 
 			// Maybe we dropped it on purpose because it's been subsumed.
-			if b.ks.PlacementMayDrop(p) == nil {
+			if b.ks.PlacementMayDrop(p, r, op) == nil {
 				b.ks.PlacementToState(p, ranje.PsDropped)
 				return
 			}
@@ -603,7 +603,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 
 			// We are ready to move from Inactive to Dropped, but we have to wait
 			// for the placement(s) that are replacing this to become Ready.
-			if err := b.ks.PlacementMayDrop(p); err == nil {
+			if err := b.ks.PlacementMayDrop(p, r, op); err == nil {
 				if p.DropAttempts >= maxDropAttempts {
 					if !p.DropFailed {
 						log.Printf("drop failed after %d attempts (rID=%s, n=%s, attempt=%d)", p.Attempts, p.Range().Meta.Ident, n.Ident(), p.Attempts)
@@ -671,7 +671,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			b.ks.PlacementToState(p, ranje.PsGiveUp)
 		}
 
-		if b.ks.PlacementMayDeactivate(p) {
+		if b.ks.PlacementMayDeactivate(p, r, op) {
 			if p.Attempts >= maxTakeAttempts {
 				log.Printf("given up on deactivating placement (rID=%s, n=%s, attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
 				p.GiveUpOnDeactivate = true
