@@ -409,9 +409,9 @@ func TestPlacementMayBecomeReady(t *testing.T) {
 				},
 			},
 			output: [][]string{
-				{"children have not all given up"}, // n1, should not advance, because subsumed
-				{"children have not all given up"}, // n2, same
-				{""},                               // n3
+				{"never activate backside"}, // n1, should not advance, because subsumed
+				{"never activate backside"}, // n2, same
+				{""},                        // n3
 			},
 		},
 	}

@@ -559,7 +559,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 
 			// The node doesn't have the placement any more! Maybe we tried to
 			// activate it but gave up.
-			if p.GivenUpOnActivate {
+			if p.FailedActivate {
 				destroy = true
 				return
 			}
@@ -586,7 +586,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 				if p.Attempts >= maxServeAttempts {
 					log.Printf("given up on serving prepared placement (rID=%s, n=%s, attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
 					n.PlacementFailed(p.Range().Meta.Ident, time.Now())
-					p.GivenUpOnActivate = true
+					p.FailedActivate = true
 
 				} else {
 					p.Attempts += 1
@@ -603,9 +603,9 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			// for the placement(s) that are replacing this to become Ready.
 			if err := b.ks.PlacementMayDrop(p, r, op); err == nil {
 				if p.DropAttempts >= maxDropAttempts {
-					if !p.DropFailed {
+					if !p.FailedDrop {
 						log.Printf("drop failed after %d attempts (rID=%s, n=%s, attempt=%d)", p.Attempts, p.Range().Meta.Ident, n.Ident(), p.Attempts)
-						p.DropFailed = true
+						p.FailedDrop = true
 					}
 				} else {
 					p.DropAttempts += 1
@@ -672,7 +672,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 		if err := b.ks.PlacementMayDeactivate(p, r, op); err == nil {
 			if p.Attempts >= maxTakeAttempts {
 				log.Printf("given up on deactivating placement (rID=%s, n=%s, attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
-				p.GiveUpOnDeactivate = true
+				p.FailedDeactivate = true
 			} else {
 				p.Attempts += 1
 				log.Printf("will take %s from %s (attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
