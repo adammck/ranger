@@ -14,9 +14,8 @@ const (
 	// The range is active, i.e. it should be placed on the appropriate number
 	// of nodes and left alone until we decide to supersede it with another
 	// range by joining or splitting.
-	RsActive RangeState = iota
+	RsActive
 
-	// The range is actively being split or joined.
 	RsSubsuming
 
 	// The range has finished being split or joined, has been dropped from all
@@ -34,7 +33,11 @@ var RangeStateTransitions []RangeStateTransition
 func init() {
 	RangeStateTransitions = []RangeStateTransition{
 		{RsActive, RsSubsuming},
-		{RsSubsuming, RsActive},
+		{RsSubsuming, RsObsolete},
+		{RsSubsuming, RsObsolete},
+
+		{RsActive, RsSubsuming},
+		{RsSubsuming, RsObsolete},
 		{RsSubsuming, RsObsolete},
 	}
 }

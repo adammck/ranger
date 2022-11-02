@@ -74,6 +74,7 @@ enum RangeNodeState {
 
 // This is only for debugging purposes, for now.
 // Keep synced with ranje.RangeState (in pkg/ranje/range_state.go)
+// TODO: Remove the prefix; the const is currently e.g. RangeState_RS_ACTIVE.
 enum RangeState {
   RS_UNKNOWN = 0;
   RS_ACTIVE = 1;
