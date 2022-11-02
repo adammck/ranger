@@ -116,18 +116,18 @@ func TestOperations(t *testing.T) {
 
 	require.Equal(t, ops[0], NewOperation([]*ranje.Range{r3}, []*ranje.Range{r6, r7}))
 	for rID, b := range map[ranje.Ident]bool{1: false, 2: false, 3: true, 4: false, 5: false, 6: false, 7: false, 8: false} {
-		require.Equal(t, b, ops[0].IsParent(rID), "i=0, rID=%v", rID)
+		require.Equal(t, b, ops[0].isDirection(Source, rID), "i=0, rID=%v", rID)
 	}
 	for rID, b := range map[ranje.Ident]bool{1: false, 2: false, 3: false, 4: false, 5: false, 6: true, 7: true, 8: false} {
-		require.Equal(t, b, ops[0].IsChild(rID), "i=0, rID=%v", rID)
+		require.Equal(t, b, ops[0].isDirection(Dest, rID), "i=0, rID=%v", rID)
 	}
 
 	require.Equal(t, ops[1], NewOperation([]*ranje.Range{r4, r5}, []*ranje.Range{r8}))
 	for rID, b := range map[ranje.Ident]bool{1: false, 2: false, 3: false, 4: true, 5: true, 6: false, 7: false, 8: false} {
-		require.Equal(t, b, ops[1].IsParent(rID), "i=0, rID=%v", rID)
+		require.Equal(t, b, ops[1].isDirection(Source, rID), "i=0, rID=%v", rID)
 	}
 	for rID, b := range map[ranje.Ident]bool{1: false, 2: false, 3: false, 4: false, 5: false, 6: false, 7: false, 8: true} {
-		require.Equal(t, b, ops[1].IsChild(rID), "i=0, rID=%v", rID)
+		require.Equal(t, b, ops[1].isDirection(Dest, rID), "i=0, rID=%v", rID)
 	}
 }
 

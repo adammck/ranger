@@ -148,22 +148,6 @@ func (op *Operation) isDirection(d dir, rID ranje.Ident) bool {
 	return false
 }
 
-func (op *Operation) Destinations() []*ranje.Range {
-	return op.direction(Dest)
-}
-
-func (op *Operation) IsDestination(rID ranje.Ident) bool {
-	return op.isDirection(Dest, rID)
-}
-
-func (op *Operation) Sources() []*ranje.Range {
-	return op.direction(Source)
-}
-
-func (op *Operation) IsSource(rID ranje.Ident) bool {
-	return op.isDirection(Source, rID)
-}
-
 func (op *Operation) Ranges() []*ranje.Range {
 	out := make([]*ranje.Range, len(op.parents)+len(op.children))
 
@@ -176,27 +160,6 @@ func (op *Operation) Ranges() []*ranje.Range {
 	}
 
 	return out
-}
-
-// TODO: Remove this. It's only used in the tests.
-func (op *Operation) IsParent(rID ranje.Ident) bool {
-	for _, rr := range op.parents {
-		if rID == rr.Meta.Ident {
-			return true
-		}
-	}
-
-	return false
-}
-
-func (op *Operation) IsChild(rID ranje.Ident) bool {
-	for _, rr := range op.children {
-		if rID == rr.Meta.Ident {
-			return true
-		}
-	}
-
-	return false
 }
 
 // CheckComplete checks the status of the operation, and if complete, marks the
@@ -401,10 +364,10 @@ func (op *Operation) MayActivate(p *ranje.Placement, r *ranje.Range) error {
 		return nil
 	}
 
-	if op.IsDestination(r.Meta.Ident) {
+	if op.isDirection(Dest, r.Meta.Ident) {
 		// Wait until all of the placements in the back side have been
 		// deactivated. Otherwise, there will be overlaps.
-		for _, rp := range op.Sources() {
+		for _, rp := range op.direction(Source) {
 			for _, pp := range rp.Placements {
 				if pp.State == ranje.PsActive {
 					return fmt.Errorf("parent placement is PsActive")
@@ -413,7 +376,7 @@ func (op *Operation) MayActivate(p *ranje.Placement, r *ranje.Range) error {
 		}
 	}
 
-	if op.IsSource(r.Meta.Ident) {
+	if op.isDirection(Source, r.Meta.Ident) {
 		return fmt.Errorf("never activate backside")
 	}
 
@@ -466,15 +429,15 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 		return fmt.Errorf("no reason")
 	}
 
-	if op.IsDestination(r.Meta.Ident) {
+	if op.isDirection(Dest, r.Meta.Ident) {
 		return fmt.Errorf("no problem")
 	}
 
-	if op.IsSource(r.Meta.Ident) {
+	if op.isDirection(Source, r.Meta.Ident) {
 
 		// Can't deactivate if there aren't enough child placements waiting in
 		// Inactive.
-		for _, rc := range op.Destinations() {
+		for _, rc := range op.direction(Dest) {
 
 			n := 0
 			for _, pc := range rc.Placements {
@@ -493,6 +456,18 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 
 	// Shouldn't reach here. This is a bug.
 	panic("unsure whether to deactivate")
+}
+
+// isChild returns true if the given range ID is one of the child ranges in this
+// operation. This mostly shouldn't be used. Special case just for MayDrop.
+func (op *Operation) isChild(rID ranje.Ident) bool {
+	for _, rr := range op.children {
+		if rID == rr.Meta.Ident {
+			return true
+		}
+	}
+
+	return false
 }
 
 // MayDrop returns true if the given placement is permitted to move from
@@ -550,7 +525,7 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 		return fmt.Errorf("no reason to drop")
 	}
 
-	if op.IsDestination(r.Meta.Ident) {
+	if op.isDirection(Dest, r.Meta.Ident) {
 		if p.FailedActivate {
 			return nil
 		}
@@ -558,12 +533,12 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 		return fmt.Errorf("not dropping inactive child; probably on the way to activate")
 	}
 
-	if op.IsSource(r.Meta.Ident) {
+	if op.isDirection(Source, r.Meta.Ident) {
 
 		// Can't drop until all of the destination ranges have enough active
 		// placements. They might still need the contents of this parent range
 		// to make themselves ready.
-		for _, r2 := range op.Destinations() {
+		for _, r2 := range op.direction(Dest) {
 
 			active := 0
 			for _, p2 := range r2.Placements {
@@ -588,7 +563,7 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 		// If this placement *did* fail, it's probably the reason we're rolling
 		// back, so do drop it.
 
-		if op.IsChild(r.Meta.Ident) {
+		if op.isChild(r.Meta.Ident) {
 			if p.FailedActivate {
 				return nil
 			}
