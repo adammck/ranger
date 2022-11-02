@@ -10,14 +10,13 @@ func _() {
 	var x [1]struct{}
 	_ = x[RsUnknown-0]
 	_ = x[RsActive-1]
-	_ = x[RsSplitting-2]
-	_ = x[RsJoining-3]
-	_ = x[RsObsolete-4]
+	_ = x[RsSubsuming-2]
+	_ = x[RsObsolete-3]
 }
 
-const _RangeState_name = "RsUnknownRsActiveRsSplittingRsJoiningRsObsolete"
+const _RangeState_name = "RsUnknownRsActiveRsSubsumingRsObsolete"
 
-var _RangeState_index = [...]uint8{0, 9, 17, 28, 37, 47}
+var _RangeState_index = [...]uint8{0, 9, 17, 28, 38}
 
 func (i RangeState) String() string {
 	if i >= RangeState(len(_RangeState_index)-1) {

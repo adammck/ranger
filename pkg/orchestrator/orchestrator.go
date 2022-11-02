@@ -351,7 +351,7 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 			}
 		}
 
-	case ranje.RsSplitting, ranje.RsJoining:
+	case ranje.RsSubsuming:
 		// Skip parent ranges of operations in flight. The only thing to do is
 		// check whether they're complete, which we do before calling tick.
 

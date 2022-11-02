@@ -14,17 +14,9 @@ const (
 	// The range is active, i.e. it should be placed on the appropriate number
 	// of nodes and left alone until we decide to supersede it with another
 	// range by joining or splitting.
-	RsActive RangeState = iota
+	RsActive
 
-	// The range is actively being split. It has two child ranges, which should
-	// be placed and should be activated as soon as possible (unless Recall is
-	// set).
-	RsSplitting
-
-	// The range is actively being joined with another to form a new (single)
-	// child range, whhich should be placed and activated as soon as possible
-	// (unless Recall is set).
-	RsJoining
+	RsSubsuming
 
 	// The range has finished being split or joined, has been dropped from all
 	// nodes, and will never be placed on any node again.
@@ -40,13 +32,13 @@ var RangeStateTransitions []RangeStateTransition
 
 func init() {
 	RangeStateTransitions = []RangeStateTransition{
-		{RsActive, RsSplitting},
-		{RsSplitting, RsObsolete},
-		{RsSplitting, RsObsolete},
+		{RsActive, RsSubsuming},
+		{RsSubsuming, RsObsolete},
+		{RsSubsuming, RsObsolete},
 
-		{RsActive, RsJoining},
-		{RsJoining, RsObsolete},
-		{RsJoining, RsObsolete},
+		{RsActive, RsSubsuming},
+		{RsSubsuming, RsObsolete},
+		{RsSubsuming, RsObsolete},
 	}
 }
 
@@ -59,10 +51,8 @@ func FromProto(s *pb.RangeState) RangeState {
 		return RsUnknown
 	case pb.RangeState_RS_ACTIVE:
 		return RsActive
-	case pb.RangeState_RS_SPLITTING:
-		return RsSplitting
-	case pb.RangeState_RS_JOINING:
-		return RsJoining
+	case pb.RangeState_RS_SUBSUMING:
+		return RsSubsuming
 	case pb.RangeState_RS_OBSOLETE:
 		return RsObsolete
 	}
@@ -77,10 +67,8 @@ func (s RangeState) ToProto() pb.RangeState {
 		return pb.RangeState_RS_UNKNOWN
 	case RsActive:
 		return pb.RangeState_RS_ACTIVE
-	case RsSplitting:
-		return pb.RangeState_RS_SPLITTING
-	case RsJoining:
-		return pb.RangeState_RS_JOINING
+	case RsSubsuming:
+		return pb.RangeState_RS_SUBSUMING
 	case RsObsolete:
 		return pb.RangeState_RS_OBSOLETE
 	}

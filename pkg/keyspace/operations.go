@@ -290,12 +290,14 @@ func opFromRange(ks *Keyspace, r *ranje.Range) (op *Operation, err error) {
 	// we find any that don't match, the keyspace is borked.)
 	var sp ranje.RangeState
 
+	// Collect all of the parent ranges involved in this operation.
 	parents := make([]*ranje.Range, len(r.Parents))
-	for i := range r.Parents {
-		rp, err := ks.Get(r.Parents[i])
+	for i, prID := range r.Parents {
+		rp, err := ks.Get(prID)
 		if err != nil {
 			return nil, err
 		}
+
 		if i == 0 {
 			sp = rp.State
 		} else {
@@ -305,7 +307,29 @@ func opFromRange(ks *Keyspace, r *ranje.Range) (op *Operation, err error) {
 					r.Meta.Ident, sp, rp.State)
 			}
 		}
+
 		parents[i] = rp
+	}
+
+	// Also collect all of the child ranges, which will include whatever range
+	// this func was called with. In simple cases (split/join) there'll either
+	// be one parent or one child, and more than one of the other. We might
+	// support more complex (n:m) cases one day.
+	children := []*ranje.Range{} // length unknown
+	seen := map[ranje.Ident]struct{}{}
+	for i := range parents {
+		for _, cID := range parents[i].Children {
+			if _, ok := seen[cID]; ok {
+				continue
+			}
+			seen[cID] = struct{}{}
+			c, err := ks.Get(cID)
+			if err != nil {
+				return nil, err
+			}
+
+			children = append(children, c)
+		}
 	}
 
 	// If the parents are all obsolete, then there is no operation in progress.
@@ -314,49 +338,19 @@ func opFromRange(ks *Keyspace, r *ranje.Range) (op *Operation, err error) {
 		return nil, ErrObsoleteParents
 	}
 
-	if sp == ranje.RsSplitting {
-		if len(parents) != 1 {
-			return nil, fmt.Errorf(
-				"too many parents for split of rID=%d: %d",
-				r.Meta.Ident, len(parents))
-		}
-
-		rp := parents[0]
-
-		// Fetch all the children of the parent range. This will include the
-		// range this function was called with and its siblings.
-		children := make([]*ranje.Range, len(rp.Children))
-		for i := range rp.Children {
-			children[i], err = ks.Get(rp.Children[i])
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		return NewOperation(parents, children), nil
-	}
-
-	if sp != ranje.RsJoining {
+	if sp != ranje.RsSubsuming {
 		return nil, fmt.Errorf(
 			"unexpected state for parents of rID=%d: %s",
 			r.Meta.Ident, sp)
 	}
 
-	// We could return the JoinOp now, but just do one more sanity check that
-	// all of the parents have exactly one child, which is the range we started
-	// with. Otherwise we might be trying to do some kind of weird future op.
-	for i := range parents {
-		if len(parents[i].Children) != 1 {
-			return nil, fmt.Errorf(
-				"wrong number of children for parent of rID=%d: %d",
-				r.Meta.Ident, len(parents[i].Children))
-		}
-		if parents[i].Children[0] != r.Meta.Ident {
-			return nil, fmt.Errorf(
-				"wrong child of rID=%d: %d",
-				parents[i].Meta.Ident, parents[i].Children[0])
-		}
+	// Reject complex operations for now.
+	// TODO: Remove this; it might work already!
+	if !(len(parents) == 1 && len(children) > 1) && !(len(children) == 1 && len(parents) > 1) {
+		return nil, fmt.Errorf(
+			"op is not a simple split or a join; rID=%d, p=%d, c=%d",
+			r.Meta.Ident, len(parents), len(children))
 	}
 
-	return NewOperation(parents, []*ranje.Range{r}), nil
+	return NewOperation(parents, children), nil
 }

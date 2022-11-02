@@ -56,7 +56,7 @@ func TestOperations(t *testing.T) {
 	}
 
 	r3 := &ranje.Range{
-		State:      ranje.RsSplitting,
+		State:      ranje.RsSubsuming,
 		Parents:    []ranje.Ident{1},
 		Children:   []ranje.Ident{6, 7},
 		Meta:       ranje.Meta{Ident: 3, Start: ranje.Key("ccc")},
@@ -64,7 +64,7 @@ func TestOperations(t *testing.T) {
 	}
 
 	r4 := &ranje.Range{
-		State:      ranje.RsJoining,
+		State:      ranje.RsSubsuming,
 		Parents:    []ranje.Ident{2},
 		Children:   []ranje.Ident{8},
 		Meta:       ranje.Meta{Ident: 4, End: ranje.Key("bbb")},
@@ -72,7 +72,7 @@ func TestOperations(t *testing.T) {
 	}
 
 	r5 := &ranje.Range{
-		State:      ranje.RsJoining,
+		State:      ranje.RsSubsuming,
 		Parents:    []ranje.Ident{2},
 		Children:   []ranje.Ident{8},
 		Meta:       ranje.Meta{Ident: 5, Start: ranje.Key("bbb")},
@@ -167,7 +167,7 @@ func TestSplitIntoThree(t *testing.T) {
 	// be more work to prevent it.
 
 	r1 := &ranje.Range{
-		State:    ranje.RsSplitting,
+		State:    ranje.RsSubsuming,
 		Children: []ranje.Ident{2, 3, 4},
 		Meta:     ranje.Meta{Ident: 1},
 	}
@@ -231,21 +231,21 @@ func TestJoinFromThree(t *testing.T) {
 	}
 
 	r2 := &ranje.Range{
-		State:    ranje.RsJoining,
+		State:    ranje.RsSubsuming,
 		Parents:  []ranje.Ident{1},
 		Children: []ranje.Ident{5},
 		Meta:     ranje.Meta{Ident: 2, End: ranje.Key("bbb")},
 	}
 
 	r3 := &ranje.Range{
-		State:    ranje.RsJoining,
+		State:    ranje.RsSubsuming,
 		Parents:  []ranje.Ident{1},
 		Children: []ranje.Ident{5},
 		Meta:     ranje.Meta{Ident: 3, Start: ranje.Key("bbb"), End: ranje.Key("ccc")},
 	}
 
 	r4 := &ranje.Range{
-		State:    ranje.RsJoining,
+		State:    ranje.RsSubsuming,
 		Parents:  []ranje.Ident{1},
 		Children: []ranje.Ident{5},
 		Meta:     ranje.Meta{Ident: 4, Start: ranje.Key("ccc")},
@@ -272,6 +272,7 @@ func TestJoinFromThree(t *testing.T) {
 }
 
 func TestSplitIntoOne(t *testing.T) {
+	t.Skip("not supported for now")
 
 	// ┌─────┐
 	// │ 1 s │
@@ -287,7 +288,7 @@ func TestSplitIntoOne(t *testing.T) {
 	// we don't do anything too weird with it.
 
 	r1 := &ranje.Range{
-		State:    ranje.RsSplitting,
+		State:    ranje.RsSubsuming,
 		Children: []ranje.Ident{2},
 		Meta:     ranje.Meta{Ident: 1},
 	}
@@ -313,6 +314,7 @@ func TestSplitIntoOne(t *testing.T) {
 }
 
 func TestJoinFromOne(t *testing.T) {
+	t.Skip("not supported for now")
 
 	// ┌─────┐
 	// │ 1 j │
@@ -326,7 +328,7 @@ func TestJoinFromOne(t *testing.T) {
 	// Sure, why not.
 
 	r1 := &ranje.Range{
-		State:    ranje.RsJoining,
+		State:    ranje.RsSubsuming,
 		Children: []ranje.Ident{2},
 		Meta:     ranje.Meta{Ident: 1},
 	}
@@ -390,13 +392,13 @@ func TestPlacementMayBecomeReady(t *testing.T) {
 			name: "joining",
 			input: []*ranje.Range{
 				{
-					State:      ranje.RsJoining,
+					State:      ranje.RsSubsuming,
 					Children:   []ranje.Ident{3},
 					Meta:       ranje.Meta{Ident: 1, Start: ranje.ZeroKey, End: ranje.Key("ggg")},
 					Placements: []*ranje.Placement{{NodeID: "n1", State: ranje.PsInactive}},
 				},
 				{
-					State:      ranje.RsJoining,
+					State:      ranje.RsSubsuming,
 					Children:   []ranje.Ident{3},
 					Meta:       ranje.Meta{Ident: 2, Start: ranje.Key("ggg"), End: ranje.ZeroKey},
 					Placements: []*ranje.Placement{{NodeID: "n2", State: ranje.PsInactive}},
@@ -466,13 +468,13 @@ func TestPlacementMayBeTaken(t *testing.T) {
 			name: "joining",
 			input: []*ranje.Range{
 				{
-					State:      ranje.RsJoining,
+					State:      ranje.RsSubsuming,
 					Children:   []ranje.Ident{3},
 					Meta:       ranje.Meta{Ident: 1, Start: ranje.ZeroKey, End: ranje.Key("ggg")},
 					Placements: []*ranje.Placement{{NodeID: "n1", State: ranje.PsActive}},
 				},
 				{
-					State:      ranje.RsJoining,
+					State:      ranje.RsSubsuming,
 					Children:   []ranje.Ident{3},
 					Meta:       ranje.Meta{Ident: 2, Start: ranje.Key("ggg"), End: ranje.ZeroKey},
 					Placements: []*ranje.Placement{{NodeID: "n2", State: ranje.PsActive}},
