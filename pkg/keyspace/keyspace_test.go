@@ -429,7 +429,7 @@ func TestPlacementMayBecomeReady(t *testing.T) {
 		for r := 0; r < len(ex.input); r++ {
 			for p := 0; p < len(ex.input[r].Placements); p++ {
 				expected := ex.output[r][p] // error string; empty is nil
-				actual := ks.PlacementMayActivate(ex.input[r].Placements[p], ex.input[r], op)
+				actual := op.MayActivate(ex.input[r].Placements[p], ex.input[r])
 				msg := fmt.Sprintf("example=%s, range=%d, placement=%d", ex.name, r, p)
 
 				if expected == "" {
@@ -505,7 +505,7 @@ func TestPlacementMayBeTaken(t *testing.T) {
 		for r := 0; r < len(ex.input); r++ {
 			for p := 0; p < len(ex.input[r].Placements); p++ {
 				expected := ex.output[r][p] // error string; empty is nil
-				actual := ks.PlacementMayDeactivate(ex.input[r].Placements[p], ex.input[r], op)
+				actual := op.MayDeactivate(ex.input[r].Placements[p], ex.input[r])
 				msg := fmt.Sprintf("example=%s, range=%d, placement=%d", ex.name, r, p)
 
 				if expected == "" {
