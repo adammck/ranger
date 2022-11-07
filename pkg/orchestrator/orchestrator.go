@@ -27,7 +27,7 @@ type Orchestrator struct {
 	ks   *keyspace.Keyspace
 	rost *roster.Roster // TODO: Remove this!
 	srv  *grpc.Server
-	act  *actuator.Actuator
+	act  actuator.Actuator
 
 	bs  *orchestratorServer
 	dbg *debugServer
@@ -47,7 +47,7 @@ type Orchestrator struct {
 	opJoinsMu sync.RWMutex
 }
 
-func New(cfg config.Config, ks *keyspace.Keyspace, rost *roster.Roster, act *actuator.Actuator, srv *grpc.Server) *Orchestrator {
+func New(cfg config.Config, ks *keyspace.Keyspace, rost *roster.Roster, act actuator.Actuator, srv *grpc.Server) *Orchestrator {
 	b := &Orchestrator{
 		cfg:      cfg,
 		ks:       ks,

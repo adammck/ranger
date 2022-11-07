@@ -1,4 +1,4 @@
-package actuator
+package rpc
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/adammck/ranger/pkg/actuator/util"
 	"github.com/adammck/ranger/pkg/keyspace"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
@@ -85,7 +86,7 @@ func (a *Actuator) Give(p *ranje.Placement, n *roster.Node) {
 		ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
 		defer cancel()
 
-		err := give(ctx, n, p, getParents(a.ks, a.ros, p.Range()))
+		err := give(ctx, n, p, util.GetParents(a.ks, a.ros, p.Range()))
 		if err != nil {
 			log.Printf("error giving %v to %s: %v", p.LogString(), n.Ident(), err)
 		}
@@ -145,10 +146,6 @@ func serve(ctx context.Context, n *roster.Node, p *ranje.Placement) error {
 		Range: rID.ToProto(),
 	}
 
-	// TODO: Move outside this func?
-	ctx, cancel := context.WithTimeout(ctx, rpcTimeout)
-	defer cancel()
-
 	// TODO: Retry a few times before giving up.
 	res, err := n.Client.Serve(ctx, req)
 	if err != nil {
@@ -191,10 +188,6 @@ func take(ctx context.Context, n *roster.Node, p *ranje.Placement) error {
 	req := &pb.TakeRequest{
 		Range: rID.ToProto(),
 	}
-
-	// TODO: Move outside this func?
-	ctx, cancel := context.WithTimeout(ctx, rpcTimeout)
-	defer cancel()
 
 	// TODO: Retry a few times before giving up.
 	res, err := n.Client.Take(ctx, req)
@@ -239,10 +232,6 @@ func drop(ctx context.Context, n *roster.Node, p *ranje.Placement) error {
 		Range: rID.ToProto(),
 	}
 
-	// TODO: Move outside this func?
-	ctx, cancel := context.WithTimeout(ctx, rpcTimeout)
-	defer cancel()
-
 	// TODO: Retry a few times before giving up.
 	res, err := n.Client.Drop(ctx, req)
 	if err != nil {
@@ -263,63 +252,4 @@ func drop(ctx context.Context, n *roster.Node, p *ranje.Placement) error {
 
 	log.Printf("dropped %s from %s; state=%v", p.LogString(), n.Ident(), s)
 	return nil
-}
-
-func getParents(ks *keyspace.Keyspace, rost *roster.Roster, rang *ranje.Range) []*pb.Parent {
-	parents := []*pb.Parent{}
-	seen := map[ranje.Ident]struct{}{}
-	addParents(ks, rost, rang, &parents, seen)
-	return parents
-}
-
-func addParents(ks *keyspace.Keyspace, rost *roster.Roster, rang *ranje.Range, parents *[]*pb.Parent, seen map[ranje.Ident]struct{}) {
-
-	// Don't bother serializing the same placement many times. (The range tree
-	// won't have cycles, but is also not a DAG.)
-	_, ok := seen[rang.Meta.Ident]
-	if ok {
-		return
-	}
-
-	*parents = append(*parents, pbPlacement(rost, rang))
-	seen[rang.Meta.Ident] = struct{}{}
-
-	for _, rID := range rang.Parents {
-		r, err := ks.Get(rID)
-		if err != nil {
-			// TODO: Think about how to recover from this. It's bad.
-			panic(fmt.Sprintf("getting range with ident %v: %v", rID, err))
-		}
-
-		addParents(ks, rost, r, parents, seen)
-	}
-}
-
-func pbPlacement(rost *roster.Roster, r *ranje.Range) *pb.Parent {
-
-	// TODO: The kv example doesn't care about range history, because it has no
-	//       external write log, so can only fetch from nodes. So we can skip
-	//       sending them at all. Maybe add a controller feature flag?
-	//
-
-	pbPlacements := make([]*pb.Placement, len(r.Placements))
-
-	for i, p := range r.Placements {
-		n := rost.NodeByIdent(p.NodeID)
-
-		node := ""
-		if n != nil {
-			node = n.Addr()
-		}
-
-		pbPlacements[i] = &pb.Placement{
-			Node:  node,
-			State: p.State.ToProto(),
-		}
-	}
-
-	return &pb.Parent{
-		Range:      r.Meta.ToProto(),
-		Placements: pbPlacements,
-	}
 }

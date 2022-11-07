@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/adammck/ranger/pkg/actuator"
+	rpc_actuator "github.com/adammck/ranger/pkg/actuator/rpc"
 	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
 	"github.com/adammck/ranger/pkg/keyspace"
@@ -32,7 +33,7 @@ type Controller struct {
 	disc discovery.Discoverable
 	ks   *keyspace.Keyspace
 	rost *roster.Roster
-	act  *actuator.Actuator
+	act  actuator.Actuator
 	orch *orchestrator.Orchestrator
 }
 
@@ -67,7 +68,7 @@ func New(cfg config.Config, addrLis, addrPub string, interval time.Duration, onc
 	// TODO: Hook up the callbacks (or replace with channels)
 	rost := roster.New(cfg, disc, nil, nil, nil)
 
-	act := actuator.New(ks, rost)
+	act := rpc_actuator.New(ks, rost)
 
 	orch := orchestrator.New(cfg, ks, rost, act, srv)
 

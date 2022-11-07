@@ -13,6 +13,7 @@ import (
 	"context"
 
 	"github.com/adammck/ranger/pkg/actuator"
+	rpc_actuator "github.com/adammck/ranger/pkg/actuator/rpc"
 	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
 	"github.com/adammck/ranger/pkg/keyspace"
@@ -2431,17 +2432,17 @@ func rosterFactory(t *testing.T, cfg config.Config, ctx context.Context, ks *key
 }
 
 // TODO: Merge this with orchFactoryCheck once TestJunk is gone.
-func orchFactoryNoCheck(t *testing.T, sKS, sRos string, cfg config.Config, strict bool) (*Orchestrator, *fake_nodes.TestNodes, *actuator.Actuator) {
+func orchFactoryNoCheck(t *testing.T, sKS, sRos string, cfg config.Config, strict bool) (*Orchestrator, *fake_nodes.TestNodes, actuator.Actuator) {
 	ks := keyspaceFactory(t, cfg, parseKeyspace(t, sKS))
 	nodes, ros := rosterFactory(t, cfg, context.TODO(), ks, parseRoster(t, sRos))
 	nodes.SetStrictTransitions(strict)
-	srv := grpc.NewServer() // TODO: Allow this to be nil.
-	act := actuator.New(ks, ros)
+	srv := grpc.NewServer()          // TODO: Allow this to be nil.
+	act := rpc_actuator.New(ks, ros) // TODO: Use a mock actuator!
 	orch := New(cfg, ks, ros, act, srv)
 	return orch, nodes, act
 }
 
-func orchFactory(t *testing.T, sKS, sRos string, cfg config.Config, strict bool) (*Orchestrator, *fake_nodes.TestNodes, *actuator.Actuator) {
+func orchFactory(t *testing.T, sKS, sRos string, cfg config.Config, strict bool) (*Orchestrator, *fake_nodes.TestNodes, actuator.Actuator) {
 	orch, nodes, act := orchFactoryNoCheck(t, sKS, sRos, cfg, strict)
 
 	// Tick once, to populate the roster before the first orchestrator tick. We
@@ -2580,7 +2581,7 @@ type Waiter interface {
 // This allows us to pretend that Ticks will never begin while RPCs scheduled
 // during the previous tick are still in flight, without sleeping or anything
 // like that.
-func tickWait(orch *Orchestrator, act *actuator.Actuator, waiters ...Waiter) {
+func tickWait(orch *Orchestrator, act actuator.Actuator, waiters ...Waiter) {
 	orch.Tick()
 	act.WaitRPCs()
 
@@ -2593,7 +2594,7 @@ func tickWait(orch *Orchestrator, act *actuator.Actuator, waiters ...Waiter) {
 	log.Print("op: ", OpsString(orch.ks))
 }
 
-func tickUntilStable(t *testing.T, orch *Orchestrator, nodes *fake_nodes.TestNodes, act *actuator.Actuator) {
+func tickUntilStable(t *testing.T, orch *Orchestrator, nodes *fake_nodes.TestNodes, act actuator.Actuator) {
 	var ksPrev string // previous value of ks.LogString
 	var stable int    // ticks since keyspace changed or rpc sent
 	var ticks int     // total ticks waited
@@ -2634,7 +2635,7 @@ func tickUntilStable(t *testing.T, orch *Orchestrator, nodes *fake_nodes.TestNod
 
 // Tick repeatedly until the given callback (which is called with the string
 // representation of the keyspace and roster after each tick) returns true.
-func tickUntil(t *testing.T, orch *Orchestrator, nodes *fake_nodes.TestNodes, act *actuator.Actuator, callback func(string, string) bool) {
+func tickUntil(t *testing.T, orch *Orchestrator, nodes *fake_nodes.TestNodes, act actuator.Actuator, callback func(string, string) bool) {
 	var ticks int // total ticks waited
 
 	for {
@@ -2654,7 +2655,7 @@ func tickUntil(t *testing.T, orch *Orchestrator, nodes *fake_nodes.TestNodes, ac
 	nodes.RPCs()
 }
 
-func requireStable(t *testing.T, orch *Orchestrator, act *actuator.Actuator) {
+func requireStable(t *testing.T, orch *Orchestrator, act actuator.Actuator) {
 	ksLog := orch.ks.LogString()
 	rostLog := orch.rost.TestString()
 	for i := 0; i < 2; i++ {
