@@ -66,7 +66,7 @@ const noStrictTransactions = false
 // TODO: Move to keyspace tests.
 func TestJunk(t *testing.T) {
 	ksStr := "" // No ranges at all!
-	orch, nodes := orchFactoryNoCheck(t, ksStr, "", testConfig(), noStrictTransactions)
+	orch, nodes, _ := orchFactoryNoCheck(t, ksStr, "", testConfig(), noStrictTransactions)
 	defer nodes.Close()
 
 	// Genesis range was created.
@@ -84,13 +84,13 @@ func TestJunk(t *testing.T) {
 func TestPlace(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
 
 	// First tick: Placement created, Give RPC sent to node and returned
 	// successfully. Remote state is updated in roster, but not keyspace.
 
-	tickWait(orch)
+	tickWait(orch, act)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 1) {
 			ProtoEqual(t, &pb.GiveRequest{
@@ -125,7 +125,7 @@ func TestPlace(t *testing.T) {
 
 	// Second tick: Keyspace is updated with state from roster. No RPCs sent.
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{test-aaa [1:NsInactive]}", orch.rost.TestString())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
@@ -133,7 +133,7 @@ func TestPlace(t *testing.T) {
 	// Third: Serve RPC is sent, to advance to ready. Returns success, and
 	// roster is updated. Keyspace is not.
 
-	tickWait(orch)
+	tickWait(orch, act)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 1) {
 			ProtoEqual(t, &pb.ServeRequest{Range: 1}, aaa[0])
@@ -145,23 +145,23 @@ func TestPlace(t *testing.T) {
 
 	// Forth: Keyspace is updated with ready state from roster. No RPCs sent.
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{test-aaa [1:NsActive]}", orch.rost.TestString())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
 
 	// No more changes. This is steady state.
 
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 }
 
 func TestPlace_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
 
-	tickUntilStable(t, orch, nodes)
+	tickUntilStable(t, orch, nodes, act)
 	assert.Equal(t, "{test-aaa [1:NsActive]}", orch.rost.TestString())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
 }
@@ -169,11 +169,11 @@ func TestPlace_Short(t *testing.T) {
 func TestPlace_Slow(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), strictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), strictTransactions)
 	defer nodes.Close()
 
 	par := nodes.Get("test-aaa").AddBarrier(t, 1, state.NsLoading)
-	tickWait(orch, par)
+	tickWait(orch, act, par)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 1) {
 			ProtoEqual(t, &pb.GiveRequest{
@@ -207,7 +207,7 @@ func TestPlace_Slow(t *testing.T) {
 	assert.Equal(t, "{test-aaa [1:NsLoading]}", orch.rost.TestString())
 	// TODO: Assert that new placement was persisted
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Len(t, RPCs(nodes.RPCs()), 1) // redundant Give
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsLoading]}", orch.rost.TestString())
@@ -216,7 +216,7 @@ func TestPlace_Slow(t *testing.T) {
 	par.Release()
 	assert.Equal(t, "{test-aaa [1:NsLoading]}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Len(t, RPCs(nodes.RPCs()), 1) // redundant Give
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive]}", orch.rost.TestString())
@@ -227,13 +227,13 @@ func TestPlace_Slow(t *testing.T) {
 	//
 	// TODO: Maybe the state update should immediately trigger another tick just
 	//       for that placement? Would save a tick, but risks infinite loops.
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive]}", orch.rost.TestString())
 
 	ar := nodes.Get("test-aaa").AddBarrier(t, 1, state.NsActivating)
-	tickWait(orch, ar)
+	tickWait(orch, act, ar)
 	assert.Len(t, RPCs(nodes.RPCs()), 1) // redundant Serve
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActivating]}", orch.rost.TestString())
@@ -242,29 +242,29 @@ func TestPlace_Slow(t *testing.T) {
 	ar.Release()
 	assert.Equal(t, "{test-aaa [1:NsActivating]}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Len(t, RPCs(nodes.RPCs()), 1) // redundant Serve
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive]}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive]}", orch.rost.TestString())
 
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 }
 
 func TestPlaceFailure_PrepareAddRange(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []} {test-bbb []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
 
 	// Node aaa will always fail PrepareAddRange.
 	nodes.Get("test-aaa").SetReturnValue(t, 1, fake_node.PrepareAddRange, fmt.Errorf("something went wrong"))
 
-	tickUntilStable(t, orch, nodes)
+	tickUntilStable(t, orch, nodes, act)
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsActive]}", orch.rost.TestString())
 }
@@ -273,14 +273,14 @@ func TestPlaceFailure_PrepareAddRange(t *testing.T) {
 func TestPlaceFailure_AddRange_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []} {test-bbb []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
 
 	// AddRange will always fail on node A.
 	// (But PrepareAddRange will succeed, as is the default)
 	nodes.Get("test-aaa").SetReturnValue(t, 1, fake_node.AddRange, fmt.Errorf("can't get ready!"))
 
-	tickUntilStable(t, orch, nodes)
+	tickUntilStable(t, orch, nodes, act)
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsActive]}", orch.rost.TestString())
 }
@@ -288,7 +288,7 @@ func TestPlaceFailure_AddRange_Short(t *testing.T) {
 func TestPlaceFailure_AddRange(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []} {test-bbb []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
 
 	// AddRange will always fail on node A.
@@ -297,12 +297,12 @@ func TestPlaceFailure_AddRange(t *testing.T) {
 
 	// 1. PrepareAddRange(1, aaa)
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Len(t, nodes.RPCs(), 1) // no need to check RPC contents again.
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb []}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb []}", orch.rost.TestString())
@@ -311,7 +311,7 @@ func TestPlaceFailure_AddRange(t *testing.T) {
 	//    Makes three attempts.
 
 	for attempt := 1; attempt <= 3; attempt++ {
-		tickWait(orch)
+		tickWait(orch, act)
 		assert.Len(t, nodes.RPCs(), 1) // no need to check RPC contents again.
 		assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
 		assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb []}", orch.rost.TestString())
@@ -321,19 +321,19 @@ func TestPlaceFailure_AddRange(t *testing.T) {
 		assert.False(t, p.FailedActivate)
 	}
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb []}", orch.rost.TestString())
 	assert.True(t, mustGetPlacement(t, orch.ks, 1, "test-aaa").FailedActivate)
 
 	// 3. DropRange(1, aaa)
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Equal(t, "Drop(R1, test-aaa)", rpcsToString(nodes.RPCs()))
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []} {test-bbb []}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []} {test-bbb []}", orch.rost.TestString())
@@ -341,7 +341,7 @@ func TestPlaceFailure_AddRange(t *testing.T) {
 	// 4. PrepareAddRange(1, bbb)
 	// 5. AddRange(1, bbb)
 
-	tickUntilStable(t, orch, nodes)
+	tickUntilStable(t, orch, nodes, act)
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsActive]}", orch.rost.TestString())
 }
@@ -349,9 +349,9 @@ func TestPlaceFailure_AddRange(t *testing.T) {
 func TestMove(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 
 	func() {
 		orch.opMovesMu.Lock()
@@ -363,7 +363,7 @@ func TestMove(t *testing.T) {
 		})
 	}()
 
-	tickWait(orch)
+	tickWait(orch, act)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-bbb"}, nIDs(rpcs)) {
 		if bbb := rpcs["test-bbb"]; assert.Len(t, bbb, 1) {
 			ProtoEqual(t, &pb.GiveRequest{
@@ -400,57 +400,57 @@ func TestMove(t *testing.T) {
 
 	// Just updates state from roster.
 	// TODO: As above, should maybe trigger the next tick automatically.
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsInactive:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Equal(t, "Take(R1, test-aaa)", rpcsToString(nodes.RPCs()))
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsInactive:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Equal(t, "Serve(R1, test-bbb)", rpcsToString(nodes.RPCs()))
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive p1=test-bbb:PsInactive:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [1:NsActive]}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive p1=test-bbb:PsActive:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [1:NsActive]}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Equal(t, "Drop(R1, test-aaa)", rpcsToString(nodes.RPCs()))
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive p1=test-bbb:PsActive:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsActive]}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsDropped p1=test-bbb:PsActive:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsActive]}", orch.rost.TestString())
 
 	// p0 is gone!
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-bbb:PsActive:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsActive]}", orch.rost.TestString())
 
 	// IsReplacing annotation is gone.
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsActive]}", orch.rost.TestString())
 
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 }
 
 func TestMove_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 
 	op := OpMove{
 		Range: ranje.Ident(1),
@@ -461,7 +461,7 @@ func TestMove_Short(t *testing.T) {
 	orch.opMoves = append(orch.opMoves, op)
 	orch.opMovesMu.Unlock()
 
-	tickUntilStable(t, orch, nodes)
+	tickUntilStable(t, orch, nodes, act)
 
 	// Range moved from aaa to bbb.
 	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsActive]}", orch.rost.TestString())
@@ -471,9 +471,9 @@ func TestMove_Short(t *testing.T) {
 func TestMove_Slow(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), strictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), strictTransactions)
 	defer nodes.Close()
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 
 	func() {
 		orch.opMovesMu.Lock()
@@ -486,7 +486,7 @@ func TestMove_Slow(t *testing.T) {
 	}()
 
 	bPAR := nodes.Get("test-bbb").AddBarrier(t, 1, state.NsLoading)
-	tickWait(orch, bPAR)
+	tickWait(orch, act, bPAR)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-bbb"}, nIDs(rpcs)) {
 		if bbb := rpcs["test-bbb"]; assert.Len(t, bbb, 1) {
 			ProtoEqual(t, &pb.GiveRequest{
@@ -530,13 +530,13 @@ func TestMove_Slow(t *testing.T) {
 
 	// Just updates state from roster.
 	// TODO: As above, should maybe trigger the next tick automatically.
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsInactive:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
 
 	aPDR := nodes.Get("test-aaa").AddBarrier(t, 1, state.NsDeactivating)
-	tickWait(orch, aPDR)
+	tickWait(orch, act, aPDR)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 1) {
 			ProtoEqual(t, &pb.TakeRequest{Range: 1}, aaa[0])
@@ -546,7 +546,7 @@ func TestMove_Slow(t *testing.T) {
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsInactive:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsDeactivating]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Len(t, RPCs(nodes.RPCs()), 1) // redundant Take
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsInactive:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsDeactivating]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
@@ -558,7 +558,7 @@ func TestMove_Slow(t *testing.T) {
 	assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
 
 	bAR := nodes.Get("test-bbb").AddBarrier(t, 1, state.NsActivating)
-	tickWait(orch, bAR)
+	tickWait(orch, act, bAR)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-bbb"}, nIDs(rpcs)) {
 		if bbb := rpcs["test-bbb"]; assert.Len(t, bbb, 1) {
 			ProtoEqual(t, &pb.ServeRequest{Range: 1}, bbb[0])
@@ -568,7 +568,7 @@ func TestMove_Slow(t *testing.T) {
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive p1=test-bbb:PsInactive:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [1:NsActivating]}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Len(t, RPCs(nodes.RPCs()), 1) // redundant Serve
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive p1=test-bbb:PsInactive:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [1:NsActivating]}", orch.rost.TestString())
@@ -579,13 +579,13 @@ func TestMove_Slow(t *testing.T) {
 	orch.rost.Tick()
 	assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [1:NsActive]}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive p1=test-bbb:PsActive:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [1:NsActive]}", orch.rost.TestString())
 
 	aDR := nodes.Get("test-aaa").AddBarrier(t, 1, state.NsDropping)
-	tickWait(orch, aDR)
+	tickWait(orch, act, aDR)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 1) {
 			ProtoEqual(t, &pb.DropRequest{Range: 1}, aaa[0])
@@ -598,35 +598,35 @@ func TestMove_Slow(t *testing.T) {
 	aDR.Release() // Node A finished dropping.
 	assert.Equal(t, "{test-aaa [1:NsDropping]} {test-bbb [1:NsActive]}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Len(t, RPCs(nodes.RPCs()), 1) // redundant Drop
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive p1=test-bbb:PsActive:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsActive]}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsDropped p1=test-bbb:PsActive:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsActive]}", orch.rost.TestString())
 
 	// test-aaa is gone!
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-bbb:PsActive:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsActive]}", orch.rost.TestString())
 
 	// IsReplacing annotation is gone.
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsActive]}", orch.rost.TestString())
 
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 }
 
 func TestMoveFailure_PrepareAddRange(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
 
 	// PrepareAddRange will always fail on test-bbb.
@@ -650,7 +650,7 @@ func TestMoveFailure_PrepareAddRange(t *testing.T) {
 	//    to do so, above.
 
 	for attempt := 1; attempt <= 3; attempt++ {
-		tickWait(orch)
+		tickWait(orch, act)
 		if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-bbb"}, nIDs(rpcs)) {
 			if bbb := rpcs["test-bbb"]; assert.Len(t, bbb, 1) {
 				if assert.IsType(t, &pb.GiveRequest{}, bbb[0]) {
@@ -669,7 +669,7 @@ func TestMoveFailure_PrepareAddRange(t *testing.T) {
 
 	// Failed placement is destroyed.
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsNotFound]}", orch.rost.TestString())
@@ -682,13 +682,13 @@ func TestMoveFailure_PrepareAddRange(t *testing.T) {
 
 	// Done.
 
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 }
 
 func TestMoveFailure_PrepareDropRange(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
 
 	// PrepareDropRange will always fail on node A.
@@ -711,7 +711,7 @@ func TestMoveFailure_PrepareDropRange(t *testing.T) {
 	//    succeeds (because nothing has failed yet).
 	log.Print("1")
 
-	tickWait(orch)
+	tickWait(orch, act)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-bbb"}, nIDs(rpcs)) {
 		if bbb := rpcs["test-bbb"]; assert.Len(t, bbb, 1) {
 			ProtoEqual(t, &pb.GiveRequest{
@@ -747,7 +747,7 @@ func TestMoveFailure_PrepareDropRange(t *testing.T) {
 	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
 
 	// Keyspace updates from roster.
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsInactive:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
@@ -759,7 +759,7 @@ func TestMoveFailure_PrepareDropRange(t *testing.T) {
 
 	for i := 1; i < 4; i++ {
 		log.Printf("2.%d", i)
-		tickWait(orch)
+		tickWait(orch, act)
 		if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
 			if a := rpcs["test-aaa"]; assert.Len(t, a, 1) {
 				ProtoEqual(t, &pb.TakeRequest{
@@ -776,7 +776,7 @@ func TestMoveFailure_PrepareDropRange(t *testing.T) {
 	//    never become ready.
 	log.Print("3")
 
-	tickWait(orch)
+	tickWait(orch, act)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-bbb"}, nIDs(rpcs)) {
 		if b := rpcs["test-bbb"]; assert.Len(t, b, 1) {
 			ProtoEqual(t, &pb.DropRequest{
@@ -789,26 +789,26 @@ func TestMoveFailure_PrepareDropRange(t *testing.T) {
 	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb []}", orch.rost.TestString())
 
 	// Destroy the abandonned placement.
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsDropped:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb []}", orch.rost.TestString())
 
 	// Destroy the abandonned placement.
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb []}", orch.rost.TestString())
 
 	// Stable now, because the move was a one-off. (The balancer might try the
 	// same thing again, but that's a separate test.)
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 }
 
 func TestMoveFailure_AddRange(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
 
 	// AddRange will always fail on test-bbb.
@@ -830,7 +830,7 @@ func TestMoveFailure_AddRange(t *testing.T) {
 	// 1. PrepareAddRange(1, bbb)
 	log.Print("1")
 
-	tickWait(orch)
+	tickWait(orch, act)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-bbb"}, nIDs(rpcs)) {
 		if bbb := rpcs["test-bbb"]; assert.Len(t, bbb, 1) {
 			if assert.IsType(t, &pb.GiveRequest{}, bbb[0]) {
@@ -845,7 +845,7 @@ func TestMoveFailure_AddRange(t *testing.T) {
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsPending:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsInactive:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
@@ -853,7 +853,7 @@ func TestMoveFailure_AddRange(t *testing.T) {
 	// 2. PrepareDropRange(1, aaa)
 	log.Print("2")
 
-	tickWait(orch)
+	tickWait(orch, act)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 1) {
 			if assert.IsType(t, &pb.TakeRequest{}, aaa[0]) {
@@ -869,7 +869,7 @@ func TestMoveFailure_AddRange(t *testing.T) {
 	//       dependent placements are ordered a certain way. Need to perform two
 	//       separate steps: update keyspace, then send RPCs.
 
-	// tickWait(orch)
+	// tickWait(orch, act)
 	// assert.Empty(t, nodes.RPCs())
 	// assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive p1=test-bbb:PsInactive:replacing(test-aaa)}", orch.ks.LogString())
 	// assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
@@ -880,7 +880,7 @@ func TestMoveFailure_AddRange(t *testing.T) {
 	log.Print("3")
 
 	for attempt := 1; attempt <= 3; attempt++ {
-		tickWait(orch)
+		tickWait(orch, act)
 		if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-bbb"}, nIDs(rpcs)) {
 			if bbb := rpcs["test-bbb"]; assert.Len(t, bbb, 1) {
 				if assert.IsType(t, &pb.ServeRequest{}, bbb[0]) {
@@ -897,7 +897,7 @@ func TestMoveFailure_AddRange(t *testing.T) {
 	}
 
 	// Replacement (on bbb) is marked as GivenUp.
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive p1=test-bbb:PsInactive:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
@@ -906,7 +906,7 @@ func TestMoveFailure_AddRange(t *testing.T) {
 	// 4. AddRange(1, aaa)
 	log.Print("4")
 
-	tickWait(orch)
+	tickWait(orch, act)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 1) {
 			if assert.IsType(t, &pb.ServeRequest{}, aaa[0]) {
@@ -918,7 +918,7 @@ func TestMoveFailure_AddRange(t *testing.T) {
 	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
 
 	// TODO: This step is also merged with the next :|
-	// tickWait(orch)
+	// tickWait(orch, act)
 	// assert.Empty(t, nodes.RPCs())
 	// assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsInactive:replacing(test-aaa)}", orch.ks.LogString())
 	// assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
@@ -926,7 +926,7 @@ func TestMoveFailure_AddRange(t *testing.T) {
 	// 5. DropRange(1, bbb)
 	log.Print("5")
 
-	tickWait(orch)
+	tickWait(orch, act)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-bbb"}, nIDs(rpcs)) {
 		if bbb := rpcs["test-bbb"]; assert.Len(t, bbb, 1) {
 			if assert.IsType(t, &pb.DropRequest{}, bbb[0]) {
@@ -937,20 +937,20 @@ func TestMoveFailure_AddRange(t *testing.T) {
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsInactive:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb []}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb []}", orch.rost.TestString())
 
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 }
 
 func TestMoveFailure_DropRange(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 
 	// DropRange will always fail on test-aaa (src).
 	nodes.Get("test-aaa").SetReturnValue(t, 1, fake_node.DropRange, fmt.Errorf("failure injected by TestMoveFailure_DropRange"))
@@ -967,7 +967,7 @@ func TestMoveFailure_DropRange(t *testing.T) {
 	orch.opMovesMu.Unlock()
 
 	// Fast-forward to the part where we send DropRange to aaa.
-	tickUntil(t, orch, nodes, func(ks, ro string) bool {
+	tickUntil(t, orch, nodes, act, func(ks, ro string) bool {
 		return (true &&
 			ks == "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive p1=test-bbb:PsActive:replacing(test-aaa)}" &&
 			ro == "{test-aaa [1:NsInactive]} {test-bbb [1:NsActive]}")
@@ -976,7 +976,7 @@ func TestMoveFailure_DropRange(t *testing.T) {
 	// ----
 
 	for attempt := 1; attempt <= 5; attempt++ {
-		tickWait(orch)
+		tickWait(orch, act)
 
 		// The RPC was sent.
 		if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
@@ -1000,7 +1000,7 @@ func TestMoveFailure_DropRange(t *testing.T) {
 	// pretends that that happened, so we can observe the workflow unblocking.
 	nodes.Get("test-aaa").ForceDrop(1)
 
-	tickUntilStable(t, orch, nodes)
+	tickUntilStable(t, orch, nodes, act)
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsActive]}", orch.rost.TestString())
 }
@@ -1008,9 +1008,9 @@ func TestMoveFailure_DropRange(t *testing.T) {
 func TestSplit(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 
 	// 0. Initiate
 
@@ -1018,13 +1018,13 @@ func TestSplit(t *testing.T) {
 
 	// 1. PrepareAddRange
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsPending} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive]}", orch.rost.TestString())
 	assert.Equal(t, "{Split 1 -> 2,3}", OpsString(orch.ks))
 
-	tickWait(orch)
+	tickWait(orch, act)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 2) {
 			ProtoEqual(t, &pb.GiveRequest{
@@ -1101,14 +1101,14 @@ func TestSplit(t *testing.T) {
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsPending} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive 2:NsInactive 3:NsInactive]}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive 2:NsInactive 3:NsInactive]}", orch.rost.TestString())
 
 	// 2. PrepareDropRange
 
-	tickWait(orch)
+	tickWait(orch, act)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 1) {
 			ProtoEqual(t, &pb.TakeRequest{Range: 1}, aaa[0])
@@ -1120,7 +1120,7 @@ func TestSplit(t *testing.T) {
 
 	// 3. AddRange
 
-	tickWait(orch)
+	tickWait(orch, act)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 2) {
 			ProtoEqual(t, &pb.ServeRequest{Range: 2}, aaa[0])
@@ -1131,50 +1131,50 @@ func TestSplit(t *testing.T) {
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive 2:NsActive 3:NsActive]}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive 2:NsActive 3:NsActive]}", orch.rost.TestString())
 
 	// 4. DropRange
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Equal(t, "Drop(R1, test-aaa)", rpcsToString(nodes.RPCs()))
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [2:NsActive 3:NsActive]}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsDropped} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [2:NsActive 3:NsActive]}", orch.rost.TestString())
 
 	// 5. Cleanup
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [2:NsActive 3:NsActive]}", orch.rost.TestString())
 	assert.Equal(t, "{Split 1 -> 2,3}", OpsString(orch.ks)) // Operation is still active.
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsObsolete} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [2:NsActive 3:NsActive]}", orch.rost.TestString())
 	assert.Empty(t, OpsString(orch.ks)) // Operation has finished.
 
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 	assertClosed(t, opErr)
 }
 
 func TestSplit_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 
 	splitOp(orch, 1)
-	tickUntilStable(t, orch, nodes)
+	tickUntilStable(t, orch, nodes, act)
 
 	// Range 1 was split into ranges 2 and 3 at ccc.
 	assert.Equal(t, "{test-aaa [2:NsActive 3:NsActive]}", orch.rost.TestString())
@@ -1184,14 +1184,14 @@ func TestSplit_Short(t *testing.T) {
 func TestSplit_Slow(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), strictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), strictTransactions)
 	defer nodes.Close()
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 	opErr := splitOp(orch, 1)
 
 	// 1. Split initiated by controller. Node hasn't heard about it yet.
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsPending} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive]}", orch.rost.TestString())
@@ -1200,7 +1200,7 @@ func TestSplit_Slow(t *testing.T) {
 
 	a2PAR := nodes.Get("test-aaa").AddBarrier(t, 2, state.NsLoading)
 	a3PAR := nodes.Get("test-aaa").AddBarrier(t, 3, state.NsLoading)
-	tickWait(orch, a2PAR, a3PAR)
+	tickWait(orch, act, a2PAR, a3PAR)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 2) {
 			ProtoEqual(t, &pb.GiveRequest{
@@ -1282,26 +1282,26 @@ func TestSplit_Slow(t *testing.T) {
 	a2PAR.Release() // R2 finished preparing, but R3 has not yet.
 	assert.Equal(t, "{test-aaa [1:NsActive 2:NsLoading 3:NsLoading]}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Len(t, RPCs(nodes.RPCs()), 2) // redundant Gives
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsPending} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
 
 	a3PAR.Release() // R3 becomes Prepared, too.
 	assert.Equal(t, "{test-aaa [1:NsActive 2:NsInactive 3:NsLoading]}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	// Note that we're not sending (redundant) Give RPCs to R2 any more.
 	assert.Len(t, RPCs(nodes.RPCs()), 1) // redundant Give
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
 
 	// 4. Controller takes placements in parent range.
 
 	a1PDR := nodes.Get("test-aaa").AddBarrier(t, 1, state.NsDeactivating)
-	tickWait(orch, a1PDR)
+	tickWait(orch, act, a1PDR)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 1) {
 			ProtoEqual(t, &pb.TakeRequest{Range: 1}, aaa[0])
@@ -1314,7 +1314,7 @@ func TestSplit_Slow(t *testing.T) {
 	a1PDR.Release() // r1p0 finishes taking.
 	assert.Equal(t, "{test-aaa [1:NsDeactivating 2:NsInactive 3:NsInactive]}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Len(t, RPCs(nodes.RPCs()), 1) // redundant Take
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive 2:NsInactive 3:NsInactive]}", orch.rost.TestString())
@@ -1322,7 +1322,7 @@ func TestSplit_Slow(t *testing.T) {
 	// 5. Controller instructs both child ranges to become Ready.
 	a2AR := nodes.Get("test-aaa").AddBarrier(t, 2, state.NsActivating)
 	a3AR := nodes.Get("test-aaa").AddBarrier(t, 3, state.NsActivating)
-	tickWait(orch, a2AR, a3AR)
+	tickWait(orch, act, a2AR, a3AR)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 2) {
 			ProtoEqual(t, &pb.ServeRequest{Range: 2}, aaa[0])
@@ -1337,7 +1337,7 @@ func TestSplit_Slow(t *testing.T) {
 	assert.Equal(t, "{test-aaa [1:NsInactive 2:NsActivating 3:NsActivating]}", orch.rost.TestString())
 
 	// Orchestrator notices on next tick.
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Len(t, RPCs(nodes.RPCs()), 2) // redundant Serves
 	assert.Equal(t, "{test-aaa [1:NsInactive 2:NsActivating 3:NsActive]}", orch.rost.TestString())
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
@@ -1346,12 +1346,12 @@ func TestSplit_Slow(t *testing.T) {
 	assert.Equal(t, "{test-aaa [1:NsInactive 2:NsActivating 3:NsActive]}", orch.rost.TestString())
 
 	// Orchestrator notices on next tick.
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Len(t, RPCs(nodes.RPCs()), 1) // redundant Serve
 	assert.Equal(t, "{test-aaa [1:NsInactive 2:NsActive 3:NsActive]}", orch.rost.TestString())
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{test-aaa [1:NsInactive 2:NsActive 3:NsActive]}", orch.rost.TestString())
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
@@ -1359,7 +1359,7 @@ func TestSplit_Slow(t *testing.T) {
 	// 6. Orchestrator instructs parent range to drop placements.
 
 	a1DR := nodes.Get("test-aaa").AddBarrier(t, 1, state.NsDropping)
-	tickWait(orch, a1DR)
+	tickWait(orch, act, a1DR)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 1) {
 			ProtoEqual(t, &pb.DropRequest{Range: 1}, aaa[0])
@@ -1369,29 +1369,29 @@ func TestSplit_Slow(t *testing.T) {
 	assert.Equal(t, "{test-aaa [1:NsDropping 2:NsActive 3:NsActive]}", orch.rost.TestString())
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Len(t, RPCs(nodes.RPCs()), 1) // redundant Drop
 	assert.Equal(t, "{test-aaa [1:NsDropping 2:NsActive 3:NsActive]}", orch.rost.TestString())
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
 
 	a1DR.Release() // r1p0 finishes dropping.
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Len(t, RPCs(nodes.RPCs()), 1) // redundant Drop
 	assert.Equal(t, "{test-aaa [2:NsActive 3:NsActive]}", orch.rost.TestString())
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{test-aaa [2:NsActive 3:NsActive]}", orch.rost.TestString())
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsDropped} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{test-aaa [2:NsActive 3:NsActive]}", orch.rost.TestString())
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{test-aaa [2:NsActive 3:NsActive]}", orch.rost.TestString())
 	assert.Equal(t, "{1 [-inf, +inf] RsObsolete} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
@@ -1402,16 +1402,16 @@ func TestSplit_Slow(t *testing.T) {
 	orch.rost.Tick()
 	assert.Equal(t, "{test-aaa [2:NsActive 3:NsActive]}", orch.rost.TestString())
 
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 	assertClosed(t, opErr)
 }
 
 func TestSplitFailure_PrepareAddRange(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 
 	// Left side of the split range will not be accepted by bbb. It will be retried on ccc.
 	nodes.Get("test-bbb").SetReturnValue(t, 2, fake_node.PrepareAddRange, fmt.Errorf("something went wrong"))
@@ -1422,12 +1422,12 @@ func TestSplitFailure_PrepareAddRange(t *testing.T) {
 
 	// 1. PrepareAddRange
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsPending} {3 (ccc, +inf] RsActive p0=test-bbb:PsPending}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Equal(t, "{Split 1 -> 2,3}", OpsString(orch.ks))
 	require.Equal(t, "Give(R2, test-bbb), Give(R3, test-bbb)", rpcsToString(nodes.RPCs()))
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsPending} {3 (ccc, +inf] RsActive p0=test-bbb:PsPending}", orch.ks.LogString())
@@ -1436,7 +1436,7 @@ func TestSplitFailure_PrepareAddRange(t *testing.T) {
 	assert.Equal(t, 1, mustGetPlacement(t, orch.ks, 3, "test-bbb").Attempts)
 
 	for attempt := 2; attempt <= 3; attempt++ {
-		tickWait(orch)
+		tickWait(orch, act)
 		// Only the failing placement (rID=2) will be retried.
 		require.Equal(t, "Give(R2, test-bbb)", rpcsToString(nodes.RPCs()))
 		assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsPending} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
@@ -1444,7 +1444,7 @@ func TestSplitFailure_PrepareAddRange(t *testing.T) {
 		assert.Equal(t, attempt, mustGetPlacement(t, orch.ks, 2, "test-bbb").Attempts)
 	}
 
-	tickWait(orch)
+	tickWait(orch, act)
 	// Failed placement is destroyed.
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
@@ -1452,18 +1452,18 @@ func TestSplitFailure_PrepareAddRange(t *testing.T) {
 
 	// 2. PrepareAddRange (retry on ccc)
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Equal(t, "{Split 1 -> 2,3}", OpsString(orch.ks))
 	require.Equal(t, "Give(R2, test-ccc)", rpcsToString(nodes.RPCs()))
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-ccc:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsNotFound 3:NsInactive]} {test-ccc [2:NsInactive]}", orch.rost.TestString())
 
 	// Recovered! Finish the split.
 
-	tickUntilStable(t, orch, nodes)
+	tickUntilStable(t, orch, nodes, act)
 	assert.Equal(t, "{1 [-inf, +inf] RsObsolete} {2 [-inf, ccc] RsActive p0=test-ccc:PsActive} {3 (ccc, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []} {test-bbb [3:NsActive]} {test-ccc [2:NsActive]}", orch.rost.TestString())
 }
@@ -1471,9 +1471,9 @@ func TestSplitFailure_PrepareAddRange(t *testing.T) {
 func TestSplitFailure_PrepareDropRange_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 
 	// The node where the range lives will not relinquish it!
 	nodes.Get("test-aaa").SetReturnValue(t, 1, fake_node.PrepareDropRange, fmt.Errorf("failed PrepareDropRange for test"))
@@ -1482,7 +1482,7 @@ func TestSplitFailure_PrepareDropRange_Short(t *testing.T) {
 
 	// End up in a bad but stable situation where the original range never
 	// relinquish (that's the point), but that the successors don't activate.
-	tickUntilStable(t, orch, nodes)
+	tickUntilStable(t, orch, nodes, act)
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
 
@@ -1499,9 +1499,9 @@ func TestSplitFailure_PrepareDropRange(t *testing.T) {
 func TestSplitFailure_AddRange_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 
 	// AddRange will always fail on node A.
 	// (But PrepareAddRange will succeed, as is the default)
@@ -1509,7 +1509,7 @@ func TestSplitFailure_AddRange_Short(t *testing.T) {
 
 	splitOp(orch, 1)
 
-	tickUntilStable(t, orch, nodes)
+	tickUntilStable(t, orch, nodes, act)
 	assert.Equal(t, "{1 [-inf, +inf] RsObsolete} {2 [-inf, ccc] RsActive p0=test-ccc:PsActive} {3 (ccc, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []} {test-bbb [3:NsActive]} {test-ccc [2:NsActive]}", orch.rost.TestString())
 }
@@ -1517,32 +1517,32 @@ func TestSplitFailure_AddRange_Short(t *testing.T) {
 func TestSplitFailure_AddRange(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 	nodes.Get("test-bbb").SetReturnValue(t, 2, fake_node.AddRange, fmt.Errorf("failed AddRange for test"))
 	splitOp(orch, 1)
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Empty(t, nodes.RPCs())
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsPending} {3 (ccc, +inf] RsActive p0=test-bbb:PsPending}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}", orch.rost.TestString())
 
 	// 1. PrepareAddRange
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Equal(t, "Give(R2, test-bbb), Give(R3, test-bbb)", rpcsToString(nodes.RPCs()))
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsPending} {3 (ccc, +inf] RsActive p0=test-bbb:PsPending}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Empty(t, nodes.RPCs())
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
 
 	// 2. PrepareDropRange
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Equal(t, "Take(R1, test-aaa)", rpcsToString(nodes.RPCs()))
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
@@ -1553,7 +1553,7 @@ func TestSplitFailure_AddRange(t *testing.T) {
 	// only go to the failed side, and it fails twice more.
 
 	for attempt := 1; attempt <= 3; attempt++ {
-		tickWait(orch)
+		tickWait(orch, act)
 		if attempt == 1 {
 			require.Equal(t, "Serve(R2, test-bbb), Serve(R3, test-bbb)", rpcsToString(nodes.RPCs()))
 			require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
@@ -1573,7 +1573,7 @@ func TestSplitFailure_AddRange(t *testing.T) {
 	// Next tick notices that the serve has failed for R3, marks the placement
 	// as FailedActivate, and the operation inverts to reactivate R1 (parent).
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Empty(t, rpcsToString(nodes.RPCs()))
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive 3:NsActive]} {test-ccc []}", orch.rost.TestString())
@@ -1586,14 +1586,14 @@ func TestSplitFailure_AddRange(t *testing.T) {
 	// a new placement is found for the Serve that failed. Give can be slow, but
 	// Take and Serve should be fast.
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Equal(t, "Take(R3, test-bbb)", rpcsToString(nodes.RPCs()))
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
 	require.True(t, mustGetPlacement(t, orch.ks, 2, "test-bbb").FailedActivate)
 	require.Equal(t, "{Split 1 <- 2,3}", OpsString(orch.ks))
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Empty(t, nodes.RPCs())
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
@@ -1604,7 +1604,7 @@ func TestSplitFailure_AddRange(t *testing.T) {
 	// The parent (R1) is now reactivated, so it can be active while the failed
 	// child is replaced.
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Equal(t, "Serve(R1, test-aaa)", rpcsToString(nodes.RPCs()))
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
@@ -1613,7 +1613,7 @@ func TestSplitFailure_AddRange(t *testing.T) {
 	// 6. DropRange
 	// The failed child is dropped.
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Equal(t, "Drop(R2, test-bbb)", rpcsToString(nodes.RPCs()))
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [3:NsInactive]} {test-ccc []}", orch.rost.TestString())
@@ -1621,7 +1621,7 @@ func TestSplitFailure_AddRange(t *testing.T) {
 
 	// Now the situation is basically stable, and the operation is inverted back
 	// to the normal/forwards direction so we can continue placing the split.
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Empty(t, nodes.RPCs())
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [3:NsInactive]} {test-ccc []}", orch.rost.TestString())
@@ -1629,14 +1629,14 @@ func TestSplitFailure_AddRange(t *testing.T) {
 
 	// 7. PrepareAddRange (retry)
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Equal(t, "Give(R2, test-ccc)", rpcsToString(nodes.RPCs()))
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-ccc:PsPending} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [3:NsInactive]} {test-ccc [2:NsInactive]}", orch.rost.TestString())
 
 	// Recovered! Let the re-placement of R3 on Nccc finish.
 
-	tickUntilStable(t, orch, nodes)
+	tickUntilStable(t, orch, nodes, act)
 	require.Equal(t, "{1 [-inf, +inf] RsObsolete} {2 [-inf, ccc] RsActive p0=test-ccc:PsActive} {3 (ccc, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa []} {test-bbb [3:NsActive]} {test-ccc [2:NsActive]}", orch.rost.TestString())
 }
@@ -1648,9 +1648,9 @@ func TestSplitFailure_DropRange(t *testing.T) {
 func TestSplitFailure_DropRange_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 
 	// The source node will not drop the range.
 	nodes.Get("test-aaa").SetReturnValue(t, 1, fake_node.DropRange, fmt.Errorf("failed DropRange for test"))
@@ -1659,7 +1659,7 @@ func TestSplitFailure_DropRange_Short(t *testing.T) {
 
 	// End up in a bad but stable situation where the original range never
 	// relinquish (that's the point), but that the successors don't activate.
-	tickUntilStable(t, orch, nodes)
+	tickUntilStable(t, orch, nodes, act)
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-bbb:PsActive} {3 (ccc, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsActive 3:NsActive]} {test-ccc []}", orch.rost.TestString())
 
@@ -1676,9 +1676,9 @@ func TestJoin(t *testing.T) {
 func TestJoin_Short(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 
 	op := OpJoin{
 		Left:  1,
@@ -1691,7 +1691,7 @@ func TestJoin_Short(t *testing.T) {
 	orch.opJoins = append(orch.opJoins, op)
 	orch.opJoinsMu.Unlock()
 
-	tickUntilStable(t, orch, nodes)
+	tickUntilStable(t, orch, nodes, act)
 
 	// Ranges 1 and 2 were joined into range 3, which holds the entire keyspace.
 	assert.Equal(t, "{1 [-inf, ggg] RsObsolete} {2 (ggg, +inf] RsObsolete} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
@@ -1701,16 +1701,16 @@ func TestJoin_Short(t *testing.T) {
 func TestJoin_Slow(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), strictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), strictTransactions)
 	defer nodes.Close()
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 
 	opErr := joinOp(orch, 1, 2, "test-ccc")
 
 	// 1. Controller initiates join.
 
 	c3PAR := nodes.Get("test-ccc").AddBarrier(t, 3, state.NsLoading)
-	tickWait(orch, c3PAR)
+	tickWait(orch, act, c3PAR)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-ccc"}, nIDs(rpcs)) {
 		if ccc := rpcs["test-ccc"]; assert.Len(t, ccc, 1) {
 			ProtoEqual(t, &pb.GiveRequest{
@@ -1769,14 +1769,14 @@ func TestJoin_Slow(t *testing.T) {
 
 	// 3. Controller takes the ranges from the source nodes.
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc [3:NsInactive]}", orch.rost.TestString())
 
 	a1PDR := nodes.Get("test-aaa").AddBarrier(t, 1, state.NsDeactivating)
 	b2PDR := nodes.Get("test-bbb").AddBarrier(t, 2, state.NsDeactivating)
-	tickWait(orch, a1PDR, b2PDR)
+	tickWait(orch, act, a1PDR, b2PDR)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa", "test-bbb"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 1) {
 			ProtoEqual(t, &pb.TakeRequest{Range: 1}, aaa[0])
@@ -1797,7 +1797,7 @@ func TestJoin_Slow(t *testing.T) {
 	assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive]} {test-ccc [3:NsInactive]}", orch.rost.TestString())
 
 	c3AR := nodes.Get("test-ccc").AddBarrier(t, 3, state.NsActivating)
-	tickWait(orch)
+	tickWait(orch, act)
 	c3AR.Wait()
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-ccc"}, nIDs(rpcs)) {
 		if ccc := rpcs["test-ccc"]; assert.Len(t, ccc, 1) {
@@ -1814,14 +1814,14 @@ func TestJoin_Slow(t *testing.T) {
 	orch.rost.Tick()
 	assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive]} {test-ccc [3:NsActive]}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsInactive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsInactive} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive]} {test-ccc [3:NsActive]}", orch.rost.TestString())
 
 	a1DR := nodes.Get("test-aaa").AddBarrier(t, 1, state.NsDropping)
 	b2DR := nodes.Get("test-bbb").AddBarrier(t, 2, state.NsDropping)
-	tickWait(orch, a1DR, b2DR)
+	tickWait(orch, act, a1DR, b2DR)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa", "test-bbb"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 1) {
 			ProtoEqual(t, &pb.DropRequest{Range: 1}, aaa[0])
@@ -1840,31 +1840,31 @@ func TestJoin_Slow(t *testing.T) {
 	orch.rost.Tick()
 	assert.Equal(t, "{test-aaa []} {test-bbb []} {test-ccc [3:NsActive]}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsDropped} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsDropped} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []} {test-bbb []} {test-ccc [3:NsActive]}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, ggg] RsSubsuming} {2 (ggg, +inf] RsSubsuming} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []} {test-bbb []} {test-ccc [3:NsActive]}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, ggg] RsObsolete} {2 (ggg, +inf] RsObsolete} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []} {test-bbb []} {test-ccc [3:NsActive]}", orch.rost.TestString())
 
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 	assertClosed(t, opErr)
 }
 
 func TestJoinFailure_PrepareAddRange(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []} {test-ddd []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 
 	// The new range will not be accepted by ccc.
 	nodes.Get("test-ccc").SetReturnValue(t, 3, fake_node.PrepareAddRange, fmt.Errorf("something went wrong"))
@@ -1877,7 +1877,7 @@ func TestJoinFailure_PrepareAddRange(t *testing.T) {
 	// Makes three attempts.
 
 	for attempt := 1; attempt <= 3; attempt++ {
-		tickWait(orch)
+		tickWait(orch, act)
 		require.Len(t, nodes.RPCs(), 1) // no need to check RPC contents again. It's a Give to test-ccc.
 		require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsPending}", orch.ks.LogString())
 		require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc [3:NsNotFound]} {test-ddd []}", orch.rost.TestString())
@@ -1889,7 +1889,7 @@ func TestJoinFailure_PrepareAddRange(t *testing.T) {
 
 	// Gave up on test-ccc...
 
-	tickWait(orch)
+	tickWait(orch, act)
 	//assertClosed(t, opErr) // <- TODO(adammck): Fix this.
 	require.Empty(t, nodes.RPCs())
 	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive}", orch.ks.LogString())
@@ -1900,7 +1900,7 @@ func TestJoinFailure_PrepareAddRange(t *testing.T) {
 	// not sure if that's right -- maybe it'd be better to just give up and set
 	// the predecessors back to RsActive? -- but this way Just Works.
 
-	tickUntilStable(t, orch, nodes)
+	tickUntilStable(t, orch, nodes, act)
 	require.Empty(t, nodes.RPCs())
 	require.Equal(t, "{1 [-inf, ggg] RsObsolete} {2 (ggg, +inf] RsObsolete} {3 [-inf, +inf] RsActive p0=test-ddd:PsActive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa []} {test-bbb []} {test-ccc []} {test-ddd [3:NsActive]}", orch.rost.TestString())
@@ -1909,9 +1909,9 @@ func TestJoinFailure_PrepareAddRange(t *testing.T) {
 func TestJoinFailure_PrepareDropRange(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []} {test-ddd []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 
 	// The left side of the join will not be released by aaa.
 	nodes.Get("test-aaa").SetReturnValue(t, 1, fake_node.PrepareDropRange, fmt.Errorf("something went wrong"))
@@ -1922,13 +1922,13 @@ func TestJoinFailure_PrepareDropRange(t *testing.T) {
 
 	// 1. PrepareAddRange
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Equal(t, "Give(R3, test-ccc)", rpcsToString(nodes.RPCs()))
 	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsPending}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc [3:NsInactive]} {test-ddd []}", orch.rost.TestString())
 	require.Equal(t, "{Join 1,2 -> 3}", OpsString(orch.ks))
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Empty(t, nodes.RPCs())
 	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc [3:NsInactive]} {test-ddd []}", orch.rost.TestString())
@@ -1939,7 +1939,7 @@ func TestJoinFailure_PrepareDropRange(t *testing.T) {
 	// in NsActive. Three attempts are made.
 
 	for attempt := 1; attempt <= 3; attempt++ {
-		tickWait(orch)
+		tickWait(orch, act)
 		if attempt == 1 {
 			require.Equal(t, "Take(R1, test-aaa), Take(R2, test-bbb)", rpcsToString(nodes.RPCs()))
 			require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
@@ -1957,14 +1957,14 @@ func TestJoinFailure_PrepareDropRange(t *testing.T) {
 
 	// Gave up on R1, so reactivate the one which did deactivate.
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Empty(t, rpcsToString(nodes.RPCs()))
 	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsInactive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsInactive]} {test-ccc [3:NsInactive]} {test-ddd []}", orch.rost.TestString())
 	require.True(t, mustGetPlacement(t, orch.ks, 1, "test-aaa").FailedDeactivate)
 	require.Equal(t, "{Join 1,2 <- 3}", OpsString(orch.ks))
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Equal(t, "Serve(R2, test-bbb)", rpcsToString(nodes.RPCs()))
 	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsInactive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc [3:NsInactive]} {test-ddd []}", orch.rost.TestString())
@@ -1972,13 +1972,13 @@ func TestJoinFailure_PrepareDropRange(t *testing.T) {
 	require.Equal(t, "{Join 1,2 <- 3}", OpsString(orch.ks))
 
 	// R2 updates state
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Empty(t, rpcsToString(nodes.RPCs()))
 	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc [3:NsInactive]} {test-ddd []}", orch.rost.TestString())
 
 	// R3 is wedged as inactive indefinitely...
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 
 	// ...until an operator forcibly drops it.
 	nodes.Get("test-aaa").ForceDrop(1)
@@ -1992,58 +1992,58 @@ func TestJoinFailure_PrepareDropRange(t *testing.T) {
 	// Recovery: Now that R1 is gone, R2 can deactivate (again) and this time
 	// there'll be no wedged parent to stop R3 from activating.
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Empty(t, rpcsToString(nodes.RPCs()))
 	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsGiveUp} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa []} {test-bbb [2:NsActive]} {test-ccc [3:NsInactive]} {test-ddd []}", orch.rost.TestString())
 	require.Equal(t, "{Join 1,2 -> 3}", OpsString(orch.ks))
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Equal(t, "Take(R2, test-bbb)", rpcsToString(nodes.RPCs()))
 	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsDropped} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa []} {test-bbb [2:NsInactive]} {test-ccc [3:NsInactive]} {test-ddd []}", orch.rost.TestString())
 	require.Equal(t, "{Join 1,2 -> 3}", OpsString(orch.ks))
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Equal(t, "Serve(R3, test-ccc)", rpcsToString(nodes.RPCs()))
 	require.Equal(t, "{1 [-inf, ggg] RsSubsuming} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsInactive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa []} {test-bbb [2:NsInactive]} {test-ccc [3:NsActive]} {test-ddd []}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Empty(t, rpcsToString(nodes.RPCs()))
 	require.Equal(t, "{1 [-inf, ggg] RsSubsuming} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsInactive} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa []} {test-bbb [2:NsInactive]} {test-ccc [3:NsActive]} {test-ddd []}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Equal(t, "Drop(R2, test-bbb)", rpcsToString(nodes.RPCs()))
 	require.Equal(t, "{1 [-inf, ggg] RsSubsuming} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsInactive} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa []} {test-bbb []} {test-ccc [3:NsActive]} {test-ddd []}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Empty(t, rpcsToString(nodes.RPCs()))
 	require.Equal(t, "{1 [-inf, ggg] RsSubsuming} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsDropped} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa []} {test-bbb []} {test-ccc [3:NsActive]} {test-ddd []}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Empty(t, rpcsToString(nodes.RPCs()))
 	require.Equal(t, "{1 [-inf, ggg] RsSubsuming} {2 (ggg, +inf] RsSubsuming} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa []} {test-bbb []} {test-ccc [3:NsActive]} {test-ddd []}", orch.rost.TestString())
 
-	tickWait(orch)
+	tickWait(orch, act)
 	require.Empty(t, rpcsToString(nodes.RPCs()))
 	require.Equal(t, "{1 [-inf, ggg] RsObsolete} {2 (ggg, +inf] RsObsolete} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa []} {test-bbb []} {test-ccc [3:NsActive]} {test-ddd []}", orch.rost.TestString())
 
 	// This time we're done for real.
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 }
 
 func TestJoinFailure_AddRange_Short(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 
 	// The new/child range will not activate on ccc.
 	nodes.Get("test-ccc").SetReturnValue(t, 3, fake_node.AddRange, fmt.Errorf("failed AddRange (ccc, 1) for test"))
@@ -2052,7 +2052,7 @@ func TestJoinFailure_AddRange_Short(t *testing.T) {
 
 	// The child range will be placed on ccc, but fail to activate a few times
 	// and eventually give up.
-	tickUntil(t, orch, nodes, func(ks, ro string) bool {
+	tickUntil(t, orch, nodes, act, func(ks, ro string) bool {
 		return mustGetPlacement(t, orch.ks, 3, "test-ccc").FailedActivate
 	})
 
@@ -2062,8 +2062,8 @@ func TestJoinFailure_AddRange_Short(t *testing.T) {
 	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive]} {test-ccc [3:NsInactive]}", orch.rost.TestString())
 
 	// Couple of ticks later, the parent ranges are reactivated.
-	tickWait(orch)
-	tickWait(orch)
+	tickWait(orch, act)
+	tickWait(orch, act)
 	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []}", orch.rost.TestString())
 
@@ -2071,7 +2071,7 @@ func TestJoinFailure_AddRange_Short(t *testing.T) {
 	// situation, which is that the placement which refused to activate (on ccc)
 	// is eventually dropped, and a new placement is created and placed
 	// somewhere else (aaa).
-	tickUntilStable(t, orch, nodes)
+	tickUntilStable(t, orch, nodes, act)
 	assert.Equal(t, "{1 [-inf, ggg] RsObsolete} {2 (ggg, +inf] RsObsolete} {3 [-inf, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [3:NsActive]} {test-bbb []} {test-ccc []}", orch.rost.TestString())
 
@@ -2080,9 +2080,9 @@ func TestJoinFailure_AddRange_Short(t *testing.T) {
 func TestJoinFailure_DropRange_Short(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
-	requireStable(t, orch)
+	requireStable(t, orch, act)
 
 	// The left side of the join will not be released by aaa.
 	nodes.Get("test-aaa").SetReturnValue(t, 1, fake_node.DropRange, fmt.Errorf("failed DropRange for test"))
@@ -2092,7 +2092,7 @@ func TestJoinFailure_DropRange_Short(t *testing.T) {
 	// End up in a basically fine state, with the joined range active on ccc,
 	// the right (non-stuck) side of the parent dropped, and the left (stuck)
 	// side inactive but still hanging around on aaa.
-	tickUntilStable(t, orch, nodes)
+	tickUntilStable(t, orch, nodes, act)
 	assert.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsInactive} {2 (ggg, +inf] RsSubsuming} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb []} {test-ccc [3:NsActive]}", orch.rost.TestString())
 
@@ -2103,7 +2103,7 @@ func TestJoinFailure_DropRange_Short(t *testing.T) {
 func TestMissingPlacement(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
 
 	// ----
@@ -2111,7 +2111,7 @@ func TestMissingPlacement(t *testing.T) {
 	// Orchestrator notices that the node doesn't have the range, so marks the
 	// placement as abandoned.
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsGiveUp}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []}", orch.rost.TestString())
@@ -2120,21 +2120,21 @@ func TestMissingPlacement(t *testing.T) {
 	// doesn't bother to notify the node via RPC. It has already told us that it
 	// doesn't have the range.
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsDropped}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []}", orch.rost.TestString())
 
 	// The placement is destroyed.
 
-	tickWait(orch)
+	tickWait(orch, act)
 	assert.Empty(t, nodes.RPCs())
 	assert.Equal(t, "{1 [-inf, +inf] RsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []}", orch.rost.TestString())
 
 	// From here we continue as usual. No need to repeat TestPlace.
 
-	tickWait(orch)
+	tickWait(orch, act)
 	if rpcs := nodes.RPCs(); assert.Equal(t, []string{"test-aaa"}, nIDs(rpcs)) {
 		if aaa := rpcs["test-aaa"]; assert.Len(t, aaa, 1) {
 			ProtoEqual(t, &pb.GiveRequest{
@@ -2168,7 +2168,7 @@ func TestSlowRPC(t *testing.T) {
 
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []}"
-	orch, nodes := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, nodes, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
 	defer nodes.Close()
 
 	nodes.Get("test-aaa").SetGracePeriod(3 * time.Second)
@@ -2219,13 +2219,13 @@ func TestSlowRPC(t *testing.T) {
 
 	// Give RPC finally completes! Roster is updated.
 	par.Release()
-	orch.WaitRPCs()
+	act.WaitRPCs()
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive]}", orch.rost.TestString())
 
 	// Subsequent ticks continue the placement as usual. No need to verify the
 	// details in this test.
-	tickUntilStable(t, orch, nodes)
+	tickUntilStable(t, orch, nodes, act)
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive]}", orch.rost.TestString())
 }
@@ -2431,18 +2431,18 @@ func rosterFactory(t *testing.T, cfg config.Config, ctx context.Context, ks *key
 }
 
 // TODO: Merge this with orchFactoryCheck once TestJunk is gone.
-func orchFactoryNoCheck(t *testing.T, sKS, sRos string, cfg config.Config, strict bool) (*Orchestrator, *fake_nodes.TestNodes) {
+func orchFactoryNoCheck(t *testing.T, sKS, sRos string, cfg config.Config, strict bool) (*Orchestrator, *fake_nodes.TestNodes, *actuator.Actuator) {
 	ks := keyspaceFactory(t, cfg, parseKeyspace(t, sKS))
 	nodes, ros := rosterFactory(t, cfg, context.TODO(), ks, parseRoster(t, sRos))
 	nodes.SetStrictTransitions(strict)
 	srv := grpc.NewServer() // TODO: Allow this to be nil.
 	act := actuator.New(ks, ros)
 	orch := New(cfg, ks, ros, act, srv)
-	return orch, nodes
+	return orch, nodes, act
 }
 
-func orchFactory(t *testing.T, sKS, sRos string, cfg config.Config, strict bool) (*Orchestrator, *fake_nodes.TestNodes) {
-	orch, nodes := orchFactoryNoCheck(t, sKS, sRos, cfg, strict)
+func orchFactory(t *testing.T, sKS, sRos string, cfg config.Config, strict bool) (*Orchestrator, *fake_nodes.TestNodes, *actuator.Actuator) {
+	orch, nodes, act := orchFactoryNoCheck(t, sKS, sRos, cfg, strict)
 
 	// Tick once, to populate the roster before the first orchestrator tick. We
 	// also do this when starting up the controller is starting up, so it's not
@@ -2455,7 +2455,7 @@ func orchFactory(t *testing.T, sKS, sRos string, cfg config.Config, strict bool)
 	require.Equal(t, sKS, orch.ks.LogString())
 	require.Equal(t, sRos, orch.rost.TestString())
 
-	return orch, nodes
+	return orch, nodes, act
 }
 
 func placementStateFromString(t *testing.T, s string) ranje.PlacementState {
@@ -2580,9 +2580,9 @@ type Waiter interface {
 // This allows us to pretend that Ticks will never begin while RPCs scheduled
 // during the previous tick are still in flight, without sleeping or anything
 // like that.
-func tickWait(orch *Orchestrator, waiters ...Waiter) {
+func tickWait(orch *Orchestrator, act *actuator.Actuator, waiters ...Waiter) {
 	orch.Tick()
-	orch.WaitRPCs()
+	act.WaitRPCs()
 
 	for _, w := range waiters {
 		w.Wait()
@@ -2593,13 +2593,13 @@ func tickWait(orch *Orchestrator, waiters ...Waiter) {
 	log.Print("op: ", OpsString(orch.ks))
 }
 
-func tickUntilStable(t *testing.T, orch *Orchestrator, nodes *fake_nodes.TestNodes) {
+func tickUntilStable(t *testing.T, orch *Orchestrator, nodes *fake_nodes.TestNodes, act *actuator.Actuator) {
 	var ksPrev string // previous value of ks.LogString
 	var stable int    // ticks since keyspace changed or rpc sent
 	var ticks int     // total ticks waited
 
 	for {
-		tickWait(orch)
+		tickWait(orch, act)
 		rpcs := len(nodes.RPCs())
 
 		// Keyspace changed since last tick, or RPCs sent? Keep ticking.
@@ -2634,11 +2634,11 @@ func tickUntilStable(t *testing.T, orch *Orchestrator, nodes *fake_nodes.TestNod
 
 // Tick repeatedly until the given callback (which is called with the string
 // representation of the keyspace and roster after each tick) returns true.
-func tickUntil(t *testing.T, orch *Orchestrator, nodes *fake_nodes.TestNodes, callback func(string, string) bool) {
+func tickUntil(t *testing.T, orch *Orchestrator, nodes *fake_nodes.TestNodes, act *actuator.Actuator, callback func(string, string) bool) {
 	var ticks int // total ticks waited
 
 	for {
-		tickWait(orch)
+		tickWait(orch, act)
 		if callback(orch.ks.LogString(), orch.rost.TestString()) {
 			break
 		}
@@ -2654,11 +2654,11 @@ func tickUntil(t *testing.T, orch *Orchestrator, nodes *fake_nodes.TestNodes, ca
 	nodes.RPCs()
 }
 
-func requireStable(t *testing.T, orch *Orchestrator) {
+func requireStable(t *testing.T, orch *Orchestrator, act *actuator.Actuator) {
 	ksLog := orch.ks.LogString()
 	rostLog := orch.rost.TestString()
 	for i := 0; i < 2; i++ {
-		tickWait(orch)
+		tickWait(orch, act)
 		orch.rost.Tick()
 		// Use require (vs assert) since spamming the same error doesn't help.
 		require.Equal(t, ksLog, orch.ks.LogString())

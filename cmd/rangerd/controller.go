@@ -32,6 +32,7 @@ type Controller struct {
 	disc discovery.Discoverable
 	ks   *keyspace.Keyspace
 	rost *roster.Roster
+	act  *actuator.Actuator
 	orch *orchestrator.Orchestrator
 }
 
@@ -80,6 +81,7 @@ func New(cfg config.Config, addrLis, addrPub string, interval time.Duration, onc
 		disc:     disc,
 		ks:       ks,
 		rost:     rost,
+		act:      act,
 		orch:     orch,
 	}, nil
 }
@@ -140,7 +142,7 @@ func (c *Controller) Run(ctx context.Context) error {
 
 	// Let in-flight outgoing RPCs finish. (This isn't necessary, but allows
 	// us to persist remote state now rather than at next startup.)
-	c.orch.WaitRPCs()
+	c.act.WaitRPCs()
 
 	// Let in-flight incoming RPCs finish and then stop. errChan will contain
 	// the error returned by srv.Serve (above) or be closed with no error.

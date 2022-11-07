@@ -205,12 +205,6 @@ func (b *Orchestrator) Tick() {
 	// TODO: Persist here, instead of after individual state updates?
 }
 
-// WaitRPCs blocks until and in-flight RPCs have completed. This is useful for
-// tests and at shutdown.
-func (b *Orchestrator) WaitRPCs() {
-	b.act.WaitRPCs()
-}
-
 func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 	switch r.State {
 	case ranje.RsActive:
