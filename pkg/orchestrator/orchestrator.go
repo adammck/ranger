@@ -1,12 +1,12 @@
 package orchestrator
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"sync"
 	"time"
 
+	"github.com/adammck/ranger/pkg/actuator"
 	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/keyspace"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
@@ -25,10 +25,12 @@ const maxDropAttempts = 30 // Not actually forever.
 type Orchestrator struct {
 	cfg  config.Config
 	ks   *keyspace.Keyspace
-	rost *roster.Roster
+	rost *roster.Roster // TODO: Remove this!
 	srv  *grpc.Server
-	bs   *orchestratorServer
-	dbg  *debugServer
+	act  *actuator.Actuator
+
+	bs  *orchestratorServer
+	dbg *debugServer
 
 	// Moves requested by operator (or by test)
 	// To be applied next time Tick is called.
@@ -43,27 +45,18 @@ type Orchestrator struct {
 	// Same for joins.
 	opJoins   []OpJoin
 	opJoinsMu sync.RWMutex
-
-	// TODO: Move this into the Tick method; just pass it along.
-	rpcWG sync.WaitGroup
-
-	// RPCs which have been sent (via orch.RPC) but not yet completed. Used to
-	// avoid sending the same RPC redundantly every single tick. (Though RPCs
-	// *can* be re-sent an arbitrary number of times. Rangelet will dedup them.)
-	inFlight   map[string]struct{}
-	inFlightMu sync.Mutex
 }
 
-func New(cfg config.Config, ks *keyspace.Keyspace, rost *roster.Roster, srv *grpc.Server) *Orchestrator {
+func New(cfg config.Config, ks *keyspace.Keyspace, rost *roster.Roster, act *actuator.Actuator, srv *grpc.Server) *Orchestrator {
 	b := &Orchestrator{
 		cfg:      cfg,
 		ks:       ks,
 		rost:     rost,
 		srv:      srv,
+		act:      act,
 		opMoves:  []OpMove{},
 		opSplits: map[ranje.Ident]OpSplit{},
 		opJoins:  []OpJoin{},
-		inFlight: map[string]struct{}{},
 	}
 
 	// Register the gRPC server to receive instructions from operators. This
@@ -215,7 +208,7 @@ func (b *Orchestrator) Tick() {
 // WaitRPCs blocks until and in-flight RPCs have completed. This is useful for
 // tests and at shutdown.
 func (b *Orchestrator) WaitRPCs() {
-	b.rpcWG.Wait()
+	b.act.WaitRPCs()
 }
 
 func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
@@ -522,7 +515,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			switch ri.State {
 			case state.NsLoading:
 				log.Printf("node %s still loading %s", n.Ident(), p.Range().Meta.Ident)
-				b.give(p, n)
+				b.act.Give(p, n)
 
 			case state.NsInactive:
 				b.ks.PlacementToState(p, ranje.PsInactive)
@@ -549,7 +542,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			} else {
 				p.Attempts += 1
 				log.Printf("will give %s to %s (attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
-				b.give(p, n)
+				b.act.Give(p, n)
 			}
 		}
 
@@ -591,7 +584,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 				} else {
 					p.Attempts += 1
 					log.Printf("will serve %s to %s (attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
-					b.serve(p, n)
+					b.act.Serve(p, n)
 				}
 
 				return
@@ -610,7 +603,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 				} else {
 					p.DropAttempts += 1
 					log.Printf("will drop %s from %s", p.Range().Meta.Ident, n.Ident())
-					b.drop(p, n)
+					b.act.Drop(p, n)
 				}
 				return
 			} else {
@@ -626,13 +619,13 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			// some other state through crash or bug.)
 			log.Printf("node %s still readying %s", n.Ident(), p.Range().Meta.Ident)
 			// 	log.Printf("placement waiting at NsReadying (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
-			b.serve(p, n)
+			b.act.Serve(p, n)
 
 		case state.NsDropping:
 			// This placement failed to serve too many times. We've given up on it.
 			log.Printf("node %s still dropping %s", n.Ident(), p.Range().Meta.Ident)
 			// 	log.Printf("placement waiting at NsDropping (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
-			b.drop(p, n)
+			b.act.Drop(p, n)
 
 		case state.NsActive:
 			b.ks.PlacementToState(p, ranje.PsActive)
@@ -676,7 +669,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			} else {
 				p.Attempts += 1
 				log.Printf("will take %s from %s (attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
-				b.take(p, n)
+				b.act.Take(p, n)
 			}
 		} else {
 			log.Printf("will not deactivate (rID=%s, n=%s, err=%s)", p.Range().Meta.Ident, n.Ident(), err)
@@ -704,137 +697,5 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 func (b *Orchestrator) Run(t *time.Ticker) {
 	for ; true; <-t.C {
 		b.Tick()
-	}
-}
-
-func (b *Orchestrator) RPC(p *ranje.Placement, method string, f func()) {
-	key := fmt.Sprintf("%s:%s:%s", p.NodeID, p.Range().Meta.Ident, method)
-
-	b.inFlightMu.Lock()
-	_, ok := b.inFlight[key]
-	if !ok {
-		b.inFlight[key] = struct{}{}
-	}
-	b.inFlightMu.Unlock()
-
-	if ok {
-		log.Printf("dropping in-flight RPC: %s", key)
-		return
-	}
-
-	b.rpcWG.Add(1)
-
-	go func() {
-
-		// TODO: Inject some client-side chaos here, too. RPCs complete very
-		//       quickly locally, which doesn't test our in-flight thing well.
-		f()
-
-		b.inFlightMu.Lock()
-		_, ok := b.inFlight[key]
-		if !ok {
-			// Critical this works, because could drop all RPCs.
-			panic(fmt.Sprintf("no record of in-flight RPC: %s", key))
-		}
-		log.Printf("RPC completed: %s", key)
-		delete(b.inFlight, key)
-		b.inFlightMu.Unlock()
-
-		b.rpcWG.Done()
-	}()
-}
-
-func (b *Orchestrator) give(p *ranje.Placement, n *roster.Node) {
-	b.RPC(p, "Give", func() {
-		err := n.Give(context.Background(), p, getParents(b.ks, b.rost, p.Range()))
-		if err != nil {
-			log.Printf("error giving %v to %s: %v", p.LogString(), n.Ident(), err)
-		}
-	})
-}
-
-func (b *Orchestrator) serve(p *ranje.Placement, n *roster.Node) {
-	b.RPC(p, "Serve", func() {
-		err := n.Serve(context.Background(), p)
-		if err != nil {
-			log.Printf("error serving %v to %s: %v", p.LogString(), n.Ident(), err)
-		}
-	})
-}
-
-func (b *Orchestrator) take(p *ranje.Placement, n *roster.Node) {
-	b.RPC(p, "Take", func() {
-		err := n.Take(context.Background(), p)
-		if err != nil {
-			log.Printf("error taking %v from %s: %v", p.LogString(), n.Ident(), err)
-		}
-	})
-}
-
-func (b *Orchestrator) drop(p *ranje.Placement, n *roster.Node) {
-	b.RPC(p, "Drop", func() {
-		err := n.Drop(context.Background(), p)
-		if err != nil {
-			log.Printf("error dropping %v from %s: %v", p.LogString(), n.Ident(), err)
-		}
-	})
-}
-
-func getParents(ks *keyspace.Keyspace, rost *roster.Roster, rang *ranje.Range) []*pb.Parent {
-	parents := []*pb.Parent{}
-	seen := map[ranje.Ident]struct{}{}
-	addParents(ks, rost, rang, &parents, seen)
-	return parents
-}
-
-func addParents(ks *keyspace.Keyspace, rost *roster.Roster, rang *ranje.Range, parents *[]*pb.Parent, seen map[ranje.Ident]struct{}) {
-
-	// Don't bother serializing the same placement many times. (The range tree
-	// won't have cycles, but is also not a DAG.)
-	_, ok := seen[rang.Meta.Ident]
-	if ok {
-		return
-	}
-
-	*parents = append(*parents, pbPlacement(rost, rang))
-	seen[rang.Meta.Ident] = struct{}{}
-
-	for _, rID := range rang.Parents {
-		r, err := ks.Get(rID)
-		if err != nil {
-			// TODO: Think about how to recover from this. It's bad.
-			panic(fmt.Sprintf("getting range with ident %v: %v", rID, err))
-		}
-
-		addParents(ks, rost, r, parents, seen)
-	}
-}
-
-func pbPlacement(rost *roster.Roster, r *ranje.Range) *pb.Parent {
-
-	// TODO: The kv example doesn't care about range history, because it has no
-	//       external write log, so can only fetch from nodes. So we can skip
-	//       sending them at all. Maybe add a controller feature flag?
-	//
-
-	pbPlacements := make([]*pb.Placement, len(r.Placements))
-
-	for i, p := range r.Placements {
-		n := rost.NodeByIdent(p.NodeID)
-
-		node := ""
-		if n != nil {
-			node = n.Addr()
-		}
-
-		pbPlacements[i] = &pb.Placement{
-			Node:  node,
-			State: p.State.ToProto(),
-		}
-	}
-
-	return &pb.Parent{
-		Range:      r.Meta.ToProto(),
-		Placements: pbPlacements,
 	}
 }

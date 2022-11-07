@@ -12,6 +12,7 @@ import (
 
 	"context"
 
+	"github.com/adammck/ranger/pkg/actuator"
 	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
 	"github.com/adammck/ranger/pkg/keyspace"
@@ -2435,7 +2436,8 @@ func orchFactoryNoCheck(t *testing.T, sKS, sRos string, cfg config.Config, stric
 	nodes, ros := rosterFactory(t, cfg, context.TODO(), ks, parseRoster(t, sRos))
 	nodes.SetStrictTransitions(strict)
 	srv := grpc.NewServer() // TODO: Allow this to be nil.
-	orch := New(cfg, ks, ros, srv)
+	act := actuator.New(ks, ros)
+	orch := New(cfg, ks, ros, act, srv)
 	return orch, nodes
 }
 

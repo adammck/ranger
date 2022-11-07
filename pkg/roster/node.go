@@ -43,7 +43,7 @@ type Node struct {
 
 	// The gRPC connection to the actual remote node.
 	conn   *grpc.ClientConn
-	client pb.NodeClient
+	Client pb.NodeClient
 
 	// Populated by probeOne
 	wantDrain bool
@@ -59,9 +59,38 @@ func NewNode(remote discovery.Remote, conn *grpc.ClientConn) *Node {
 		whenLastProbed:    time.Time{}, // never
 		placementFailures: []PlacementFailure{},
 		conn:              conn,
-		client:            pb.NewNodeClient(conn),
+		Client:            pb.NewNodeClient(conn),
 		ranges:            make(map[ranje.Ident]*info.RangeInfo),
 	}
+}
+
+func (n *Node) UpdateRangeInfo(ri *info.RangeInfo) {
+	n.muRanges.Lock()
+	defer n.muRanges.Unlock()
+	n.ranges[ri.Meta.Ident] = ri
+}
+
+func (n *Node) UpdateRangeState(rID ranje.Ident, s state.RemoteState) error {
+	n.muRanges.Lock()
+	defer n.muRanges.Unlock()
+
+	// Forget the range. If the range is not in the map, that's probably a race
+	// condition between an RPC and a probe. That shouldn't happen, but is a
+	// no-op anyway, so let's ignore it.
+	if s == state.NsNotFound {
+		delete(n.ranges, rID)
+		return nil
+	}
+
+	ri, ok := n.ranges[rID]
+	if ok {
+		ri.State = s
+		return nil
+	}
+
+	return fmt.Errorf(
+		"missing from range cache: n=%v, rID=%v",
+		n.Remote.Ident, rID)
 }
 
 // TODO: This is only used by tests. Maybe move it there?

@@ -6,6 +6,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/adammck/ranger/pkg/actuator"
 	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
 	"github.com/adammck/ranger/pkg/keyspace"
@@ -65,7 +66,9 @@ func New(cfg config.Config, addrLis, addrPub string, interval time.Duration, onc
 	// TODO: Hook up the callbacks (or replace with channels)
 	rost := roster.New(cfg, disc, nil, nil, nil)
 
-	orch := orchestrator.New(cfg, ks, rost, srv)
+	act := actuator.New(ks, rost)
+
+	orch := orchestrator.New(cfg, ks, rost, act, srv)
 
 	return &Controller{
 		cfg:      cfg,
