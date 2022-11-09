@@ -141,9 +141,9 @@ func (c *Controller) Run(ctx context.Context) error {
 		}
 	}
 
-	// Let in-flight outgoing RPCs finish. (This isn't necessary, but allows
-	// us to persist remote state now rather than at next startup.)
-	c.act.WaitRPCs()
+	// Let in-flight commands finish. This isn't strictly necessary, but allows
+	// us to minmize the stuff which will need reconciling at next startup.
+	c.act.Wait()
 
 	// Let in-flight incoming RPCs finish and then stop. errChan will contain
 	// the error returned by srv.Serve (above) or be closed with no error.

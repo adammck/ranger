@@ -154,7 +154,7 @@ func (ros *Roster) LocateInState(k ranje.Key, states []state.RemoteState) []Loca
 }
 
 // Caller must hold ros.RWMutex
-func (ros *Roster) discover() {
+func (ros *Roster) Discover() {
 	res, err := ros.disc.Get("node")
 	if err != nil {
 		panic(err)
@@ -310,7 +310,7 @@ func (r *Roster) Tick() {
 	defer r.Unlock()
 
 	// Grab any new nodes from service discovery.
-	r.discover()
+	r.Discover()
 
 	r.probe()
 

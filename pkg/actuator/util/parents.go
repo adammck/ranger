@@ -18,9 +18,6 @@ func GetParents(ks *keyspace.Keyspace, rost *roster.Roster, rang *ranje.Range) [
 }
 
 func addParents(ks *keyspace.Keyspace, rost *roster.Roster, rang *ranje.Range, parents *[]*pb.Parent, seen map[ranje.Ident]struct{}) {
-
-	// Don't bother serializing the same placement many times. (The range tree
-	// won't have cycles, but is also not a DAG.)
 	_, ok := seen[rang.Meta.Ident]
 	if ok {
 		return

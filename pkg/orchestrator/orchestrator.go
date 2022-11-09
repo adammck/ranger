@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/adammck/ranger/pkg/actuator"
+	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/keyspace"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
@@ -25,7 +26,7 @@ const maxDropAttempts = 30 // Not actually forever.
 type Orchestrator struct {
 	cfg  config.Config
 	ks   *keyspace.Keyspace
-	rost *roster.Roster // TODO: Remove this!
+	rost *roster.Roster // TODO: Use simpler interface, not whole Roster.
 	srv  *grpc.Server
 	act  actuator.Actuator
 
@@ -509,7 +510,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			switch ri.State {
 			case state.NsLoading:
 				log.Printf("node %s still loading %s", n.Ident(), p.Range().Meta.Ident)
-				b.act.Give(p, n)
+				b.act.Command(api.Give, p, n)
 
 			case state.NsInactive:
 				b.ks.PlacementToState(p, ranje.PsInactive)
@@ -536,7 +537,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			} else {
 				p.Attempts += 1
 				log.Printf("will give %s to %s (attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
-				b.act.Give(p, n)
+				b.act.Command(api.Give, p, n)
 			}
 		}
 
@@ -578,7 +579,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 				} else {
 					p.Attempts += 1
 					log.Printf("will serve %s to %s (attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
-					b.act.Serve(p, n)
+					b.act.Command(api.Serve, p, n)
 				}
 
 				return
@@ -597,7 +598,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 				} else {
 					p.DropAttempts += 1
 					log.Printf("will drop %s from %s", p.Range().Meta.Ident, n.Ident())
-					b.act.Drop(p, n)
+					b.act.Command(api.Drop, p, n)
 				}
 				return
 			} else {
@@ -613,13 +614,13 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			// some other state through crash or bug.)
 			log.Printf("node %s still readying %s", n.Ident(), p.Range().Meta.Ident)
 			// 	log.Printf("placement waiting at NsReadying (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
-			b.act.Serve(p, n)
+			b.act.Command(api.Serve, p, n)
 
 		case state.NsDropping:
 			// This placement failed to serve too many times. We've given up on it.
 			log.Printf("node %s still dropping %s", n.Ident(), p.Range().Meta.Ident)
 			// 	log.Printf("placement waiting at NsDropping (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
-			b.act.Drop(p, n)
+			b.act.Command(api.Drop, p, n)
 
 		case state.NsActive:
 			b.ks.PlacementToState(p, ranje.PsActive)
@@ -631,6 +632,8 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 		}
 
 	case ranje.PsActive:
+		doTake := false
+
 		ri, ok := n.Get(p.Range().Meta.Ident)
 		if !ok {
 			// The node doesn't have the placement any more! Abort.
@@ -643,30 +646,33 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 		case state.NsActive:
 			// No need to keep logging this.
 			//log.Printf("ready: %s", p.LogString())
+			doTake = true
 
 		case state.NsDeactivating:
 			log.Printf("node %s still deactivating %s", n.Ident(), p.Range().Meta.Ident)
+			b.act.Command(api.Take, p, n)
 
 		case state.NsInactive:
 			b.ks.PlacementToState(p, ranje.PsInactive)
-			return
 
 		default:
 			log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
 			b.ks.PlacementToState(p, ranje.PsGiveUp)
 		}
 
-		if err := op.MayDeactivate(p, r); err == nil {
-			if p.Attempts >= maxTakeAttempts {
-				log.Printf("given up on deactivating placement (rID=%s, n=%s, attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
-				p.FailedDeactivate = true
+		if doTake {
+			if err := op.MayDeactivate(p, r); err == nil {
+				if p.Attempts >= maxTakeAttempts {
+					log.Printf("given up on deactivating placement (rID=%s, n=%s, attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
+					p.FailedDeactivate = true
+				} else {
+					p.Attempts += 1
+					log.Printf("will take %s from %s (attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
+					b.act.Command(api.Take, p, n)
+				}
 			} else {
-				p.Attempts += 1
-				log.Printf("will take %s from %s (attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
-				b.act.Take(p, n)
+				log.Printf("will not deactivate (rID=%s, n=%s, err=%s)", p.Range().Meta.Ident, n.Ident(), err)
 			}
-		} else {
-			log.Printf("will not deactivate (rID=%s, n=%s, err=%s)", p.Range().Meta.Ident, n.Ident(), err)
 		}
 
 	case ranje.PsGiveUp:

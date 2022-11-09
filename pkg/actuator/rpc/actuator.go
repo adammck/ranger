@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"sync"
 	"time"
 
 	"github.com/adammck/ranger/pkg/actuator/util"
+	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/keyspace"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
@@ -19,83 +19,79 @@ import (
 type Actuator struct {
 	ks  *keyspace.Keyspace
 	ros *roster.Roster
-
-	// TODO: Move this into the Tick method; just pass it along.
-	rpcWG sync.WaitGroup
-
-	// RPCs which have been sent (via orch.RPC) but not yet completed. Used to
-	// avoid sending the same RPC redundantly every single tick. (Though RPCs
-	// *can* be re-sent an arbitrary number of times. Rangelet will dedup them.)
-	inFlight   map[string]struct{}
-	inFlightMu sync.Mutex
+	dup util.Deduper
 }
 
 const rpcTimeout = 1 * time.Second
 
 func New(ks *keyspace.Keyspace, ros *roster.Roster) *Actuator {
 	return &Actuator{
-		ks:       ks,
-		ros:      ros,
-		inFlight: map[string]struct{}{},
+		ks:  ks,
+		ros: ros,
+		dup: util.NewDeduper(),
 	}
 }
 
-func (a *Actuator) rpc(p *ranje.Placement, method string, f func()) {
-	key := fmt.Sprintf("%s:%s:%s", p.NodeID, p.Range().Meta.Ident, method)
-
-	a.inFlightMu.Lock()
-	_, ok := a.inFlight[key]
-	if !ok {
-		a.inFlight[key] = struct{}{}
-	}
-	a.inFlightMu.Unlock()
-
-	if ok {
-		log.Printf("dropping in-flight RPC: %s", key)
-		return
-	}
-
-	a.rpcWG.Add(1)
-
-	go func() {
-
-		// TODO: Inject some client-side chaos here, too. RPCs complete very
-		//       quickly locally, which doesn't test our in-flight thing well.
-		f()
-
-		a.inFlightMu.Lock()
-		_, ok := a.inFlight[key]
-		if !ok {
-			// Critical this works, because could drop all RPCs.
-			panic(fmt.Sprintf("no record of in-flight RPC: %s", key))
-		}
-		log.Printf("RPC completed: %s", key)
-		delete(a.inFlight, key)
-		a.inFlightMu.Unlock()
-
-		a.rpcWG.Done()
-	}()
-}
-
-func (a *Actuator) WaitRPCs() {
-	a.rpcWG.Wait()
-}
-
-func (a *Actuator) Give(p *ranje.Placement, n *roster.Node) {
-	a.rpc(p, "Give", func() {
-		ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
-		defer cancel()
-
-		err := give(ctx, n, p, util.GetParents(a.ks, a.ros, p.Range()))
+// TODO: This is currently duplicated.
+func (a *Actuator) Command(action api.Action, p *ranje.Placement, n *roster.Node) {
+	a.dup.Exec(action, p, n, func() {
+		s, err := a.cmd(action, p, n)
 		if err != nil {
-			log.Printf("error giving %v to %s: %v", p.LogString(), n.Ident(), err)
+			log.Printf("actuation error: %v", err)
+			return
+		}
+
+		// TODO: This special case is weird. It was less so when Give was a
+		//       separate method. Think about it or something.
+		if action == api.Give {
+			n.UpdateRangeInfo(&info.RangeInfo{
+				Meta:  p.Range().Meta,
+				State: s,
+				Info:  info.LoadInfo{},
+			})
+		} else {
+			n.UpdateRangeState(p.Range().Meta.Ident, s)
 		}
 	})
 }
 
-func give(ctx context.Context, n *roster.Node, p *ranje.Placement, parents []*pb.Parent) error {
-	log.Printf("giving %s to %s...", p.LogString(), n.Ident())
+func (a *Actuator) Wait() {
+	a.dup.Wait()
+}
 
+func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (state.RemoteState, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
+	defer cancel()
+
+	var s pb.RangeNodeState
+	var err error
+
+	switch action {
+	case api.Give:
+		s, err = give(ctx, n, p, util.GetParents(a.ks, a.ros, p.Range()))
+
+	case api.Serve:
+		s, err = serve(ctx, n, p)
+
+	case api.Take:
+		s, err = take(ctx, n, p)
+
+	case api.Drop:
+		s, err = drop(ctx, n, p)
+
+	default:
+		// TODO: Use exhaustive analyzer?
+		panic(fmt.Sprintf("unknown action: %v", action))
+	}
+
+	if err != nil {
+		return state.NsUnknown, err
+	}
+
+	return state.RemoteStateFromProto(s), nil
+}
+
+func give(ctx context.Context, n *roster.Node, p *ranje.Placement, parents []*pb.Parent) (pb.RangeNodeState, error) {
 	req := &pb.GiveRequest{
 		Range:   p.Range().Meta.ToProto(),
 		Parents: parents,
@@ -104,44 +100,14 @@ func give(ctx context.Context, n *roster.Node, p *ranje.Placement, parents []*pb
 	// TODO: Retry a few times before giving up.
 	res, err := n.Client.Give(ctx, req)
 	if err != nil {
-		log.Printf("error giving %s to %s: %v", p.LogString(), n.Ident(), err)
-		return err
+		return pb.RangeNodeState_UNKNOWN, err
 	}
 
-	// Parse the response, which contains the current state of the range.
-	// TODO: This should only contain the remote state. We already know the
-	//       meta, and the rest (usage info) is all probably zero at this point,
-	//       and can be filled in by the next probe anyway.
-	info, err := info.RangeInfoFromProto(res.RangeInfo)
-	if err != nil {
-		return fmt.Errorf("malformed probe response from %v: %v", n.Remote.Ident, err)
-	}
-
-	// Update the range info cache on the Node. This is faster than waiting for
-	// the next probe, but is otherwise the same thing.
-	n.UpdateRangeInfo(&info)
-
-	log.Printf("gave %s to %s; info=%v", p.LogString(), n.Ident(), info)
-	return nil
+	return res.RangeInfo.State, nil
 }
 
-func (a *Actuator) Serve(p *ranje.Placement, n *roster.Node) {
-	a.rpc(p, "Serve", func() {
-		ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
-		defer cancel()
-
-		err := serve(ctx, n, p)
-		if err != nil {
-			log.Printf("error serving %v to %s: %v", p.LogString(), n.Ident(), err)
-		}
-	})
-}
-
-func serve(ctx context.Context, n *roster.Node, p *ranje.Placement) error {
-	log.Printf("serving %s to %s...", p.LogString(), n.Ident())
+func serve(ctx context.Context, n *roster.Node, p *ranje.Placement) (pb.RangeNodeState, error) {
 	rID := p.Range().Meta.Ident
-
-	// TODO: Include range parents
 	req := &pb.ServeRequest{
 		Range: rID.ToProto(),
 	}
@@ -149,42 +115,14 @@ func serve(ctx context.Context, n *roster.Node, p *ranje.Placement) error {
 	// TODO: Retry a few times before giving up.
 	res, err := n.Client.Serve(ctx, req)
 	if err != nil {
-		log.Printf("error serving %s to %s: %v", p.LogString(), n.Ident(), err)
-		return err
+		return pb.RangeNodeState_UNKNOWN, err
 	}
 
-	s := state.RemoteStateFromProto(res.State)
-
-	// Update the state in the range cache.
-	err = n.UpdateRangeState(rID, s)
-	if err != nil {
-		// Don't propagate this error, because the node *did* accept the
-		// command, it's just our local state which is somehow screwed up.
-		log.Printf("error updating range state: %v", err)
-		return nil
-	}
-
-	log.Printf("served %s to %s; state=%v", p.LogString(), n.Ident(), s)
-	return nil
+	return res.State, nil
 }
 
-func (a *Actuator) Take(p *ranje.Placement, n *roster.Node) {
-	a.rpc(p, "Take", func() {
-		ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
-		defer cancel()
-
-		err := take(ctx, n, p)
-		if err != nil {
-			log.Printf("error taking %v from %s: %v", p.LogString(), n.Ident(), err)
-		}
-	})
-}
-
-func take(ctx context.Context, n *roster.Node, p *ranje.Placement) error {
-	log.Printf("deactivating %s from %s...", p.LogString(), n.Ident())
+func take(ctx context.Context, n *roster.Node, p *ranje.Placement) (pb.RangeNodeState, error) {
 	rID := p.Range().Meta.Ident
-
-	// TODO: Include range parents
 	req := &pb.TakeRequest{
 		Range: rID.ToProto(),
 	}
@@ -192,42 +130,14 @@ func take(ctx context.Context, n *roster.Node, p *ranje.Placement) error {
 	// TODO: Retry a few times before giving up.
 	res, err := n.Client.Take(ctx, req)
 	if err != nil {
-		log.Printf("error deactivating %s from %s: %v", p.LogString(), n.Ident(), err)
-		return err
+		return pb.RangeNodeState_UNKNOWN, err
 	}
 
-	s := state.RemoteStateFromProto(res.State)
-
-	// Update the state in the range cache.
-	err = n.UpdateRangeState(rID, s)
-	if err != nil {
-		// Don't propagate this error, because the node *did* accept the
-		// command, it's just our local state which is somehow screwed up.
-		log.Printf("error updating range state: %v", err)
-		return nil
-	}
-
-	log.Printf("took %s from %s; state=%v", p.LogString(), n.Ident(), s)
-	return nil
+	return res.State, nil
 }
 
-func (a *Actuator) Drop(p *ranje.Placement, n *roster.Node) {
-	a.rpc(p, "Drop", func() {
-		ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
-		defer cancel()
-
-		err := drop(ctx, n, p)
-		if err != nil {
-			log.Printf("error dropping %v from %s: %v", p.LogString(), n.Ident(), err)
-		}
-	})
-}
-
-func drop(ctx context.Context, n *roster.Node, p *ranje.Placement) error {
-	log.Printf("dropping %s from %s...", p.LogString(), n.Ident())
+func drop(ctx context.Context, n *roster.Node, p *ranje.Placement) (pb.RangeNodeState, error) {
 	rID := p.Range().Meta.Ident
-
-	// TODO: Include range parents
 	req := &pb.DropRequest{
 		Range: rID.ToProto(),
 	}
@@ -235,21 +145,8 @@ func drop(ctx context.Context, n *roster.Node, p *ranje.Placement) error {
 	// TODO: Retry a few times before giving up.
 	res, err := n.Client.Drop(ctx, req)
 	if err != nil {
-		log.Printf("error dropping %s from %s: %v", p.LogString(), n.Ident(), err)
-		return err
+		return pb.RangeNodeState_UNKNOWN, err
 	}
 
-	s := state.RemoteStateFromProto(res.State)
-
-	// Update or drop the state in the range cache.
-	err = n.UpdateRangeState(rID, s)
-	if err != nil {
-		// Don't propagate this error, because the node *did* accept the
-		// command, it's just our local state which is somehow screwed up.
-		log.Printf("error updating range state: %v", err)
-		return nil
-	}
-
-	log.Printf("dropped %s from %s; state=%v", p.LogString(), n.Ident(), s)
-	return nil
+	return res.State, nil
 }
