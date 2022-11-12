@@ -33,7 +33,7 @@ type Controller struct {
 	disc discovery.Discoverable
 	ks   *keyspace.Keyspace
 	rost *roster.Roster
-	act  actuator.Actuator
+	act  *actuator.Actuator
 	orch *orchestrator.Orchestrator
 }
 
@@ -68,7 +68,8 @@ func New(cfg config.Config, addrLis, addrPub string, interval time.Duration, onc
 	// TODO: Hook up the callbacks (or replace with channels)
 	rost := roster.New(cfg, disc, nil, nil, nil)
 
-	act := rpc_actuator.New(ks, rost)
+	actImpl := rpc_actuator.New(ks, rost)
+	act := actuator.New(ks, rost, actImpl)
 
 	orch := orchestrator.New(cfg, ks, rost, srv)
 

@@ -31,11 +31,8 @@ func New(ks *keyspace.Keyspace, ros *roster.Roster) *Actuator {
 	}
 }
 
-func (a *Actuator) Tick() {
-}
-
 // TODO: This is currently duplicated.
-func (a *Actuator) Command(action api.Action, p *ranje.Placement, n *roster.Node) {
+func (a *Actuator) Command(action api.Action, p *ranje.Placement, n *roster.Node) error {
 	a.dup.Exec(action, p, n, func() {
 		s, err := a.cmd(action, p, n)
 		if err != nil {
@@ -55,6 +52,8 @@ func (a *Actuator) Command(action api.Action, p *ranje.Placement, n *roster.Node
 			n.UpdateRangeState(p.Range().Meta.Ident, s)
 		}
 	})
+
+	return nil
 }
 
 func (a *Actuator) Wait() {
