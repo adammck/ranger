@@ -6,6 +6,8 @@ import (
 	"net"
 	"time"
 
+	"github.com/adammck/ranger/pkg/actuator"
+	rpc_actuator "github.com/adammck/ranger/pkg/actuator/rpc"
 	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
 	"github.com/adammck/ranger/pkg/keyspace"
@@ -31,6 +33,7 @@ type Controller struct {
 	disc discovery.Discoverable
 	ks   *keyspace.Keyspace
 	rost *roster.Roster
+	act  actuator.Actuator
 	orch *orchestrator.Orchestrator
 }
 
@@ -65,7 +68,9 @@ func New(cfg config.Config, addrLis, addrPub string, interval time.Duration, onc
 	// TODO: Hook up the callbacks (or replace with channels)
 	rost := roster.New(cfg, disc, nil, nil, nil)
 
-	orch := orchestrator.New(cfg, ks, rost, srv)
+	act := rpc_actuator.New(ks, rost)
+
+	orch := orchestrator.New(cfg, ks, rost, act, srv)
 
 	return &Controller{
 		cfg:      cfg,
@@ -77,6 +82,7 @@ func New(cfg config.Config, addrLis, addrPub string, interval time.Duration, onc
 		disc:     disc,
 		ks:       ks,
 		rost:     rost,
+		act:      act,
 		orch:     orch,
 	}, nil
 }
@@ -135,9 +141,9 @@ func (c *Controller) Run(ctx context.Context) error {
 		}
 	}
 
-	// Let in-flight outgoing RPCs finish. (This isn't necessary, but allows
-	// us to persist remote state now rather than at next startup.)
-	c.orch.WaitRPCs()
+	// Let in-flight commands finish. This isn't strictly necessary, but allows
+	// us to minmize the stuff which will need reconciling at next startup.
+	c.act.Wait()
 
 	// Let in-flight incoming RPCs finish and then stop. errChan will contain
 	// the error returned by srv.Serve (above) or be closed with no error.

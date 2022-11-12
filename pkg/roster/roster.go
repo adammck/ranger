@@ -17,6 +17,7 @@ import (
 	"github.com/adammck/ranger/pkg/roster/info"
 	"github.com/adammck/ranger/pkg/roster/state"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 const (
@@ -82,7 +83,7 @@ func (ros *Roster) TestString() string {
 
 // nodeFactory returns a new node connected via a real gRPC connection.
 func nodeConnFactory(ctx context.Context, remote discovery.Remote) (*grpc.ClientConn, error) {
-	return grpc.DialContext(ctx, remote.Addr(), grpc.WithInsecure())
+	return grpc.DialContext(ctx, remote.Addr(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 }
 
 // TODO: Return an error from this func, to avoid duplicating it in callers.
@@ -153,7 +154,7 @@ func (ros *Roster) LocateInState(k ranje.Key, states []state.RemoteState) []Loca
 }
 
 // Caller must hold ros.RWMutex
-func (ros *Roster) discover() {
+func (ros *Roster) Discover() {
 	res, err := ros.disc.Get("node")
 	if err != nil {
 		panic(err)
@@ -264,7 +265,7 @@ func (ros *Roster) probeOne(ctx context.Context, n *Node) error {
 
 	// TODO: Move this into Node, so the Client can be private.
 
-	res, err := n.client.Info(ctx, &pb.InfoRequest{})
+	res, err := n.Client.Info(ctx, &pb.InfoRequest{})
 	if err != nil {
 		return err
 	}
@@ -309,7 +310,7 @@ func (r *Roster) Tick() {
 	defer r.Unlock()
 
 	// Grab any new nodes from service discovery.
-	r.discover()
+	r.Discover()
 
 	r.probe()
 

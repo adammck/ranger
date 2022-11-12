@@ -174,7 +174,7 @@ func (ts *RosterSuite) TestProbeOne() {
 	ts.nodes.Add(ts.ctx, rem, fakeInfos)
 	ts.Init()
 
-	ts.rost.discover()
+	ts.rost.Discover()
 
 	// Far as the roster is concerned, this is a real node.
 	rostNode := ts.rost.NodeByIdent("test-aaa")
