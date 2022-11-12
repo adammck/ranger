@@ -13,10 +13,13 @@ type Placement struct {
 	rang   *Range // owned by Keyspace.
 	NodeID string
 
-	// Controller-side State machine.
-	// Never modify this field directly! It's only public for deserialization
-	// from the store. Modify it via ToState.
-	State api.PlacementState
+	// StateCurrent is the controller-side state of the placement. It reflects
+	// the actual remote state, as reported by the Rangelet via the Roster.
+	//
+	// Don't access this field directly! It's only public for deserialization
+	// from the store. Modify it via ToState. This is currently violated all
+	// over the place.
+	StateCurrent api.PlacementState
 
 	// Set by the orchestrator to indicate that this placement was created to
 	// replace the placement of the same range on some other node. Should be
@@ -68,20 +71,20 @@ type Placement struct {
 
 func NewPlacement(r *Range, nodeID string) *Placement {
 	return &Placement{
-		rang:   r,
-		NodeID: nodeID,
-		State:  api.PsPending,
+		rang:         r,
+		NodeID:       nodeID,
+		StateCurrent: api.PsPending,
 	}
 }
 
 // Special constructor for placements replacing some other placement.
 func NewReplacement(r *Range, destNodeID, srcNodeID string, done func()) *Placement {
 	return &Placement{
-		rang:        r,
-		NodeID:      destNodeID,
-		State:       api.PsPending,
-		IsReplacing: srcNodeID,
-		replaceDone: done,
+		rang:         r,
+		NodeID:       destNodeID,
+		StateCurrent: api.PsPending,
+		IsReplacing:  srcNodeID,
+		replaceDone:  done,
 	}
 }
 
@@ -95,7 +98,7 @@ func (p *Placement) Repair(r *Range) {
 
 // TODO: Rename this to just String?
 func (p *Placement) LogString() string {
-	return fmt.Sprintf("{%s %s:%s}", p.rang.Meta, p.NodeID, p.State)
+	return fmt.Sprintf("{%s %s:%s}", p.rang.Meta, p.NodeID, p.StateCurrent)
 }
 
 func (p *Placement) Range() *Range {
@@ -115,7 +118,7 @@ func (p *Placement) DoneReplacing() {
 
 func (p *Placement) ToState(new api.PlacementState) error {
 	ok := false
-	old := p.State
+	old := p.StateCurrent
 
 	for _, t := range PlacementStateTransitions {
 		if t.from == old && t.to == new {
@@ -135,7 +138,7 @@ func (p *Placement) ToState(new api.PlacementState) error {
 		}
 	}
 
-	p.State = new
+	p.StateCurrent = new
 	p.Attempts = 0
 	p.FailedActivate = false
 	p.FailedDeactivate = false
@@ -155,10 +158,10 @@ func (p *Placement) OnReady(f func()) {
 		panic("placement already has non-nil onReady callback")
 	}
 
-	if p.State != api.PsPending {
+	if p.StateCurrent != api.PsPending {
 		panic(fmt.Sprintf(
 			"can't attach onReady callback to non-pending placement (s=%v, rID=%v, nID=%v)",
-			p.State, p.rang.Meta.Ident, p.NodeID))
+			p.StateCurrent, p.rang.Meta.Ident, p.NodeID))
 	}
 
 	p.onReady = f

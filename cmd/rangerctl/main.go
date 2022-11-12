@@ -441,7 +441,7 @@ func renderRangesOutput(w io.Writer, res *pb.RangesListResponse) {
 	fmt.Fprint(w, "}\n")
 }
 
-// Hacked from ranje.Meta.String
+// Hacked from api.Meta.String
 func renderRange(start, end []byte) string {
 	var s, e string
 

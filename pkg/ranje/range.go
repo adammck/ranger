@@ -58,7 +58,7 @@ func (r *Range) LogString() string {
 
 	// TODO: Use Placement.LogString
 	for i, p := range r.Placements {
-		ps = fmt.Sprintf("%s p%d=%s:%s", ps, i, p.NodeID, p.State)
+		ps = fmt.Sprintf("%s p%d=%s:%s", ps, i, p.NodeID, p.StateCurrent)
 
 		// if p.GivenUpOnActivate {
 		// 	ps = fmt.Sprintf("%s:GivenUpOnActivate", ps)

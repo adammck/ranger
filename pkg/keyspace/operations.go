@@ -325,7 +325,7 @@ func (op *Operation) MayActivate(p *ranje.Placement, r *ranje.Range) error {
 	// Beware! This is sometimes called with a nil operation!
 	// TODO: Figure out what to do for op-less placement judgments.
 
-	if p.State != api.PsInactive {
+	if p.StateCurrent != api.PsInactive {
 		return fmt.Errorf("placment not in api.PsInactive")
 	}
 
@@ -340,7 +340,7 @@ func (op *Operation) MayActivate(p *ranje.Placement, r *ranje.Range) error {
 	// placement may become active.
 	n := 0
 	for _, pp := range r.Placements {
-		if pp.State == api.PsActive {
+		if pp.StateCurrent == api.PsActive {
 			n += 1
 		}
 	}
@@ -370,7 +370,7 @@ func (op *Operation) MayActivate(p *ranje.Placement, r *ranje.Range) error {
 		// deactivated. Otherwise, there will be overlaps.
 		for _, rp := range op.direction(Source) {
 			for _, pp := range rp.Placements {
-				if pp.State == api.PsActive {
+				if pp.StateCurrent == api.PsActive {
 					return fmt.Errorf("parent placement is PsActive")
 				}
 			}
@@ -390,7 +390,7 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 	// Beware! This is sometimes called with a nil operation!
 	// TODO: Figure out what to do for op-less placement judgments.
 
-	if p.State != api.PsActive {
+	if p.StateCurrent != api.PsActive {
 		return fmt.Errorf("placment not in api.PsActive")
 	}
 
@@ -411,7 +411,7 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 				return fmt.Errorf("replacement has given up")
 			}
 
-			if other.State != api.PsInactive {
+			if other.StateCurrent != api.PsInactive {
 				return fmt.Errorf("replacement is not inactive")
 			}
 
@@ -442,7 +442,7 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 
 			n := 0
 			for _, pc := range rc.Placements {
-				if pc.State == api.PsInactive {
+				if pc.StateCurrent == api.PsInactive {
 					n += 1
 				}
 			}
@@ -477,7 +477,7 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 	// Beware! This is sometimes called with a nil operation!
 	// TODO: Figure out what to do for op-less placement judgments.
 
-	if p.State != api.PsInactive {
+	if p.StateCurrent != api.PsInactive {
 		return fmt.Errorf("placment not in api.PsInactive")
 	}
 
@@ -485,8 +485,8 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 		// Is this placement being replaced by some other? Can drop as soon as
 		// that other placement becomes active.
 		if other := replacementFor(p); other != nil {
-			if other.State != api.PsActive {
-				return fmt.Errorf("replacement not api.PsActive; is %s", other.State)
+			if other.StateCurrent != api.PsActive {
+				return fmt.Errorf("replacement not api.PsActive; is %s", other.StateCurrent)
 			}
 
 			return nil
@@ -500,7 +500,7 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 			// dropped. In order to make that a bit safer and more orderly,
 			// delay the drop until after the other one has reactivated.
 			if p.FailedActivate {
-				if other.State == api.PsActive {
+				if other.StateCurrent == api.PsActive {
 					return nil
 				} else {
 					return fmt.Errorf("won't drop aborted placement until original is reactivated")
@@ -543,7 +543,7 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 
 			active := 0
 			for _, p2 := range r2.Placements {
-				if p2.State == api.PsActive {
+				if p2.StateCurrent == api.PsActive {
 					active += 1
 				}
 				if p2.FailedActivate {

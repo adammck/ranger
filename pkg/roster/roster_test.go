@@ -90,8 +90,8 @@ func (ts *RosterSuite) TestCandidateByNodeID() {
 		},
 		State: api.RsActive,
 		Placements: []*ranje.Placement{{
-			NodeID: aRem.Ident,
-			State:  api.PsActive,
+			NodeID:       aRem.Ident,
+			StateCurrent: api.PsActive,
 		}},
 	}
 
@@ -155,8 +155,8 @@ func (ts *RosterSuite) TestProbeOne() {
 		},
 		State: api.RsActive,
 		Placements: []*ranje.Placement{{
-			NodeID: rem.Ident,
-			State:  api.PsActive,
+			NodeID:       rem.Ident,
+			StateCurrent: api.PsActive,
 		}},
 	}
 

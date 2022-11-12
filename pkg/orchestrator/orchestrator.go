@@ -402,7 +402,7 @@ func (b *Orchestrator) doMove(r *ranje.Range, opMove OpMove) error {
 
 		// No source node given, so just take the first Ready placement.
 		for _, p := range r.Placements {
-			if p.State == api.PsActive {
+			if p.StateCurrent == api.PsActive {
 				src = p
 				break
 			}
@@ -448,7 +448,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 	// Get the node that this placement is on.
 	// (This is a problem, in most states.)
 	n := b.rost.NodeByIdent(p.NodeID)
-	if p.State != api.PsGiveUp && p.State != api.PsDropped {
+	if p.StateCurrent != api.PsGiveUp && p.StateCurrent != api.PsDropped {
 		if n == nil {
 			// The node has disappeared.
 			log.Printf("missing node: %s", p.NodeID)
@@ -496,7 +496,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 		//p.SetWantMoveTo(ranje.AnyNode())
 	}
 
-	switch p.State {
+	switch p.StateCurrent {
 	case api.PsPending:
 		doPlace := false
 
@@ -520,7 +520,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 				doPlace = true
 
 			default:
-				log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
+				log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.StateCurrent)
 				b.ks.PlacementToState(p, api.PsGiveUp)
 			}
 		} else {
@@ -625,7 +625,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			b.ks.PlacementToState(p, api.PsActive)
 
 		default:
-			log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
+			log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.StateCurrent)
 			b.ks.PlacementToState(p, api.PsGiveUp)
 			return
 		}
@@ -655,7 +655,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			b.ks.PlacementToState(p, api.PsInactive)
 
 		default:
-			log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
+			log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.StateCurrent)
 			b.ks.PlacementToState(p, api.PsGiveUp)
 		}
 
@@ -687,7 +687,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 		return
 
 	default:
-		panic(fmt.Sprintf("unhandled PlacementState value: %s", p.State))
+		panic(fmt.Sprintf("unhandled PlacementState value: %s", p.StateCurrent))
 	}
 
 	return

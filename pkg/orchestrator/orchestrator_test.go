@@ -1750,8 +1750,8 @@ func keyspaceFactory(t *testing.T, cfg config.Config, stubs []rangeStub) *keyspa
 		for ii := range stubs[i].placements {
 			pstub := stubs[i].placements[ii]
 			r.Placements[ii] = &ranje.Placement{
-				NodeID: pstub.nodeID,
-				State:  placementStateFromString(t, pstub.pState),
+				NodeID:       pstub.nodeID,
+				StateCurrent: placementStateFromString(t, pstub.pState),
 			}
 		}
 
