@@ -35,13 +35,12 @@ type Placement struct {
 	// Orchestrator uses this to determine whether to give up or try again.
 	// Reset by ToState.
 	// TODO: Split this up into separate transitions, like DropAttempts.
-	Attempts int
+	Failures int
 
 	// FailedGive is set by the orchestrator if the placement has been asked to
 	// give (to the specified NodeID) a few times but has failed. This indicates
 	// that it won't be attempted again.
-	// TODO: There is no failed give! The placement is just destroyed.
-	//FailedGive bool
+	FailedGive bool
 
 	// Once this is set, the placement is destined to be destroyed. It's never
 	// unset. Might take a few ticks in order to unwind things gracefully,
@@ -55,7 +54,7 @@ type Placement struct {
 	FailedDeactivate bool
 
 	// How many times has this place been commanded to drop?
-	DropAttempts int
+	DropFailures int
 
 	// The placement is inactive, but failed to drop. Probably no harm done,
 	// except that the node can't release the resources. An operator should be
@@ -127,6 +126,7 @@ func (p *Placement) Want(new api.PlacementState) error {
 		return err
 	}
 
+	p.StateDesired = new
 	return nil
 }
 
@@ -143,7 +143,7 @@ func (p *Placement) ToState(new api.PlacementState) error {
 	}
 
 	p.StateCurrent = new
-	p.Attempts = 0
+	p.Failures = 0
 	p.FailedActivate = false
 	p.FailedDeactivate = false
 	p.rang.dirty = true

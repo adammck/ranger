@@ -70,7 +70,7 @@ func New(cfg config.Config, addrLis, addrPub string, interval time.Duration, onc
 
 	act := rpc_actuator.New(ks, rost)
 
-	orch := orchestrator.New(cfg, ks, rost, act, srv)
+	orch := orchestrator.New(cfg, ks, rost, srv)
 
 	return &Controller{
 		cfg:      cfg,

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/keyspace"
@@ -52,24 +53,82 @@ func (a *Actuator) Tick() {
 	}
 }
 
+// TODO: Move these to scope?
+const maxGiveFailures = 3
+const maxTakeFailures = 3
+const maxServeFailures = 3
+const maxDropFailures = 30 // Not actually forever.
+
 // TODO: Move this out to some outer actuator.
 func (a *Actuator) Consider(p *ranje.Placement) {
 	if p.StateDesired == p.StateCurrent {
-		log.Printf("Actuator.Consider(%s): nothing to do", p.LogString())
+		log.Printf("Actuator.Consider(%s:%s): nothing to do", p.Range().Meta.Ident, p.NodeID)
+		return
+	}
+
+	if p.StateDesired == api.PsUnknown {
+		log.Printf("Actuator.Consider(%s:%s): unknown desired state", p.Range().Meta.Ident, p.NodeID)
 		return
 	}
 
 	act, err := actuation(p)
 	if err != nil {
 		// TODO: Should we return an error instead? What could the caller do with it?
-		log.Printf("Actuator.Consider(%s): %s", p.LogString(), err)
+		log.Printf("Actuator.Consider(%s:%s): %s", p.Range().Meta.Ident, p.NodeID, err)
 		return
 	}
 
 	n := a.ros.NodeByIdent(p.NodeID)
 	if n == nil {
 		// TODO: Rerturn an error from NodeByIdent instead?
-		log.Printf("Actuator.Consider(%s): no such node: nid=%s", p.LogString(), p.NodeID)
+		log.Printf("Actuator.Consider(%s:%s): no such node", p.Range().Meta.Ident, p.NodeID)
+		return
+	}
+
+	// TODO: This is a mess; use an act->int map instead
+	skip := false
+	switch act {
+	case api.Give:
+		if p.Failures >= maxGiveFailures {
+			log.Printf("given up on placing (rID=%s, n=%s, attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Failures)
+			n.PlacementFailed(p.Range().Meta.Ident, time.Now())
+			p.FailedGive = true
+			skip = true
+		} else {
+			log.Printf("failures: %d", p.Failures)
+		}
+	case api.Serve:
+		if p.Failures >= maxServeFailures {
+			log.Printf("given up on serving prepared placement (rID=%s, n=%s, attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Failures)
+			n.PlacementFailed(p.Range().Meta.Ident, time.Now())
+			p.FailedActivate = true
+			skip = true
+		} else {
+			log.Printf("failures: %d", p.Failures)
+		}
+	case api.Take:
+		if p.Failures >= maxTakeFailures {
+			log.Printf("given up on deactivating placement (rID=%s, n=%s, attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Failures)
+			p.FailedDeactivate = true
+			skip = true
+		} else {
+			log.Printf("failures: %d", p.Failures)
+		}
+	case api.Drop:
+		if p.DropFailures >= maxDropFailures {
+			log.Printf("drop failed after %d attempts (rID=%s, n=%s, attempt=%d)", p.Failures, p.Range().Meta.Ident, n.Ident(), p.Failures)
+			p.FailedDrop = true
+			skip = true
+		} else {
+			log.Printf("failures: %d", p.DropFailures)
+		}
+	default:
+		// TODO: Use exhaustive analyzer?
+		panic(fmt.Sprintf("unknown action: %v", act))
+	}
+
+	if skip {
+		log.Printf("Actuator.Consider(%s:%s): skipping", p.Range().Meta.Ident, p.NodeID)
 		return
 	}
 
@@ -115,11 +174,54 @@ func (a *Actuator) Unexpected() []Command {
 	return a.unexpected
 }
 
+// TODO: This is a mess; use an act->int map instead
+func incrementError(p *ranje.Placement, action api.Action, n *roster.Node) {
+	switch action {
+	case api.Give:
+		log.Printf("failures: %d", p.Failures)
+		p.Failures += 1
+		if p.Failures >= maxGiveFailures {
+			log.Printf("given up on placing (rID=%s, n=%s, attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Failures)
+			n.PlacementFailed(p.Range().Meta.Ident, time.Now())
+			p.FailedGive = true
+		}
+
+	case api.Serve:
+		log.Printf("failures: %d", p.Failures)
+		p.Failures += 1
+		if p.Failures >= maxServeFailures {
+			log.Printf("given up on serving prepared placement (rID=%s, n=%s, attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Failures)
+			n.PlacementFailed(p.Range().Meta.Ident, time.Now())
+			p.FailedActivate = true
+		}
+
+	case api.Take:
+		log.Printf("failures: %d", p.Failures)
+		p.Failures += 1
+		if p.Failures >= maxTakeFailures {
+			log.Printf("given up on deactivating placement (rID=%s, n=%s, attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Failures)
+			p.FailedDeactivate = true
+		}
+
+	case api.Drop:
+		log.Printf("failures: %d", p.DropFailures)
+		p.DropFailures += 1
+		if p.DropFailures >= maxDropFailures {
+			log.Printf("drop failed after %d attempts (rID=%s, n=%s, attempt=%d)", p.Failures, p.Range().Meta.Ident, n.Ident(), p.Failures)
+			p.FailedDrop = true
+		}
+
+	default:
+		// TODO: Use exhaustive analyzer?
+		panic(fmt.Sprintf("unknown action: %v", action))
+	}
+}
+
 // TODO: This is currently duplicated.
 func (a *Actuator) Command(action api.Action, p *ranje.Placement, n *roster.Node) {
 	s, err := a.cmd(action, p, n)
 	if err != nil {
-		log.Printf("actuation error: %v", err)
+		incrementError(p, action, n)
 		return
 	}
 
@@ -153,6 +255,7 @@ func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (a
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
+	log.Print(cmd.String())
 	a.commands = append(a.commands, cmd)
 	exp, ok := a.injects[cmd]
 
