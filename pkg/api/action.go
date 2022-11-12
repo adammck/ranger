@@ -6,7 +6,8 @@ package api
 type Action uint8
 
 const (
-	Give Action = iota
+	NoAction Action = iota
+	Give
 	Serve
 	Take
 	Drop
