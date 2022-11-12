@@ -1,6 +1,8 @@
 package ranje
 
 import (
+	"fmt"
+
 	"github.com/adammck/ranger/pkg/api"
 )
 
@@ -27,4 +29,14 @@ func init() {
 		// Recovery?
 		{api.PsGiveUp, api.PsDropped},
 	}
+}
+
+func CanTransitionPlacement(from, to api.PlacementState) error {
+	for _, t := range PlacementStateTransitions {
+		if t.from == from && t.to == to {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("invalid transition: from=%s, to:%s", from.String(), to.String())
 }

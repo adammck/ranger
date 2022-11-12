@@ -21,6 +21,10 @@ type Placement struct {
 	// over the place.
 	StateCurrent api.PlacementState
 
+	// StateDesired is the state the Orchestator would like this placement to be
+	// in. The Actuator is responsible for telling the remote node about this.
+	StateDesired api.PlacementState
+
 	// Set by the orchestrator to indicate that this placement was created to
 	// replace the placement of the same range on some other node. Should be
 	// cleared once the placement becomes ready.
@@ -116,19 +120,17 @@ func (p *Placement) DoneReplacing() {
 	}
 }
 
-func (p *Placement) ToState(new api.PlacementState) error {
-	ok := false
-	old := p.StateCurrent
-
-	for _, t := range PlacementStateTransitions {
-		if t.from == old && t.to == new {
-			ok = true
-			break
-		}
+func (p *Placement) Want(new api.PlacementState) error {
+	if err := CanTransitionPlacement(p.StateCurrent, new); err != nil {
+		return err
 	}
 
-	if !ok {
-		return fmt.Errorf("invalid placement state transition: %s -> %s", old.String(), new.String())
+	return nil
+}
+
+func (p *Placement) ToState(new api.PlacementState) error {
+	if err := CanTransitionPlacement(p.StateCurrent, new); err != nil {
+		return err
 	}
 
 	// Special case: When entering PsActive, fire the optional callback.
@@ -145,7 +147,7 @@ func (p *Placement) ToState(new api.PlacementState) error {
 	p.rang.dirty = true
 
 	// TODO: Make this less weird
-	log.Printf("R%d P %s -> %s", p.rang.Meta.Ident, old, new)
+	log.Printf("R%d P %s -> %s", p.rang.Meta.Ident, p.StateCurrent, new)
 
 	return nil
 }
