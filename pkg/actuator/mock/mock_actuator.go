@@ -40,6 +40,72 @@ func New(ks *keyspace.Keyspace, ros *roster.Roster, strict bool) *Actuator {
 	}
 }
 
+// TODO: Move this out to some outer actuator.
+func (a *Actuator) Tick() {
+	rs, unlock := a.ks.Ranges()
+	defer unlock()
+
+	for _, r := range rs {
+		for _, p := range r.Placements {
+			a.Consider(p)
+		}
+	}
+}
+
+// TODO: Move this out to some outer actuator.
+func (a *Actuator) Consider(p *ranje.Placement) {
+	if p.StateDesired == p.StateCurrent {
+		log.Printf("Actuator.Consider(%s): nothing to do", p.LogString())
+		return
+	}
+
+	act, err := actuation(p)
+	if err != nil {
+		// TODO: Should we return an error instead? What could the caller do with it?
+		log.Printf("Actuator.Consider(%s): %s", p.LogString(), err)
+		return
+	}
+
+	n := a.ros.NodeByIdent(p.NodeID)
+	if n == nil {
+		// TODO: Rerturn an error from NodeByIdent instead?
+		log.Printf("Actuator.Consider(%s): no such node: nid=%s", p.LogString(), p.NodeID)
+		return
+	}
+
+	a.Command(act, p, n)
+}
+
+// TODO: Move this out to some outer actuator.
+type transitions struct {
+	from api.PlacementState
+	to   api.PlacementState
+	act  api.Action
+}
+
+// TODO: Move this out to some outer actuator.
+// Somewhat duplicated from placement_state.go.
+var actuations = []transitions{
+	{api.PsPending, api.PsInactive, api.Give},
+	{api.PsInactive, api.PsActive, api.Serve},
+	{api.PsActive, api.PsInactive, api.Take},
+	{api.PsInactive, api.PsDropped, api.Drop},
+}
+
+// TODO: Move this out to some outer actuator.
+func actuation(p *ranje.Placement) (api.Action, error) {
+	for _, aa := range actuations {
+		if p.StateCurrent == aa.from && p.StateDesired == aa.to {
+			return aa.act, nil
+		}
+	}
+
+	return api.NoAction, fmt.Errorf(
+		"no actuation: from=%s, to:%s",
+		p.StateCurrent.String(),
+		p.StateDesired.String())
+}
+
 func (a *Actuator) Reset() {
 	a.commands = []Command{}
 	a.unexpected = []Command{}
@@ -113,7 +179,7 @@ func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (a
 }
 
 // Default resulting state of each action. Note that we don't validate that the
-// fake remote transition at all, because real nodes (with rangelets) can become
+// fake remote transition at all, because real nodes (with rangelets) can assume
 // whatever state they like.
 var defaults = map[api.Action]api.RemoteState{
 	api.Give:  api.NsInactive,

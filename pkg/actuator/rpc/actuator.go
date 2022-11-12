@@ -31,6 +31,9 @@ func New(ks *keyspace.Keyspace, ros *roster.Roster) *Actuator {
 	}
 }
 
+func (a *Actuator) Tick() {
+}
+
 // TODO: This is currently duplicated.
 func (a *Actuator) Command(action api.Action, p *ranje.Placement, n *roster.Node) {
 	a.dup.Exec(action, p, n, func() {

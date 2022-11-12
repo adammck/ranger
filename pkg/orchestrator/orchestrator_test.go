@@ -1974,6 +1974,7 @@ func tickWait(t *testing.T, orch *Orchestrator, act *mock_actuator.Actuator, wai
 
 	act.Reset()
 	orch.Tick()
+	act.Tick()
 	act.Wait()
 
 	if len(waiters) > 0 {

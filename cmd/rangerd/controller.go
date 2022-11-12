@@ -124,6 +124,7 @@ func (c *Controller) Run(ctx context.Context) error {
 
 	if c.once {
 		c.orch.Tick()
+		c.act.Tick()
 
 	} else {
 

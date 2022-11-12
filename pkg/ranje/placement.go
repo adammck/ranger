@@ -78,6 +78,7 @@ func NewPlacement(r *Range, nodeID string) *Placement {
 		rang:         r,
 		NodeID:       nodeID,
 		StateCurrent: api.PsPending,
+		StateDesired: api.PsPending,
 	}
 }
 
@@ -87,6 +88,7 @@ func NewReplacement(r *Range, destNodeID, srcNodeID string, done func()) *Placem
 		rang:         r,
 		NodeID:       destNodeID,
 		StateCurrent: api.PsPending,
+		StateDesired: api.PsPending,
 		IsReplacing:  srcNodeID,
 		replaceDone:  done,
 	}
