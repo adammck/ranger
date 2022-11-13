@@ -69,7 +69,7 @@ func New(cfg config.Config, addrLis, addrPub string, interval time.Duration, onc
 	rost := roster.New(cfg, disc, nil, nil, nil)
 
 	actImpl := rpc_actuator.New(ks, rost)
-	act := actuator.New(ks, rost, actImpl)
+	act := actuator.New(ks, rost, time.Duration(3*time.Second), actImpl)
 
 	orch := orchestrator.New(cfg, ks, rost, srv)
 

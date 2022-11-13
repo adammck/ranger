@@ -36,16 +36,19 @@ type Actuator struct {
 	// TODO: Use api.Command as the key.
 	// TODO: Trim contents periodically.
 	failures   map[api.Command][]time.Time
-	failuresMu sync.Mutex
+	failuresMu sync.RWMutex
+
+	backoff time.Duration
 }
 
-func New(ks *keyspace.Keyspace, ros *roster.Roster, impl Impl) *Actuator {
+func New(ks *keyspace.Keyspace, ros *roster.Roster, backoff time.Duration, impl Impl) *Actuator {
 	return &Actuator{
 		ks:       ks,
 		ros:      ros,
 		Impl:     impl,
 		inFlight: map[api.Command]struct{}{},
 		failures: map[api.Command][]time.Time{},
+		backoff:  backoff,
 	}
 }
 
@@ -119,6 +122,14 @@ func (a *Actuator) consider(p *ranje.Placement) {
 		RangeIdent: p.Range().Meta.Ident,
 		NodeIdent:  n.Remote.Ident,
 		Action:     action,
+	}
+
+	// TODO: Use a proper increasing backoff and jitter.
+	// TODO: Also use clockwork to make this testable.
+	if a.backoff > 0 && a.LastFailure(cmd).After(time.Now().Add(-a.backoff)) {
+		log.Printf("Actuator.Consider(%s:%s): backing off",
+			p.Range().Meta.Ident, p.NodeID)
+		return
 	}
 
 	a.Exec(cmd, p, n)
@@ -221,4 +232,16 @@ func (a *Actuator) incrementError(cmd api.Command, p *ranje.Placement, n *roster
 			n.PlacementFailed(p.Range().Meta.Ident, time.Now())
 		}
 	}
+}
+
+func (a *Actuator) LastFailure(cmd api.Command) time.Time {
+	a.failuresMu.RLock()
+	defer a.failuresMu.RUnlock()
+
+	t, ok := a.failures[cmd]
+	if !ok {
+		return time.Time{}
+	}
+
+	return t[len(t)-1]
 }

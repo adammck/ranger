@@ -1775,7 +1775,7 @@ func orchFactoryNoCheck(t *testing.T, sKS, sRos string, cfg config.Config, stric
 	ks := keyspaceFactory(t, cfg, parseKeyspace(t, sKS))
 	ros := rosterFactory(t, cfg, context.TODO(), ks, parseRoster(t, sRos))
 	srv := grpc.NewServer() // TODO: Allow this to be nil.
-	act := actuator.New(ks, ros, mock_actuator.New(strict))
+	act := actuator.New(ks, ros, 0, mock_actuator.New(strict))
 	orch := New(cfg, ks, ros, srv)
 	return orch, act
 }
