@@ -17,7 +17,6 @@ import (
 	consuldisc "github.com/adammck/ranger/pkg/discovery/consul"
 	"github.com/adammck/ranger/pkg/rangelet"
 	"github.com/adammck/ranger/pkg/rangelet/storage/null"
-	"github.com/adammck/ranger/pkg/ranje"
 	consulapi "github.com/hashicorp/consul/api"
 )
 
@@ -31,7 +30,7 @@ type Range struct {
 type Node struct {
 	cfg config.Config
 
-	ranges   map[ranje.Ident]*Range
+	ranges   map[api.Ident]*Range
 	rangesMu sync.RWMutex // guards ranges
 
 	addrLis string
@@ -67,7 +66,7 @@ func New(cfg config.Config, addrLis, addrPub string, logReqs bool, chaos bool) (
 
 	n := &Node{
 		cfg:     cfg,
-		ranges:  map[ranje.Ident]*Range{},
+		ranges:  map[api.Ident]*Range{},
 		addrLis: addrLis,
 		addrPub: addrPub,
 		srv:     srv,

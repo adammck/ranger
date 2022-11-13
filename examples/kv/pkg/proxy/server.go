@@ -7,9 +7,8 @@ import (
 	"time"
 
 	pbkv "github.com/adammck/ranger/examples/kv/proto/gen"
-	"github.com/adammck/ranger/pkg/ranje"
+	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/roster"
-	"github.com/adammck/ranger/pkg/roster/state"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -22,11 +21,11 @@ type proxyServer struct {
 func (ps *proxyServer) getClient(k string) (pbkv.KVClient, roster.Location, error) {
 	loc := roster.Location{}
 
-	states := []state.RemoteState{
-		state.NsActive,
+	states := []api.RemoteState{
+		api.NsActive,
 	}
 
-	locations := ps.proxy.rost.LocateInState(ranje.Key(k), states)
+	locations := ps.proxy.rost.LocateInState(api.Key(k), states)
 
 	if len(locations) == 0 {
 		return nil, loc, status.Errorf(codes.FailedPrecondition, "no nodes have key")
@@ -35,7 +34,7 @@ func (ps *proxyServer) getClient(k string) (pbkv.KVClient, roster.Location, erro
 	// Prefer the ready node.
 	found := false
 	for i := range locations {
-		if locations[i].Info.State == state.NsActive {
+		if locations[i].Info.State == api.NsActive {
 			loc = locations[i]
 			found = true
 			break

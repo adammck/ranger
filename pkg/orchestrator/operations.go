@@ -1,28 +1,26 @@
 package orchestrator
 
-import (
-	"github.com/adammck/ranger/pkg/ranje"
-)
+import "github.com/adammck/ranger/pkg/api"
 
 // TODO: Split this into Add, Remove
 type OpMove struct {
-	Range ranje.Ident
+	Range api.Ident
 	Src   string
 	Dest  string
 	Err   chan error
 }
 
 type OpSplit struct {
-	Range ranje.Ident
-	Key   ranje.Key
+	Range api.Ident
+	Key   api.Key
 	Left  string
 	Right string
 	Err   chan error
 }
 
 type OpJoin struct {
-	Left  ranje.Ident
-	Right ranje.Ident
+	Left  api.Ident
+	Right api.Ident
 	Dest  string
 	Err   chan error
 }

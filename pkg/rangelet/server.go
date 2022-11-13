@@ -36,9 +36,9 @@ func parentsFromProto(prot []*pb.Parent) ([]api.Parent, error) {
 			return p, err
 		}
 
-		parentIds := make([]ranje.Ident, len(pp.Parent))
+		parentIds := make([]api.Ident, len(pp.Parent))
 		for i := range pp.Parent {
-			parentIds[i] = ranje.Ident(pp.Parent[i])
+			parentIds[i] = api.Ident(pp.Parent[i])
 		}
 
 		placements := make([]api.Placement, len(pp.Placements))
@@ -124,7 +124,7 @@ func (ns *NodeServer) Drop(ctx context.Context, req *pb.DropRequest) (*pb.DropRe
 		// This is NOT a failure.
 		if err == ErrNotFound {
 			return &pb.DropResponse{
-				State: state.RemoteStateToProto(state.NsNotFound),
+				State: state.RemoteStateToProto(api.NsNotFound),
 			}, nil
 		}
 
@@ -147,7 +147,7 @@ func (ns *NodeServer) Info(ctx context.Context, req *pb.InfoRequest) (*pb.InfoRe
 		WantDrain: ns.r.wantDrain(),
 	}
 
-	ns.r.walk(func(ri *info.RangeInfo) {
+	ns.r.walk(func(ri *api.RangeInfo) {
 		res.Ranges = append(res.Ranges, info.RangeInfoToProto(*ri))
 	})
 

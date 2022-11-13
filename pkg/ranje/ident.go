@@ -2,29 +2,20 @@ package ranje
 
 import (
 	"errors"
-	"fmt"
+
+	"github.com/adammck/ranger/pkg/api"
 )
 
-// Ident is the unique identity of a range. It's just a uint64.
+func IdentFromProto(p uint64) (api.Ident, error) {
+	id := api.Ident(p)
 
-type Ident uint64
-
-var ZeroRange Ident
-
-func (id Ident) String() string {
-	return fmt.Sprintf("%d", id)
-}
-
-func IdentFromProto(p uint64) (Ident, error) {
-	id := Ident(p)
-
-	if id == ZeroRange {
+	if id == api.ZeroRange {
 		return id, errors.New("missing: key")
 	}
 
 	return id, nil
 }
 
-func IdentToProto(ident Ident) uint64 {
+func IdentToProto(ident api.Ident) uint64 {
 	return uint64(ident)
 }

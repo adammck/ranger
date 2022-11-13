@@ -8,12 +8,13 @@ import (
 	"strings"
 	"sync"
 
+	rapi "github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/ranje"
-	"github.com/hashicorp/consul/api"
+	capi "github.com/hashicorp/consul/api"
 )
 
 type Persister struct {
-	kv *api.KV
+	kv *capi.KV
 
 	// keep track of the last ModifyIndex for each range.
 	// Note that the key is a *pointer* which is weird.
@@ -23,7 +24,7 @@ type Persister struct {
 	sync.Mutex
 }
 
-func New(client *api.Client) *Persister {
+func New(client *capi.Client) *Persister {
 	return &Persister{
 		kv:          client.KV(),
 		modifyIndex: map[*ranje.Range]uint64{},
@@ -58,7 +59,7 @@ func (cp *Persister) GetRanges() ([]*ranje.Range, error) {
 		r := &ranje.Range{}
 		json.Unmarshal(kv.Value, r)
 
-		rID := ranje.Ident(key)
+		rID := rapi.Ident(key)
 		if rID != r.Meta.Ident {
 			log.Printf("mismatch between Consul KV key and encoded range: key=%v, r.meta.ident=%v", key, r.Meta.Ident)
 			continue
@@ -77,7 +78,7 @@ func (cp *Persister) PutRanges(ranges []*ranje.Range) error {
 	cp.Lock()
 	defer cp.Unlock()
 
-	var ops api.KVTxnOps
+	var ops capi.KVTxnOps
 	keyToRange := map[string]*ranje.Range{}
 
 	for _, r := range ranges {
@@ -86,8 +87,8 @@ func (cp *Persister) PutRanges(ranges []*ranje.Range) error {
 			return err
 		}
 
-		op := &api.KVTxnOp{
-			Verb:  api.KVCAS,
+		op := &capi.KVTxnOp{
+			Verb:  capi.KVCAS,
 			Key:   fmt.Sprintf("ranges/%d", r.Meta.Ident),
 			Value: v,
 		}

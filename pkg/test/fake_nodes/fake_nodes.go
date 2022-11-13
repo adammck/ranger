@@ -5,10 +5,9 @@ import (
 
 	"context"
 
+	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/discovery"
 	mockdisc "github.com/adammck/ranger/pkg/discovery/mock"
-	"github.com/adammck/ranger/pkg/ranje"
-	"github.com/adammck/ranger/pkg/roster/info"
 	"github.com/adammck/ranger/pkg/test/fake_node"
 	"google.golang.org/grpc"
 )
@@ -34,7 +33,7 @@ func (tn *TestNodes) Close() {
 	}
 }
 
-func (tn *TestNodes) Add(ctx context.Context, remote discovery.Remote, rangeInfos map[ranje.Ident]*info.RangeInfo) {
+func (tn *TestNodes) Add(ctx context.Context, remote discovery.Remote, rangeInfos map[api.Ident]*api.RangeInfo) {
 	n, closer := fake_node.NewTestNode(ctx, remote.Addr(), rangeInfos)
 	tn.closers = append(tn.closers, closer)
 	tn.nodes[remote.Ident] = n

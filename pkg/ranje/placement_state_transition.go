@@ -1,0 +1,30 @@
+package ranje
+
+import (
+	"github.com/adammck/ranger/pkg/api"
+)
+
+type PlacementStateTransition struct {
+	from api.PlacementState
+	to   api.PlacementState
+}
+
+var PlacementStateTransitions []PlacementStateTransition
+
+func init() {
+	PlacementStateTransitions = []PlacementStateTransition{
+		// Happy Path
+		{api.PsPending, api.PsInactive}, // Give
+		{api.PsInactive, api.PsActive},  // Serve
+		{api.PsActive, api.PsInactive},  // Take
+		{api.PsInactive, api.PsDropped}, // Drop
+
+		// Node crashed (or placement mysteriously vanished)
+		{api.PsPending, api.PsGiveUp},
+		{api.PsInactive, api.PsGiveUp},
+		{api.PsActive, api.PsGiveUp},
+
+		// Recovery?
+		{api.PsGiveUp, api.PsDropped},
+	}
+}

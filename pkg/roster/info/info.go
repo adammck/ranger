@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/adammck/ranger/pkg/api"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster/state"
@@ -14,54 +15,38 @@ import (
 type NodeInfo struct {
 	Time   time.Time
 	NodeID string
-	Ranges []RangeInfo
+	Ranges []api.RangeInfo
 
 	// Expired is true when the node was automatically expired because we
 	// haven't been able to probe it in a while.
 	Expired bool
 }
 
-// Same as rangelet.LoadInfo
-// TODO: Would be nice to just use a rangelet.LoadInfo here, but circular
-//       import! Remove roster/info import from rangelet, then resolve this.
-type LoadInfo struct {
-	Keys   uint64
-	Splits []ranje.Key
-}
-
-func LoadInfoToProto(li LoadInfo) *pb.LoadInfo {
+func LoadInfoToProto(li api.LoadInfo) *pb.LoadInfo {
 	splits := make([]string, len(li.Splits))
 	for i := range li.Splits {
 		splits[i] = string(li.Splits[i])
 	}
 
 	return &pb.LoadInfo{
-		Keys:   li.Keys,
+		Keys:   uint64(li.Keys),
 		Splits: splits,
 	}
 }
 
-func LoadInfoFromProto(pbli *pb.LoadInfo) LoadInfo {
-	splits := make([]ranje.Key, len(pbli.Splits))
+func LoadInfoFromProto(pbli *pb.LoadInfo) api.LoadInfo {
+	splits := make([]api.Key, len(pbli.Splits))
 	for i := range pbli.Splits {
-		splits[i] = ranje.Key(pbli.Splits[i])
+		splits[i] = api.Key(pbli.Splits[i])
 	}
 
-	return LoadInfo{
-		Keys:   pbli.Keys,
+	return api.LoadInfo{
+		Keys:   int(pbli.Keys),
 		Splits: splits,
 	}
 }
 
-// RangeInfo represents something we know about a Range on a Node at a moment in
-// time. These are emitted and cached by the Roster to anyone who cares.
-type RangeInfo struct {
-	Meta  ranje.Meta
-	State state.RemoteState
-	Info  LoadInfo
-}
-
-func RangeInfoToProto(ri RangeInfo) *pb.RangeInfo {
+func RangeInfoToProto(ri api.RangeInfo) *pb.RangeInfo {
 	return &pb.RangeInfo{
 		Meta:  ranje.MetaToProto(ri.Meta),
 		State: state.RemoteStateToProto(ri.State),
@@ -69,17 +54,17 @@ func RangeInfoToProto(ri RangeInfo) *pb.RangeInfo {
 	}
 }
 
-func RangeInfoFromProto(r *pb.RangeInfo) (RangeInfo, error) {
+func RangeInfoFromProto(r *pb.RangeInfo) (api.RangeInfo, error) {
 	if r.Meta == nil {
-		return RangeInfo{}, fmt.Errorf("missing: meta")
+		return api.RangeInfo{}, fmt.Errorf("missing: meta")
 	}
 
 	m, err := ranje.MetaFromProto(r.Meta)
 	if err != nil {
-		return RangeInfo{}, fmt.Errorf("parsing meta: %v", err)
+		return api.RangeInfo{}, fmt.Errorf("parsing meta: %v", err)
 	}
 
-	return RangeInfo{
+	return api.RangeInfo{
 		Meta:  *m,
 		State: state.RemoteStateFromProto(r.State),
 		Info:  LoadInfoFromProto(r.Info),

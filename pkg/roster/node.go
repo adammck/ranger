@@ -7,17 +7,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
-	"github.com/adammck/ranger/pkg/ranje"
-	"github.com/adammck/ranger/pkg/roster/info"
-	"github.com/adammck/ranger/pkg/roster/state"
 	"google.golang.org/grpc"
 )
 
 type PlacementFailure struct {
-	rID  ranje.Ident
+	rID  api.Ident
 	when time.Time
 }
 
@@ -47,7 +45,7 @@ type Node struct {
 
 	// Populated by probeOne
 	wantDrain bool
-	ranges    map[ranje.Ident]*info.RangeInfo
+	ranges    map[api.Ident]*api.RangeInfo
 	muRanges  sync.RWMutex
 }
 
@@ -60,24 +58,24 @@ func NewNode(remote discovery.Remote, conn *grpc.ClientConn) *Node {
 		placementFailures: []PlacementFailure{},
 		conn:              conn,
 		Client:            pb.NewNodeClient(conn),
-		ranges:            make(map[ranje.Ident]*info.RangeInfo),
+		ranges:            make(map[api.Ident]*api.RangeInfo),
 	}
 }
 
-func (n *Node) UpdateRangeInfo(ri *info.RangeInfo) {
+func (n *Node) UpdateRangeInfo(ri *api.RangeInfo) {
 	n.muRanges.Lock()
 	defer n.muRanges.Unlock()
 	n.ranges[ri.Meta.Ident] = ri
 }
 
-func (n *Node) UpdateRangeState(rID ranje.Ident, s state.RemoteState) error {
+func (n *Node) UpdateRangeState(rID api.Ident, s api.RemoteState) error {
 	n.muRanges.Lock()
 	defer n.muRanges.Unlock()
 
 	// Forget the range. If the range is not in the map, that's probably a race
 	// condition between an RPC and a probe. That shouldn't happen, but is a
 	// no-op anyway, so let's ignore it.
-	if s == state.NsNotFound {
+	if s == api.NsNotFound {
 		delete(n.ranges, rID)
 		return nil
 	}
@@ -98,7 +96,7 @@ func (n *Node) TestString() string {
 	n.muRanges.RLock()
 	defer n.muRanges.RUnlock()
 
-	rIDs := []ranje.Ident{}
+	rIDs := []api.Ident{}
 	for rID := range n.ranges {
 		rIDs = append(rIDs, rID)
 	}
@@ -118,13 +116,13 @@ func (n *Node) TestString() string {
 	return fmt.Sprintf("{%s [%s]}", n.Remote.Ident, strings.Join(s, " "))
 }
 
-func (n *Node) Get(rangeID ranje.Ident) (info.RangeInfo, bool) {
+func (n *Node) Get(rangeID api.Ident) (api.RangeInfo, bool) {
 	n.muRanges.RLock()
 	defer n.muRanges.RUnlock()
 
 	ri, ok := n.ranges[rangeID]
 	if !ok {
-		return info.RangeInfo{}, false
+		return api.RangeInfo{}, false
 	}
 
 	return *ri, true
@@ -174,7 +172,7 @@ func (n *Node) WantDrain() bool {
 }
 
 // HasRange returns whether we think this node has the given range.
-func (n *Node) HasRange(rID ranje.Ident) bool {
+func (n *Node) HasRange(rID api.Ident) bool {
 	n.muRanges.RLock()
 	defer n.muRanges.RUnlock()
 	ri, ok := n.ranges[rID]
@@ -185,22 +183,22 @@ func (n *Node) HasRange(rID ranje.Ident) bool {
 	// the range state.
 	// TODO: Find out why and update this comment. Might be obsolete.
 
-	return ok && !(ri.State == state.NsNotFound)
+	return ok && !(ri.State == api.NsNotFound)
 }
 
-func (n *Node) PlacementFailed(rID ranje.Ident, t time.Time) {
+func (n *Node) PlacementFailed(rID api.Ident, t time.Time) {
 	n.muPF.Lock()
 	defer n.muPF.Unlock()
 	n.placementFailures = append(n.placementFailures, PlacementFailure{rID: rID, when: t})
 }
 
-func (n *Node) PlacementFailures(rID ranje.Ident, after time.Time) int {
+func (n *Node) PlacementFailures(rID api.Ident, after time.Time) int {
 	n.muPF.RLock()
 	defer n.muPF.RUnlock()
 
 	c := 0
 	for _, pf := range n.placementFailures {
-		if rID != ranje.ZeroRange && pf.rID != rID {
+		if rID != api.ZeroRange && pf.rID != rID {
 			continue
 		}
 		if pf.when.Before(after) {

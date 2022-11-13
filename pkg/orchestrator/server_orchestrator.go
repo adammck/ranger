@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/adammck/ranger/pkg/api"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"google.golang.org/grpc/codes"
@@ -57,7 +58,7 @@ func (bs *orchestratorServer) Split(ctx context.Context, req *pb.SplitRequest) (
 		return nil, err
 	}
 
-	boundary := ranje.Key(req.Boundary)
+	boundary := api.Key(req.Boundary)
 	if boundary == "" {
 		return nil, status.Error(codes.InvalidArgument, "missing: boundary")
 	}
@@ -134,14 +135,14 @@ func (bs *orchestratorServer) Join(ctx context.Context, req *pb.JoinRequest) (*p
 
 // getRange examines the given range ident and returns the corresponding Range
 // or an error suitable for a gRPC response.
-func getRange(bs *orchestratorServer, pbid uint64, field string) (ranje.Ident, error) {
+func getRange(bs *orchestratorServer, pbid uint64, field string) (api.Ident, error) {
 	if pbid == 0 {
-		return ranje.ZeroRange, status.Error(codes.InvalidArgument, fmt.Sprintf("missing: %s", field))
+		return api.ZeroRange, status.Error(codes.InvalidArgument, fmt.Sprintf("missing: %s", field))
 	}
 
 	id, err := ranje.IdentFromProto(pbid)
 	if err != nil {
-		return ranje.ZeroRange, status.Error(codes.InvalidArgument, fmt.Sprintf("invalid %s: %s", field, err.Error()))
+		return api.ZeroRange, status.Error(codes.InvalidArgument, fmt.Sprintf("invalid %s: %s", field, err.Error()))
 	}
 
 	return id, nil

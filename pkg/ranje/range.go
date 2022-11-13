@@ -4,16 +4,18 @@ import (
 	"fmt"
 	"log"
 	"sync"
+
+	"github.com/adammck/ranger/pkg/api"
 )
 
 // Range is a range of keys in the keyspace.
 // These should probably only be instantiated by Keyspace? No sanity checks, so be careful.
 type Range struct {
-	Meta Meta
+	Meta api.Meta
 
-	State    RangeState
-	Parents  []Ident
-	Children []Ident
+	State    api.RangeState
+	Parents  []api.Ident
+	Children []api.Ident
 
 	// TODO: Docs
 	Placements []*Placement
@@ -32,9 +34,9 @@ type Range struct {
 	dirty bool
 }
 
-func NewRange(rID Ident) *Range {
+func NewRange(rID api.Ident) *Range {
 	return &Range{
-		Meta: Meta{
+		Meta: api.Meta{
 			Ident: rID,
 		},
 
@@ -42,7 +44,7 @@ func NewRange(rID Ident) *Range {
 		// TODO: Maybe we need a pending state first? Do the parent ranges need
 		//       to do anything else after this range is created but before it's
 		//       placed?
-		State: RsActive,
+		State: api.RsActive,
 
 		// Starts dirty, because it hasn't been persisted yet.
 		dirty: true,
@@ -94,7 +96,7 @@ func (r *Range) MinReady() int {
 	return 1
 }
 
-func (r *Range) ToState(new RangeState) error {
+func (r *Range) ToState(new api.RangeState) error {
 	r.Lock()
 	defer r.Unlock()
 
@@ -114,7 +116,7 @@ func (r *Range) ToState(new RangeState) error {
 
 	// Special case: When entering RsObsolete, fire the optional callback.
 	// TODO: Maybe make this into a generic "when entering state x" callback?
-	if new == RsObsolete {
+	if new == api.RsObsolete {
 		if r.onObsolete != nil {
 			r.onObsolete()
 		}
@@ -139,7 +141,7 @@ func (r *Range) OnObsolete(f func()) {
 		panic(fmt.Sprintf("range %d has non-nil onObsolete callback", r.Meta.Ident))
 	}
 
-	if r.State == RsObsolete {
+	if r.State == api.RsObsolete {
 		panic(fmt.Sprintf("cant attach onObsolete callback to obsolete range: %d", r.Meta.Ident))
 	}
 

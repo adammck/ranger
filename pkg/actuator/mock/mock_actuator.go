@@ -12,8 +12,6 @@ import (
 	"github.com/adammck/ranger/pkg/keyspace"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
-	"github.com/adammck/ranger/pkg/roster/info"
-	"github.com/adammck/ranger/pkg/roster/state"
 )
 
 type Actuator struct {
@@ -62,10 +60,10 @@ func (a *Actuator) Command(action api.Action, p *ranje.Placement, n *roster.Node
 	// TODO: This special case is weird. It was less so when Give was a
 	//       separate method. Think about it or something.
 	if action == api.Give {
-		n.UpdateRangeInfo(&info.RangeInfo{
+		n.UpdateRangeInfo(&api.RangeInfo{
 			Meta:  p.Range().Meta,
 			State: s,
-			Info:  info.LoadInfo{},
+			Info:  api.LoadInfo{},
 		})
 	} else {
 		n.UpdateRangeState(p.Range().Meta.Ident, s)
@@ -79,7 +77,7 @@ func (a *Actuator) Wait() {
 // remote state which the (imaginary) remote node is now in, to be passed along.
 // to the Roster. The default return given via def, but may be overriden via
 // Expect to simulate failures.
-func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (state.RemoteState, error) {
+func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (api.RemoteState, error) {
 	cmd := Command{
 		rID: p.Range().Meta.Ident,
 		nID: n.Ident(),
@@ -98,7 +96,7 @@ func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (s
 	// tick, to avoid the error message leading here, devoid of context.
 	if a.strict && exp == nil {
 		a.unexpected = append(a.unexpected, cmd)
-		return state.NsUnknown, fmt.Errorf("no hook injected for command while strict enabled: %s", cmd.String())
+		return api.NsUnknown, fmt.Errorf("no hook injected for command while strict enabled: %s", cmd.String())
 	}
 
 	// Default (no override) is to succeed and advance to the default.
@@ -110,21 +108,21 @@ func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (s
 		return exp.ns, nil
 	} else {
 		// TODO: Allow actual errors to be injected?
-		return state.NsUnknown, errors.New("injected error")
+		return api.NsUnknown, errors.New("injected error")
 	}
 }
 
 // Default resulting state of each action. Note that we don't validate that the
 // fake remote transition at all, because real nodes (with rangelets) can become
 // whatever state they like.
-var defaults = map[api.Action]state.RemoteState{
-	api.Give:  state.NsInactive,
-	api.Serve: state.NsActive,
-	api.Take:  state.NsInactive,
-	api.Drop:  state.NsNotFound,
+var defaults = map[api.Action]api.RemoteState{
+	api.Give:  api.NsInactive,
+	api.Serve: api.NsActive,
+	api.Take:  api.NsInactive,
+	api.Drop:  api.NsNotFound,
 }
 
-func mustDefault(action api.Action) state.RemoteState {
+func mustDefault(action api.Action) api.RemoteState {
 	s, ok := defaults[action]
 	if !ok {
 		panic(fmt.Sprintf("no default state for action: %s", action))
@@ -135,7 +133,7 @@ func mustDefault(action api.Action) state.RemoteState {
 
 type inject struct {
 	success bool
-	ns      state.RemoteState
+	ns      api.RemoteState
 }
 
 func (ij *inject) Success() *inject {
@@ -148,12 +146,12 @@ func (ij *inject) Failure() *inject {
 	return ij
 }
 
-func (ij *inject) Response(ns state.RemoteState) *inject {
+func (ij *inject) Response(ns api.RemoteState) *inject {
 	ij.ns = ns
 	return ij
 }
 
-func (a *Actuator) Inject(nID string, rID ranje.Ident, act api.Action) *inject {
+func (a *Actuator) Inject(nID string, rID api.Ident, act api.Action) *inject {
 	cmd := Command{
 		nID: nID,
 		rID: rID,
@@ -162,7 +160,7 @@ func (a *Actuator) Inject(nID string, rID ranje.Ident, act api.Action) *inject {
 
 	exp := &inject{
 		success: true,
-		ns:      state.NsUnknown,
+		ns:      api.NsUnknown,
 	}
 
 	a.mu.Lock()

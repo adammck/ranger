@@ -19,8 +19,6 @@ import (
 	"github.com/adammck/ranger/pkg/keyspace"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
-	"github.com/adammck/ranger/pkg/roster/info"
-	"github.com/adammck/ranger/pkg/roster/state"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -114,7 +112,7 @@ func TestPlace_Slow(t *testing.T) {
 	rosStr := "{test-aaa []}"
 	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), strictTransactions)
 
-	i1g := act.Inject("test-aaa", 1, api.Give).Response(state.NsLoading)
+	i1g := act.Inject("test-aaa", 1, api.Give).Response(api.NsLoading)
 
 	//
 	// ---- Give
@@ -131,7 +129,7 @@ func TestPlace_Slow(t *testing.T) {
 	require.Equal(t, "{test-aaa [1:NsLoading]}", orch.rost.TestString())
 
 	requireStable(t, orch, act)
-	i1g.Response(state.NsInactive)
+	i1g.Response(api.NsInactive)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Give(R1, test-aaa)", act.Commands())
@@ -150,7 +148,7 @@ func TestPlace_Slow(t *testing.T) {
 	// ---- Serve
 	//
 
-	i1s := act.Inject("test-aaa", 1, api.Serve).Response(state.NsActivating)
+	i1s := act.Inject("test-aaa", 1, api.Serve).Response(api.NsActivating)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Serve(R1, test-aaa)", act.Commands())
@@ -158,7 +156,7 @@ func TestPlace_Slow(t *testing.T) {
 	require.Equal(t, "{test-aaa [1:NsActivating]}", orch.rost.TestString())
 
 	requireStable(t, orch, act)
-	i1s.Response(state.NsActive)
+	i1s.Response(api.NsActive)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Serve(R1, test-aaa)", act.Commands())
@@ -345,7 +343,7 @@ func TestMove_Slow(t *testing.T) {
 	//
 
 	// Next Give will return NsLoading because it's "slow".
-	act.Inject("test-bbb", 1, api.Give).Response(state.NsLoading)
+	act.Inject("test-bbb", 1, api.Give).Response(api.NsLoading)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Give(R1, test-bbb)", act.Commands())
@@ -356,7 +354,7 @@ func TestMove_Slow(t *testing.T) {
 	requireStable(t, orch, act)
 
 	// Loading finished. The next Give will return Inactive.
-	act.Inject("test-bbb", 1, api.Give).Response(state.NsInactive)
+	act.Inject("test-bbb", 1, api.Give).Response(api.NsInactive)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Give(R1, test-bbb)", act.Commands()) // retry
@@ -374,7 +372,7 @@ func TestMove_Slow(t *testing.T) {
 	//
 
 	// Next Take will return NsDeactivating because it's "slow".
-	act.Inject("test-aaa", 1, api.Take).Response(state.NsDeactivating)
+	act.Inject("test-aaa", 1, api.Take).Response(api.NsDeactivating)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Take(R1, test-aaa)", act.Commands())
@@ -385,7 +383,7 @@ func TestMove_Slow(t *testing.T) {
 	requireStable(t, orch, act)
 
 	// Deactivation finished. The next Take will return Inactive.
-	act.Inject("test-aaa", 1, api.Take).Response(state.NsInactive)
+	act.Inject("test-aaa", 1, api.Take).Response(api.NsInactive)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Take(R1, test-aaa)", act.Commands()) // retry
@@ -400,7 +398,7 @@ func TestMove_Slow(t *testing.T) {
 	//
 
 	// Next Serve will return NsActivating because it's "slow".
-	act.Inject("test-bbb", 1, api.Serve).Response(state.NsActivating)
+	act.Inject("test-bbb", 1, api.Serve).Response(api.NsActivating)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Serve(R1, test-bbb)", act.Commands())
@@ -411,7 +409,7 @@ func TestMove_Slow(t *testing.T) {
 	requireStable(t, orch, act)
 
 	// Activation finished. The next Serve will return Active.
-	act.Inject("test-bbb", 1, api.Serve).Response(state.NsActive)
+	act.Inject("test-bbb", 1, api.Serve).Response(api.NsActive)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Serve(R1, test-bbb)", act.Commands()) // retry
@@ -429,7 +427,7 @@ func TestMove_Slow(t *testing.T) {
 	//
 
 	// Next Drop will return NsDropping because it's "slow".
-	act.Inject("test-aaa", 1, api.Drop).Response(state.NsDropping)
+	act.Inject("test-aaa", 1, api.Drop).Response(api.NsDropping)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Drop(R1, test-aaa)", act.Commands())
@@ -440,7 +438,7 @@ func TestMove_Slow(t *testing.T) {
 	requireStable(t, orch, act)
 
 	// Deactivation finished. The next Take will return Inactive.
-	act.Inject("test-aaa", 1, api.Drop).Response(state.NsNotFound)
+	act.Inject("test-aaa", 1, api.Drop).Response(api.NsNotFound)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Drop(R1, test-aaa)", act.Commands()) // retry
@@ -671,7 +669,7 @@ func TestMoveFailure_DropRange(t *testing.T) {
 	// Not checking stability here. Failing to drop will retry forever until an
 	// operator intervenes to force the node to drop the placement. This hack
 	// pretends that that happened, so we can observe the workflow unblocking.
-	i1d.Success().Response(state.NsNotFound)
+	i1d.Success().Response(api.NsNotFound)
 
 	tickUntilStable(t, orch, act)
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
@@ -790,8 +788,8 @@ func TestSplit_Slow(t *testing.T) {
 	// Controller places new ranges on nodes.
 	//
 
-	i2g := act.Inject("test-aaa", 2, api.Give).Response(state.NsLoading)
-	i3g := act.Inject("test-aaa", 3, api.Give).Response(state.NsLoading)
+	i2g := act.Inject("test-aaa", 2, api.Give).Response(api.NsLoading)
+	i3g := act.Inject("test-aaa", 3, api.Give).Response(api.NsLoading)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Give(R2, test-aaa), Give(R3, test-aaa)", act.Commands())
@@ -800,7 +798,7 @@ func TestSplit_Slow(t *testing.T) {
 	require.Equal(t, "{Split 1 -> 2,3}", OpsString(orch.ks))
 
 	requireStable(t, orch, act)
-	i2g.Response(state.NsInactive) // R2 finished loading (but R3 is ongoing).
+	i2g.Response(api.NsInactive) // R2 finished loading (but R3 is ongoing).
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Give(R2, test-aaa), Give(R3, test-aaa)", act.Commands()) // retry
@@ -815,7 +813,7 @@ func TestSplit_Slow(t *testing.T) {
 	require.Equal(t, "{test-aaa [1:NsActive 2:NsInactive 3:NsLoading]}", orch.rost.TestString())
 
 	requireStable(t, orch, act)
-	i3g.Response(state.NsInactive) // R3 finished loading.
+	i3g.Response(api.NsInactive) // R3 finished loading.
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Give(R3, test-aaa)", act.Commands()) // retry
@@ -833,7 +831,7 @@ func TestSplit_Slow(t *testing.T) {
 	// Controller takes placements in parent range.
 	//
 
-	i1t := act.Inject("test-aaa", 1, api.Take).Response(state.NsDeactivating)
+	i1t := act.Inject("test-aaa", 1, api.Take).Response(api.NsDeactivating)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Take(R1, test-aaa)", act.Commands())
@@ -841,7 +839,7 @@ func TestSplit_Slow(t *testing.T) {
 	require.Equal(t, "{test-aaa [1:NsDeactivating 2:NsInactive 3:NsInactive]}", orch.rost.TestString())
 
 	requireStable(t, orch, act)
-	i1t.Response(state.NsInactive) // R3 finished loading.
+	i1t.Response(api.NsInactive) // R3 finished loading.
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Take(R1, test-aaa)", act.Commands())
@@ -853,8 +851,8 @@ func TestSplit_Slow(t *testing.T) {
 	// Controller instructs both child ranges to become Ready.
 	//
 
-	i2s := act.Inject("test-aaa", 2, api.Serve).Response(state.NsActivating)
-	i3s := act.Inject("test-aaa", 3, api.Serve).Response(state.NsActivating)
+	i2s := act.Inject("test-aaa", 2, api.Serve).Response(api.NsActivating)
+	i3s := act.Inject("test-aaa", 3, api.Serve).Response(api.NsActivating)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Serve(R2, test-aaa), Serve(R3, test-aaa)", act.Commands())
@@ -862,7 +860,7 @@ func TestSplit_Slow(t *testing.T) {
 	require.Equal(t, "{test-aaa [1:NsInactive 2:NsActivating 3:NsActivating]}", orch.rost.TestString())
 
 	requireStable(t, orch, act)
-	i3s.Response(state.NsActive) // R3 activated.
+	i3s.Response(api.NsActive) // R3 activated.
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Serve(R2, test-aaa), Serve(R3, test-aaa)", act.Commands())
@@ -875,7 +873,7 @@ func TestSplit_Slow(t *testing.T) {
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
 
 	requireStable(t, orch, act)
-	i2s.Response(state.NsActive) // R2 activated.
+	i2s.Response(api.NsActive) // R2 activated.
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Serve(R2, test-aaa)", act.Commands())
@@ -892,7 +890,7 @@ func TestSplit_Slow(t *testing.T) {
 	// Orchestrator instructs parent range to drop placements.
 	//
 
-	i1d := act.Inject("test-aaa", 1, api.Drop).Response(state.NsDropping)
+	i1d := act.Inject("test-aaa", 1, api.Drop).Response(api.NsDropping)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Drop(R1, test-aaa)", act.Commands())
@@ -905,7 +903,7 @@ func TestSplit_Slow(t *testing.T) {
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
 
 	requireStable(t, orch, act)
-	i1d.Response(state.NsNotFound) // R1 finished dropping.
+	i1d.Response(api.NsNotFound) // R1 finished dropping.
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Drop(R1, test-aaa)", act.Commands())
@@ -1205,7 +1203,7 @@ func TestJoin_Slow(t *testing.T) {
 	// Controller places new range on node.
 	//
 
-	i3g := act.Inject("test-ccc", 3, api.Give).Response(state.NsLoading)
+	i3g := act.Inject("test-ccc", 3, api.Give).Response(api.NsLoading)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Give(R3, test-ccc)", act.Commands())
@@ -1214,7 +1212,7 @@ func TestJoin_Slow(t *testing.T) {
 	require.Equal(t, "{Join 1,2 -> 3}", OpsString(orch.ks))
 
 	requireStable(t, orch, act)
-	i3g.Response(state.NsInactive) // R3 finished loading.
+	i3g.Response(api.NsInactive) // R3 finished loading.
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Give(R3, test-ccc)", act.Commands())
@@ -1233,8 +1231,8 @@ func TestJoin_Slow(t *testing.T) {
 	// Controller takes the ranges from the source nodes.
 	//
 
-	i1g := act.Inject("test-aaa", 1, api.Take).Response(state.NsDeactivating)
-	i2g := act.Inject("test-bbb", 2, api.Take).Response(state.NsDeactivating)
+	i1g := act.Inject("test-aaa", 1, api.Take).Response(api.NsDeactivating)
+	i2g := act.Inject("test-bbb", 2, api.Take).Response(api.NsDeactivating)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Take(R1, test-aaa), Take(R2, test-bbb)", act.Commands())
@@ -1243,8 +1241,8 @@ func TestJoin_Slow(t *testing.T) {
 
 	// Parent ranges finish deactivating.
 	requireStable(t, orch, act)
-	i1g.Response(state.NsInactive)
-	i2g.Response(state.NsInactive)
+	i1g.Response(api.NsInactive)
+	i2g.Response(api.NsInactive)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Take(R1, test-aaa), Take(R2, test-bbb)", act.Commands())
@@ -1263,7 +1261,7 @@ func TestJoin_Slow(t *testing.T) {
 	// Controller instructs child range to become Ready.
 	//
 
-	i3s := act.Inject("test-ccc", 3, api.Serve).Response(state.NsActivating)
+	i3s := act.Inject("test-ccc", 3, api.Serve).Response(api.NsActivating)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Serve(R3, test-ccc)", act.Commands())
@@ -1272,7 +1270,7 @@ func TestJoin_Slow(t *testing.T) {
 
 	// New range becomes ready.
 	requireStable(t, orch, act)
-	i3s.Response(state.NsActive)
+	i3s.Response(api.NsActive)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Serve(R3, test-ccc)", act.Commands())
@@ -1289,8 +1287,8 @@ func TestJoin_Slow(t *testing.T) {
 	// Orchestrator instructs parent ranges to drop placements.
 	//
 
-	i1d := act.Inject("test-aaa", 1, api.Drop).Response(state.NsDropping)
-	i2d := act.Inject("test-bbb", 2, api.Drop).Response(state.NsDropping)
+	i1d := act.Inject("test-aaa", 1, api.Drop).Response(api.NsDropping)
+	i2d := act.Inject("test-bbb", 2, api.Drop).Response(api.NsDropping)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Drop(R1, test-aaa), Drop(R2, test-bbb)", act.Commands())
@@ -1300,8 +1298,8 @@ func TestJoin_Slow(t *testing.T) {
 	// Drops finish.
 
 	requireStable(t, orch, act)
-	i1d.Response(state.NsNotFound)
-	i2d.Response(state.NsNotFound)
+	i1d.Response(api.NsNotFound)
+	i2d.Response(api.NsNotFound)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Drop(R1, test-aaa), Drop(R2, test-bbb)", act.Commands())
@@ -1446,7 +1444,7 @@ func TestJoinFailure_PrepareDropRange(t *testing.T) {
 	requireStable(t, orch, act)
 
 	// ...until an operator forcibly drops it.
-	i1t.Success().Response(state.NsNotFound)
+	i1t.Success().Response(api.NsNotFound)
 
 	// The orchestrator won't notice this by itself, because no RPCs are being
 	// exchanged, because it has given up on asking aaa to deactivate R1. But
@@ -1739,12 +1737,12 @@ func parseRoster(t *testing.T, s string) []nodeStub {
 func keyspaceFactory(t *testing.T, cfg config.Config, stubs []rangeStub) *keyspace.Keyspace {
 	ranges := make([]*ranje.Range, len(stubs))
 	for i := range stubs {
-		r := ranje.NewRange(ranje.Ident(i + 1))
-		r.State = ranje.RsActive
+		r := ranje.NewRange(api.Ident(i + 1))
+		r.State = api.RsActive
 
 		if i > 0 {
-			r.Meta.Start = ranje.Key(stubs[i].startKey)
-			ranges[i-1].Meta.End = ranje.Key(stubs[i].startKey)
+			r.Meta.Start = api.Key(stubs[i].startKey)
+			ranges[i-1].Meta.End = api.Key(stubs[i].startKey)
 		}
 
 		r.Placements = make([]*ranje.Placement, len(stubs[i].placements))
@@ -1795,13 +1793,13 @@ func rosterFactory(t *testing.T, cfg config.Config, ctx context.Context, ks *key
 		nod := rost.Nodes[nID]
 
 		for _, pStub := range stubs[i].placements {
-			rID := ranje.Ident(pStub.rID)
+			rID := api.Ident(pStub.rID)
 			r, err := ks.Get(rID)
 			if err != nil {
 				t.Fatalf("invalid node placement stub: %v", err)
 			}
 
-			nod.UpdateRangeInfo(&info.RangeInfo{
+			nod.UpdateRangeInfo(&api.RangeInfo{
 				Meta:  r.Meta,
 				State: remoteStateFromString(t, pStub.nState),
 			})
@@ -1832,60 +1830,60 @@ func orchFactory(t *testing.T, sKS, sRos string, cfg config.Config, strict bool)
 	return orch, act
 }
 
-func placementStateFromString(t *testing.T, s string) ranje.PlacementState {
+func placementStateFromString(t *testing.T, s string) api.PlacementState {
 	switch s {
-	case ranje.PsUnknown.String():
-		return ranje.PsUnknown
+	case api.PsUnknown.String():
+		return api.PsUnknown
 
-	case ranje.PsPending.String():
-		return ranje.PsPending
+	case api.PsPending.String():
+		return api.PsPending
 
-	case ranje.PsInactive.String():
-		return ranje.PsInactive
+	case api.PsInactive.String():
+		return api.PsInactive
 
-	case ranje.PsActive.String():
-		return ranje.PsActive
+	case api.PsActive.String():
+		return api.PsActive
 
-	case ranje.PsGiveUp.String():
-		return ranje.PsGiveUp
+	case api.PsGiveUp.String():
+		return api.PsGiveUp
 
-	case ranje.PsDropped.String():
-		return ranje.PsDropped
+	case api.PsDropped.String():
+		return api.PsDropped
 	}
 
 	t.Fatalf("invalid PlacementState string: %s", s)
-	return ranje.PsUnknown // unreachable
+	return api.PsUnknown // unreachable
 }
 
-func remoteStateFromString(t *testing.T, s string) state.RemoteState {
+func remoteStateFromString(t *testing.T, s string) api.RemoteState {
 	switch s {
 	case "NsUnknown":
-		return state.NsUnknown
+		return api.NsUnknown
 	case "NsLoading":
-		return state.NsLoading
+		return api.NsLoading
 	case "NsInactive":
-		return state.NsInactive
+		return api.NsInactive
 	case "NsActivating":
-		return state.NsActivating
+		return api.NsActivating
 	case "NsActive":
-		return state.NsActive
+		return api.NsActive
 	case "NsDeactivating":
-		return state.NsDeactivating
+		return api.NsDeactivating
 	case "NsDropping":
-		return state.NsDropping
+		return api.NsDropping
 	case "NsNotFound":
-		return state.NsNotFound
+		return api.NsNotFound
 	}
 
 	t.Fatalf("invalid PlacementState string: %s", s)
-	return state.NsUnknown // unreachable
+	return api.NsUnknown // unreachable
 }
 
 func moveOp(orch *Orchestrator, rID int, dest string) chan error {
 	ch := make(chan error)
 
 	op := OpMove{
-		Range: ranje.Ident(rID),
+		Range: api.Ident(rID),
 		Dest:  dest,
 	}
 
@@ -1898,7 +1896,7 @@ func moveOp(orch *Orchestrator, rID int, dest string) chan error {
 
 func splitOp(orch *Orchestrator, rID int) chan error {
 	ch := make(chan error)
-	rID_ := ranje.Ident(rID)
+	rID_ := api.Ident(rID)
 
 	op := OpSplit{
 		Range: rID_,
@@ -1924,8 +1922,8 @@ func joinOp(orch *Orchestrator, r1ID, r2ID int, dest string) chan error {
 	//       node
 
 	op := OpJoin{
-		Left:  ranje.Ident(r1ID),
-		Right: ranje.Ident(r2ID),
+		Left:  api.Ident(r1ID),
+		Right: api.Ident(r2ID),
 		Dest:  dest,
 		Err:   ch,
 	}
@@ -2072,7 +2070,7 @@ func requireStable(t *testing.T, orch *Orchestrator, act *mock_actuator.Actuator
 
 // mustGetRange returns a range from the given keyspace or fails the test.
 func mustGetRange(t *testing.T, ks *keyspace.Keyspace, rID int) *ranje.Range {
-	r, err := ks.Get(ranje.Ident(rID))
+	r, err := ks.Get(api.Ident(rID))
 	if err != nil {
 		t.Fatalf("ks.Get(%d): %v", rID, err)
 	}

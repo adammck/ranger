@@ -3,6 +3,7 @@ package util
 import (
 	"fmt"
 
+	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/keyspace"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
@@ -12,12 +13,12 @@ import (
 // TODO: Where does this belong? Probably not here!
 func GetParents(ks *keyspace.Keyspace, rost *roster.Roster, rang *ranje.Range) []*pb.Parent {
 	parents := []*pb.Parent{}
-	seen := map[ranje.Ident]struct{}{}
+	seen := map[api.Ident]struct{}{}
 	addParents(ks, rost, rang, &parents, seen)
 	return parents
 }
 
-func addParents(ks *keyspace.Keyspace, rost *roster.Roster, rang *ranje.Range, parents *[]*pb.Parent, seen map[ranje.Ident]struct{}) {
+func addParents(ks *keyspace.Keyspace, rost *roster.Roster, rang *ranje.Range, parents *[]*pb.Parent, seen map[api.Ident]struct{}) {
 	_, ok := seen[rang.Meta.Ident]
 	if ok {
 		return

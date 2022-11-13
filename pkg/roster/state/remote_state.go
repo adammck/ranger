@@ -3,80 +3,51 @@ package state
 import (
 	"fmt"
 
+	"github.com/adammck/ranger/pkg/api"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 )
 
-// See: ranger/pkg/proto/node.proto:RangeNodeState
-type RemoteState uint8
-
-const (
-
-	// Should never be in this state. Indicates a bug.
-	NsUnknown RemoteState = iota
-
-	// Stable states
-	NsInactive
-	NsActive
-
-	// During transitions
-	NsLoading      // Pending  -> PreReady
-	NsActivating   // PreReady -> Ready
-	NsDeactivating // Ready    -> PreReady
-	NsDropping     // PreReady -> NotFound
-
-	// Special case: This is never returned by probes, since those only include
-	// the state of ranges which the node has. This is returned by redundant
-	// Drop RPCs which instruct nodes to drop a range that they don't have.
-	// (Maybe it was already dropped, or maybe the node never had it. Can't
-	// know.) This is a success, not an error, because those RPCs may be
-	// received multiple times during a normal drop, and should be treated
-	// idempotently. But we don't want to return NsUnknown, because we do know.
-	NsNotFound
-)
-
-//go:generate stringer -type=RemoteState -output=remote_state_string.go
-
-func RemoteStateFromProto(s pb.RangeNodeState) RemoteState {
+func RemoteStateFromProto(s pb.RangeNodeState) api.RemoteState {
 	switch s {
 	case pb.RangeNodeState_UNKNOWN:
-		return NsUnknown
+		return api.NsUnknown
 	case pb.RangeNodeState_INACTIVE:
-		return NsInactive
+		return api.NsInactive
 	case pb.RangeNodeState_ACTIVE:
-		return NsActive
+		return api.NsActive
 	case pb.RangeNodeState_LOADING:
-		return NsLoading
+		return api.NsLoading
 	case pb.RangeNodeState_ACTIVATING:
-		return NsActivating
+		return api.NsActivating
 	case pb.RangeNodeState_DEACTIVATING:
-		return NsDeactivating
+		return api.NsDeactivating
 	case pb.RangeNodeState_DROPPING:
-		return NsDropping
+		return api.NsDropping
 	case pb.RangeNodeState_NOT_FOUND:
-		return NsNotFound
+		return api.NsNotFound
 	}
 
 	//return StateUnknown
 	panic(fmt.Sprintf("RemoteStateFromProto got unknown node state: %#v", s))
 }
 
-func RemoteStateToProto(rs RemoteState) pb.RangeNodeState {
+func RemoteStateToProto(rs api.RemoteState) pb.RangeNodeState {
 	switch rs {
-	case NsUnknown:
+	case api.NsUnknown:
 		return pb.RangeNodeState_UNKNOWN
-	case NsInactive:
+	case api.NsInactive:
 		return pb.RangeNodeState_INACTIVE
-	case NsActive:
+	case api.NsActive:
 		return pb.RangeNodeState_ACTIVE
-	case NsLoading:
+	case api.NsLoading:
 		return pb.RangeNodeState_LOADING
-	case NsActivating:
+	case api.NsActivating:
 		return pb.RangeNodeState_ACTIVATING
-	case NsDeactivating:
+	case api.NsDeactivating:
 		return pb.RangeNodeState_DEACTIVATING
-	case NsDropping:
+	case api.NsDropping:
 		return pb.RangeNodeState_DROPPING
-	case NsNotFound:
+	case api.NsNotFound:
 		return pb.RangeNodeState_NOT_FOUND
 	}
 

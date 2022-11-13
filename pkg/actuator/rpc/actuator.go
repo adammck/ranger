@@ -12,7 +12,6 @@ import (
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
-	"github.com/adammck/ranger/pkg/roster/info"
 	"github.com/adammck/ranger/pkg/roster/state"
 )
 
@@ -44,10 +43,10 @@ func (a *Actuator) Command(action api.Action, p *ranje.Placement, n *roster.Node
 		// TODO: This special case is weird. It was less so when Give was a
 		//       separate method. Think about it or something.
 		if action == api.Give {
-			n.UpdateRangeInfo(&info.RangeInfo{
+			n.UpdateRangeInfo(&api.RangeInfo{
 				Meta:  p.Range().Meta,
 				State: s,
-				Info:  info.LoadInfo{},
+				Info:  api.LoadInfo{},
 			})
 		} else {
 			n.UpdateRangeState(p.Range().Meta.Ident, s)
@@ -59,7 +58,7 @@ func (a *Actuator) Wait() {
 	a.dup.Wait()
 }
 
-func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (state.RemoteState, error) {
+func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (api.RemoteState, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
 	defer cancel()
 
@@ -85,7 +84,7 @@ func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (s
 	}
 
 	if err != nil {
-		return state.NsUnknown, err
+		return api.NsUnknown, err
 	}
 
 	return state.RemoteStateFromProto(s), nil

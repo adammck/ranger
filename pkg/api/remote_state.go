@@ -1,6 +1,5 @@
 package api
 
-// See: ranger/pkg/proto/node.proto:RangeNodeState
 type RemoteState uint8
 
 const (

@@ -20,7 +20,7 @@ in collaborating.
 
 Services implement [rangelet.Node](pkg/api/node.go):
 
-- `GetLoadInfo(rID ranje.Ident) LoadInfo`
+- `GetLoadInfo(rID RangeID) LoadInfo`
 - `PrepareAddRange(rm RangeMeta, parents []Parent) error`
 - `AddRange(rid RangeID) error`
 - `PrepareDropRange(rid RangeID) error`

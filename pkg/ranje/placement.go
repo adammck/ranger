@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"sync"
+
+	"github.com/adammck/ranger/pkg/api"
 )
 
 // Placement represents a pair of range+node.
@@ -14,7 +16,7 @@ type Placement struct {
 	// Controller-side State machine.
 	// Never modify this field directly! It's only public for deserialization
 	// from the store. Modify it via ToState.
-	State PlacementState
+	State api.PlacementState
 
 	// Set by the orchestrator to indicate that this placement was created to
 	// replace the placement of the same range on some other node. Should be
@@ -68,7 +70,7 @@ func NewPlacement(r *Range, nodeID string) *Placement {
 	return &Placement{
 		rang:   r,
 		NodeID: nodeID,
-		State:  PsPending,
+		State:  api.PsPending,
 	}
 }
 
@@ -77,7 +79,7 @@ func NewReplacement(r *Range, destNodeID, srcNodeID string, done func()) *Placem
 	return &Placement{
 		rang:        r,
 		NodeID:      destNodeID,
-		State:       PsPending,
+		State:       api.PsPending,
 		IsReplacing: srcNodeID,
 		replaceDone: done,
 	}
@@ -111,7 +113,7 @@ func (p *Placement) DoneReplacing() {
 	}
 }
 
-func (p *Placement) ToState(new PlacementState) error {
+func (p *Placement) ToState(new api.PlacementState) error {
 	ok := false
 	old := p.State
 
@@ -127,7 +129,7 @@ func (p *Placement) ToState(new PlacementState) error {
 	}
 
 	// Special case: When entering PsActive, fire the optional callback.
-	if new == PsActive {
+	if new == api.PsActive {
 		if p.onReady != nil {
 			p.onReady()
 		}
@@ -153,7 +155,7 @@ func (p *Placement) OnReady(f func()) {
 		panic("placement already has non-nil onReady callback")
 	}
 
-	if p.State != PsPending {
+	if p.State != api.PsPending {
 		panic(fmt.Sprintf(
 			"can't attach onReady callback to non-pending placement (s=%v, rID=%v, nID=%v)",
 			p.State, p.rang.Meta.Ident, p.NodeID))

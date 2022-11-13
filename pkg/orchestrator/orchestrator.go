@@ -13,7 +13,6 @@ import (
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
-	"github.com/adammck/ranger/pkg/roster/state"
 	"google.golang.org/grpc"
 )
 
@@ -40,7 +39,7 @@ type Orchestrator struct {
 
 	// Same for splits.
 	// TODO: Why is this a map??
-	opSplits   map[ranje.Ident]OpSplit
+	opSplits   map[api.Ident]OpSplit
 	opSplitsMu sync.RWMutex
 
 	// Same for joins.
@@ -56,7 +55,7 @@ func New(cfg config.Config, ks *keyspace.Keyspace, rost *roster.Roster, act actu
 		srv:      srv,
 		act:      act,
 		opMoves:  []OpMove{},
-		opSplits: map[ranje.Ident]OpSplit{},
+		opSplits: map[api.Ident]OpSplit{},
 		opJoins:  []OpJoin{},
 	}
 
@@ -155,7 +154,7 @@ func (b *Orchestrator) Tick() {
 
 	// Keep track of which ranges we've already ticked, since we do those
 	// involved in ops first.
-	visited := map[ranje.Ident]struct{}{}
+	visited := map[api.Ident]struct{}{}
 
 	ops, err := b.ks.Operations()
 	if err == nil {
@@ -190,7 +189,7 @@ func (b *Orchestrator) Tick() {
 
 		// Don't bother ticking Obsolete ranges. They never change.
 		// TODO: Don't include them in the first place!
-		if r.State == ranje.RsObsolete {
+		if r.State == api.RsObsolete {
 			continue
 		}
 
@@ -208,7 +207,7 @@ func (b *Orchestrator) Tick() {
 
 func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 	switch r.State {
-	case ranje.RsActive:
+	case api.RsActive:
 
 		// Not enough placements? Create one!
 		if len(r.Placements) < b.cfg.Replication {
@@ -339,11 +338,11 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 			}
 		}
 
-	case ranje.RsSubsuming:
+	case api.RsSubsuming:
 		// Skip parent ranges of operations in flight. The only thing to do is
 		// check whether they're complete, which we do before calling tick.
 
-	case ranje.RsObsolete:
+	case api.RsObsolete:
 		// TODO: Skip obsolete ranges in Tick. There's never anything to do with
 		//       them, except possibly discard them, which we don't support yet.
 
@@ -366,7 +365,7 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 	}
 }
 
-func (b *Orchestrator) moveOp(rID ranje.Ident) (OpMove, bool) {
+func (b *Orchestrator) moveOp(rID api.Ident) (OpMove, bool) {
 	b.opMovesMu.RLock()
 	defer b.opMovesMu.RUnlock()
 
@@ -403,7 +402,7 @@ func (b *Orchestrator) doMove(r *ranje.Range, opMove OpMove) error {
 
 		// No source node given, so just take the first Ready placement.
 		for _, p := range r.Placements {
-			if p.State == ranje.PsActive {
+			if p.State == api.PsActive {
 				src = p
 				break
 			}
@@ -449,11 +448,11 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 	// Get the node that this placement is on.
 	// (This is a problem, in most states.)
 	n := b.rost.NodeByIdent(p.NodeID)
-	if p.State != ranje.PsGiveUp && p.State != ranje.PsDropped {
+	if p.State != api.PsGiveUp && p.State != api.PsDropped {
 		if n == nil {
 			// The node has disappeared.
 			log.Printf("missing node: %s", p.NodeID)
-			b.ks.PlacementToState(p, ranje.PsGiveUp)
+			b.ks.PlacementToState(p, api.PsGiveUp)
 			return
 		}
 	}
@@ -498,7 +497,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 	}
 
 	switch p.State {
-	case ranje.PsPending:
+	case api.PsPending:
 		doPlace := false
 
 		// If the node already has the range (i.e. this is not the first tick
@@ -508,21 +507,21 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 		ri, ok := n.Get(p.Range().Meta.Ident)
 		if ok {
 			switch ri.State {
-			case state.NsLoading:
+			case api.NsLoading:
 				log.Printf("node %s still loading %s", n.Ident(), p.Range().Meta.Ident)
 				b.act.Command(api.Give, p, n)
 
-			case state.NsInactive:
-				b.ks.PlacementToState(p, ranje.PsInactive)
+			case api.NsInactive:
+				b.ks.PlacementToState(p, api.PsInactive)
 
-			case state.NsNotFound:
+			case api.NsNotFound:
 				// Special case: Give has already been attempted, but it failed.
 				// We can try again, same as if the placement was missing.
 				doPlace = true
 
 			default:
 				log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
-				b.ks.PlacementToState(p, ranje.PsGiveUp)
+				b.ks.PlacementToState(p, api.PsGiveUp)
 			}
 		} else {
 			doPlace = true
@@ -541,7 +540,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			}
 		}
 
-	case ranje.PsInactive:
+	case api.PsInactive:
 		ri, ok := n.Get(p.Range().Meta.Ident)
 		if !ok {
 
@@ -554,18 +553,18 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 
 			// Maybe we dropped it on purpose because it's been subsumed.
 			if op.MayDrop(p, r) == nil {
-				b.ks.PlacementToState(p, ranje.PsDropped)
+				b.ks.PlacementToState(p, api.PsDropped)
 				return
 			}
 
 			// Otherwise, abort. It's been forgotten.
 			log.Printf("placement missing from node (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
-			b.ks.PlacementToState(p, ranje.PsGiveUp)
+			b.ks.PlacementToState(p, api.PsGiveUp)
 			return
 		}
 
 		switch ri.State {
-		case state.NsInactive:
+		case api.NsInactive:
 
 			// This is the first time around. In order for this placement to
 			// move to Ready, the one it is replacing (maybe) must reliniquish
@@ -607,7 +606,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 
 			return
 
-		case state.NsActivating:
+		case api.NsActivating:
 			// We've already sent the Serve RPC at least once, and the node is
 			// working on it. Just keep waiting. But send another Serve RPC to
 			// check whether it's finished and is now Ready. (Or has changed to
@@ -616,48 +615,48 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			// 	log.Printf("placement waiting at NsReadying (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
 			b.act.Command(api.Serve, p, n)
 
-		case state.NsDropping:
+		case api.NsDropping:
 			// This placement failed to serve too many times. We've given up on it.
 			log.Printf("node %s still dropping %s", n.Ident(), p.Range().Meta.Ident)
 			// 	log.Printf("placement waiting at NsDropping (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
 			b.act.Command(api.Drop, p, n)
 
-		case state.NsActive:
-			b.ks.PlacementToState(p, ranje.PsActive)
+		case api.NsActive:
+			b.ks.PlacementToState(p, api.PsActive)
 
 		default:
 			log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
-			b.ks.PlacementToState(p, ranje.PsGiveUp)
+			b.ks.PlacementToState(p, api.PsGiveUp)
 			return
 		}
 
-	case ranje.PsActive:
+	case api.PsActive:
 		doTake := false
 
 		ri, ok := n.Get(p.Range().Meta.Ident)
 		if !ok {
 			// The node doesn't have the placement any more! Abort.
 			log.Printf("placement missing from node (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
-			b.ks.PlacementToState(p, ranje.PsGiveUp)
+			b.ks.PlacementToState(p, api.PsGiveUp)
 			return
 		}
 
 		switch ri.State {
-		case state.NsActive:
+		case api.NsActive:
 			// No need to keep logging this.
 			//log.Printf("ready: %s", p.LogString())
 			doTake = true
 
-		case state.NsDeactivating:
+		case api.NsDeactivating:
 			log.Printf("node %s still deactivating %s", n.Ident(), p.Range().Meta.Ident)
 			b.act.Command(api.Take, p, n)
 
-		case state.NsInactive:
-			b.ks.PlacementToState(p, ranje.PsInactive)
+		case api.NsInactive:
+			b.ks.PlacementToState(p, api.PsInactive)
 
 		default:
 			log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
-			b.ks.PlacementToState(p, ranje.PsGiveUp)
+			b.ks.PlacementToState(p, api.PsGiveUp)
 		}
 
 		if doTake {
@@ -675,14 +674,14 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			}
 		}
 
-	case ranje.PsGiveUp:
+	case api.PsGiveUp:
 		// This transition only exists to provide an error-handling path to
 		// PsDropped without sending any RPCs.
 		log.Printf("giving up on %s", p.LogString())
-		b.ks.PlacementToState(p, ranje.PsDropped)
+		b.ks.PlacementToState(p, api.PsDropped)
 		return
 
-	case ranje.PsDropped:
+	case api.PsDropped:
 		log.Printf("will destroy %s", p.LogString())
 		destroy = true
 		return

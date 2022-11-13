@@ -4,75 +4,56 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/adammck/ranger/pkg/api"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 )
 
-type RangeState uint8
-
-const (
-	RsUnknown RangeState = iota
-
-	// The range is active, i.e. it should be placed on the appropriate number
-	// of nodes and left alone until we decide to supersede it with another
-	// range by joining or splitting.
-	RsActive
-
-	RsSubsuming
-
-	// The range has finished being split or joined, has been dropped from all
-	// nodes, and will never be placed on any node again.
-	RsObsolete
-)
-
 type RangeStateTransition struct {
-	from RangeState
-	to   RangeState
+	from api.RangeState
+	to   api.RangeState
 }
 
 var RangeStateTransitions []RangeStateTransition
 
 func init() {
 	RangeStateTransitions = []RangeStateTransition{
-		{RsActive, RsSubsuming},
-		{RsSubsuming, RsObsolete},
-		{RsSubsuming, RsObsolete},
+		{api.RsActive, api.RsSubsuming},
+		{api.RsSubsuming, api.RsObsolete},
+		{api.RsSubsuming, api.RsObsolete},
 
-		{RsActive, RsSubsuming},
-		{RsSubsuming, RsObsolete},
-		{RsSubsuming, RsObsolete},
+		{api.RsActive, api.RsSubsuming},
+		{api.RsSubsuming, api.RsObsolete},
+		{api.RsSubsuming, api.RsObsolete},
 	}
 }
 
-//go:generate stringer -type=RangeState -output=range_state_string.go
-
-// TODO: Rename!
-func FromProto(s *pb.RangeState) RangeState {
-	switch *s {
+func RangeStateFromProto(rs *pb.RangeState) api.RangeState {
+	switch *rs {
 	case pb.RangeState_RS_UNKNOWN:
-		return RsUnknown
+		return api.RsUnknown
 	case pb.RangeState_RS_ACTIVE:
-		return RsActive
+		return api.RsActive
 	case pb.RangeState_RS_SUBSUMING:
-		return RsSubsuming
+		return api.RsSubsuming
 	case pb.RangeState_RS_OBSOLETE:
-		return RsObsolete
+		return api.RsObsolete
 	}
 
-	log.Printf("warn: got unknown state from proto: %s", *s)
-	return RsUnknown
+	log.Printf("warn: got unknown state from proto: %s", *rs)
+	return api.RsUnknown
 }
 
-func RangeStateToProto(s RangeState) pb.RangeState {
-	switch s {
-	case RsUnknown:
+func RangeStateToProto(rs api.RangeState) pb.RangeState {
+	switch rs {
+	case api.RsUnknown:
 		return pb.RangeState_RS_UNKNOWN
-	case RsActive:
+	case api.RsActive:
 		return pb.RangeState_RS_ACTIVE
-	case RsSubsuming:
+	case api.RsSubsuming:
 		return pb.RangeState_RS_SUBSUMING
-	case RsObsolete:
+	case api.RsObsolete:
 		return pb.RangeState_RS_OBSOLETE
 	}
 
-	panic(fmt.Sprintf("unknown RangeState: %#v", s))
+	panic(fmt.Sprintf("unknown RangeState: %#v", rs))
 }

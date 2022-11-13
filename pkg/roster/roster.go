@@ -10,12 +10,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster/info"
-	"github.com/adammck/ranger/pkg/roster/state"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -28,7 +28,7 @@ type Roster struct {
 	cfg config.Config
 
 	// Public so Orchestrator can read the Nodes
-	// node ident (not ranje.Ident!!) -> Node
+	// node ident (not api.Ident!!) -> Node
 	Nodes map[string]*Node
 	sync.RWMutex
 
@@ -103,16 +103,16 @@ func (ros *Roster) NodeByIdent(nodeIdent string) *Node {
 // Location is returned by the Locate method. Don't use it for anything else.
 type Location struct {
 	Node string
-	Info info.RangeInfo
+	Info api.RangeInfo
 }
 
 // Locate returns the list of node IDs that the given key can be found on, and
 // the state of the range containing the key.
-func (ros *Roster) Locate(k ranje.Key) []Location {
-	return ros.LocateInState(k, []state.RemoteState{})
+func (ros *Roster) Locate(k api.Key) []Location {
+	return ros.LocateInState(k, []api.RemoteState{})
 }
 
-func (ros *Roster) LocateInState(k ranje.Key, states []state.RemoteState) []Location {
+func (ros *Roster) LocateInState(k api.Key, states []api.RemoteState) []Location {
 	nodes := []Location{}
 
 	ros.RLock()
@@ -258,7 +258,7 @@ func (ros *Roster) probe() {
 func (ros *Roster) probeOne(ctx context.Context, n *Node) error {
 	// TODO: Abort if probe in progress.
 
-	ranges := make(map[ranje.Ident]*info.RangeInfo)
+	ranges := make(map[api.Ident]*api.RangeInfo)
 
 	// TODO: This is an InfoRequest now, but we also have RangesRequest which is
 	// sufficient for the proxy. Maybe make which one is sent configurable?
@@ -372,7 +372,7 @@ func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (string, error)
 		}
 	}
 
-	rID := ranje.ZeroRange
+	rID := api.ZeroRange
 	if rng != nil {
 		rID = rng.Meta.Ident
 	}
@@ -390,7 +390,7 @@ func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (string, error)
 	// 4. This range has failed to place on this node within the past minute.
 	//
 	for i := range nodes {
-		if rID != ranje.ZeroRange && nodes[i].HasRange(rng.Meta.Ident) {
+		if rID != api.ZeroRange && nodes[i].HasRange(rng.Meta.Ident) {
 			s := fmt.Sprintf("node already has range: %v", c.NodeID)
 			if c.NodeID != "" {
 				return "", errors.New(s)
