@@ -13,7 +13,6 @@ import (
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
-	"github.com/adammck/ranger/pkg/roster/state"
 )
 
 type Actuator struct {
@@ -88,7 +87,7 @@ func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (a
 		return api.NsUnknown, err
 	}
 
-	return state.RemoteStateFromProto(s), nil
+	return conv.RemoteStateFromProto(s), nil
 }
 
 func give(ctx context.Context, n *roster.Node, p *ranje.Placement, parents []*pb.Parent) (pb.RangeNodeState, error) {

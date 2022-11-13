@@ -8,8 +8,8 @@ import (
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 )
 
-func PlacementStateFromProto(s *pb.PlacementState) api.PlacementState {
-	switch *s {
+func PlacementStateFromProto(ps pb.PlacementState) api.PlacementState {
+	switch ps {
 	case pb.PlacementState_PS_UNKNOWN:
 		return api.PsUnknown
 	case pb.PlacementState_PS_PENDING:
@@ -24,12 +24,12 @@ func PlacementStateFromProto(s *pb.PlacementState) api.PlacementState {
 		return api.PsDropped
 	}
 
-	log.Printf("warn: unknown PlacementState from proto: %v", *s)
+	log.Printf("warn: unknown pb.PlacementState: %#v", ps)
 	return api.PsUnknown
 }
 
-func PlacementStateToProto(s api.PlacementState) pb.PlacementState {
-	switch s {
+func PlacementStateToProto(ps api.PlacementState) pb.PlacementState {
+	switch ps {
 	case api.PsUnknown:
 		return pb.PlacementState_PS_UNKNOWN
 	case api.PsPending:
@@ -44,5 +44,5 @@ func PlacementStateToProto(s api.PlacementState) pb.PlacementState {
 		return pb.PlacementState_PS_DROPPED
 	}
 
-	panic(fmt.Sprintf("unknown PlacementState: %#v", s))
+	panic(fmt.Sprintf("unknown PlacementState: %#v", ps))
 }

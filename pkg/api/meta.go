@@ -6,6 +6,7 @@ import (
 
 // Meta is a range minus all the state.
 // Should be immutable after construction.
+// TODO: Rename this to RangeMeta.
 type Meta struct {
 	Ident Ident
 	Start Key // inclusive

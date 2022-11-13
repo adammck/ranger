@@ -1,7 +1,8 @@
-package state
+package conv
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/adammck/ranger/pkg/api"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
@@ -27,8 +28,8 @@ func RemoteStateFromProto(s pb.RangeNodeState) api.RemoteState {
 		return api.NsNotFound
 	}
 
-	//return StateUnknown
-	panic(fmt.Sprintf("RemoteStateFromProto got unknown node state: %#v", s))
+	log.Printf("warn: unknown pb.RangeNodeState: %#v", s)
+	return api.NsUnknown
 }
 
 func RemoteStateToProto(rs api.RemoteState) pb.RangeNodeState {

@@ -5,16 +5,16 @@ import (
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 )
 
-func MetaFromProto(p *pb.RangeMeta) (*api.Meta, error) {
-	id, err := IdentFromProto(p.Ident)
+func MetaFromProto(m *pb.RangeMeta) (*api.Meta, error) {
+	id, err := IdentFromProto(m.Ident)
 	if err != nil {
 		return nil, err
 	}
 
 	return &api.Meta{
 		Ident: id,
-		Start: api.Key(p.Start),
-		End:   api.Key(p.End),
+		Start: api.Key(m.Start),
+		End:   api.Key(m.End),
 	}, nil
 }
 

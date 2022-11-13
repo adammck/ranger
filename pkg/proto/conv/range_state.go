@@ -8,8 +8,8 @@ import (
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 )
 
-func RangeStateFromProto(rs *pb.RangeState) api.RangeState {
-	switch *rs {
+func RangeStateFromProto(rs pb.RangeState) api.RangeState {
+	switch rs {
 	case pb.RangeState_RS_UNKNOWN:
 		return api.RsUnknown
 	case pb.RangeState_RS_ACTIVE:
@@ -20,7 +20,7 @@ func RangeStateFromProto(rs *pb.RangeState) api.RangeState {
 		return api.RsObsolete
 	}
 
-	log.Printf("warn: got unknown state from proto: %s", *rs)
+	log.Printf("warn: unknown pb.RangeState: %#v", rs)
 	return api.RsUnknown
 }
 

@@ -10,9 +10,3 @@ type Parent struct {
 	Parents    []Ident
 	Placements []Placement
 }
-
-// Same as roster/info.LoadInfo, to avoid circular import.
-type LoadInfo struct {
-	Keys   int
-	Splits []Key
-}

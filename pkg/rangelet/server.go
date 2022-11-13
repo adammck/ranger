@@ -6,8 +6,6 @@ import (
 	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/proto/conv"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
-	"github.com/adammck/ranger/pkg/roster/info"
-	"github.com/adammck/ranger/pkg/roster/state"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -45,7 +43,7 @@ func parentsFromProto(prot []*pb.Parent) ([]api.Parent, error) {
 		for i := range pp.Placements {
 			placements[i] = api.Placement{
 				Node:  pp.Placements[i].Node,
-				State: conv.PlacementStateFromProto(&pp.Placements[i].State),
+				State: conv.PlacementStateFromProto(pp.Placements[i].State),
 			}
 		}
 
@@ -76,7 +74,7 @@ func (ns *NodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveRe
 	}
 
 	return &pb.GiveResponse{
-		RangeInfo: info.RangeInfoToProto(ri),
+		RangeInfo: conv.RangeInfoToProto(ri),
 	}, nil
 }
 
@@ -92,7 +90,7 @@ func (ns *NodeServer) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.Serv
 	}
 
 	return &pb.ServeResponse{
-		State: state.RemoteStateToProto(ri.State),
+		State: conv.RemoteStateToProto(ri.State),
 	}, nil
 }
 
@@ -108,7 +106,7 @@ func (ns *NodeServer) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeRe
 	}
 
 	return &pb.TakeResponse{
-		State: state.RemoteStateToProto(ri.State),
+		State: conv.RemoteStateToProto(ri.State),
 	}, nil
 }
 
@@ -122,9 +120,9 @@ func (ns *NodeServer) Drop(ctx context.Context, req *pb.DropRequest) (*pb.DropRe
 	ri, err := ns.r.drop(rID)
 	if err != nil {
 		// This is NOT a failure.
-		if err == ErrNotFound {
+		if err == api.ErrNotFound {
 			return &pb.DropResponse{
-				State: state.RemoteStateToProto(api.NsNotFound),
+				State: conv.RemoteStateToProto(api.NsNotFound),
 			}, nil
 		}
 
@@ -133,7 +131,7 @@ func (ns *NodeServer) Drop(ctx context.Context, req *pb.DropRequest) (*pb.DropRe
 	}
 
 	return &pb.DropResponse{
-		State: state.RemoteStateToProto(ri.State),
+		State: conv.RemoteStateToProto(ri.State),
 	}, nil
 }
 
@@ -148,7 +146,7 @@ func (ns *NodeServer) Info(ctx context.Context, req *pb.InfoRequest) (*pb.InfoRe
 	}
 
 	ns.r.walk(func(ri *api.RangeInfo) {
-		res.Ranges = append(res.Ranges, info.RangeInfoToProto(*ri))
+		res.Ranges = append(res.Ranges, conv.RangeInfoToProto(*ri))
 	})
 
 	return res, nil

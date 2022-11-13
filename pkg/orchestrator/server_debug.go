@@ -9,7 +9,6 @@ import (
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
-	"github.com/adammck/ranger/pkg/roster/info"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -50,7 +49,7 @@ func rangeResponse(r *ranje.Range, rost *roster.Roster) *pb.RangeResponse {
 		nod := rost.NodeByIdent(p.NodeID)
 		if nod != nil {
 			if ri, ok := nod.Get(r.Meta.Ident); ok {
-				plc.RangeInfo = info.RangeInfoToProto(ri)
+				plc.RangeInfo = conv.RangeInfoToProto(ri)
 			}
 		}
 
