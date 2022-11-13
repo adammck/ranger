@@ -1,6 +1,7 @@
 package ranje
 
 import (
+	"fmt"
 	"log"
 
 	pb "github.com/adammck/ranger/pkg/proto/gen"
@@ -46,52 +47,39 @@ func init() {
 
 //go:generate stringer -type=PlacementState -output=placement_state_string.go
 
-func (s PlacementState) ToProto() pb.PlacementState {
+func PlacementStateToProto(s PlacementState) pb.PlacementState {
 	switch s {
 	case PsUnknown:
 		return pb.PlacementState_PS_UNKNOWN
-
 	case PsPending:
 		return pb.PlacementState_PS_PENDING
-
 	case PsInactive:
 		return pb.PlacementState_PS_INACTIVE
-
 	case PsActive:
 		return pb.PlacementState_PS_ACTIVE
-
 	case PsGiveUp:
 		return pb.PlacementState_PS_GIVE_UP
-
 	case PsDropped:
 		return pb.PlacementState_PS_DROPPED
-
 	}
 
-	// Probably a state was added but this method wasn't updated.
-	panic("unknown PlacementState value!")
+	panic(fmt.Sprintf("unknown PlacementState: %#v", s))
 }
 
 func PlacementStateFromProto(s *pb.PlacementState) PlacementState {
 	switch *s {
 	case pb.PlacementState_PS_UNKNOWN:
 		return PsUnknown
-
 	case pb.PlacementState_PS_PENDING:
 		return PsPending
-
 	case pb.PlacementState_PS_INACTIVE:
 		return PsInactive
-
 	case pb.PlacementState_PS_ACTIVE:
 		return PsActive
-
 	case pb.PlacementState_PS_GIVE_UP:
 		return PsGiveUp
-
 	case pb.PlacementState_PS_DROPPED:
 		return PsDropped
-
 	}
 
 	log.Printf("warn: unknown PlacementState from proto: %v", *s)

@@ -8,6 +8,7 @@ import (
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
+	"github.com/adammck/ranger/pkg/roster/info"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -19,18 +20,18 @@ type debugServer struct {
 
 func rangeResponse(r *ranje.Range, rost *roster.Roster) *pb.RangeResponse {
 	parents := make([]uint64, len(r.Parents))
-	for i, r := range r.Parents {
-		parents[i] = r.ToProto()
+	for i, rID := range r.Parents {
+		parents[i] = ranje.IdentToProto(rID)
 	}
 
 	children := make([]uint64, len(r.Children))
-	for i, r := range r.Children {
-		children[i] = r.ToProto()
+	for i, rID := range r.Children {
+		children[i] = ranje.IdentToProto(rID)
 	}
 
 	res := &pb.RangeResponse{
-		Meta:     r.Meta.ToProto(),
-		State:    r.State.ToProto(),
+		Meta:     ranje.MetaToProto(r.Meta),
+		State:    ranje.RangeStateToProto(r.State),
 		Parents:  parents,
 		Children: children,
 	}
@@ -39,7 +40,7 @@ func rangeResponse(r *ranje.Range, rost *roster.Roster) *pb.RangeResponse {
 		plc := &pb.PlacementWithRangeInfo{
 			Placement: &pb.Placement{
 				Node:  p.NodeID,
-				State: p.State.ToProto(),
+				State: ranje.PlacementStateToProto(p.State),
 			},
 		}
 
@@ -48,7 +49,7 @@ func rangeResponse(r *ranje.Range, rost *roster.Roster) *pb.RangeResponse {
 		nod := rost.NodeByIdent(p.NodeID)
 		if nod != nil {
 			if ri, ok := nod.Get(r.Meta.Ident); ok {
-				plc.RangeInfo = ri.ToProto()
+				plc.RangeInfo = info.RangeInfoToProto(ri)
 			}
 		}
 
@@ -69,8 +70,8 @@ func nodeResponse(ks *keyspace.Keyspace, n *roster.Node) *pb.NodeResponse {
 
 	for _, pl := range ks.PlacementsByNodeID(n.Ident()) {
 		res.Ranges = append(res.Ranges, &pb.NodeRange{
-			Meta:  pl.Range.Meta.ToProto(),
-			State: pl.Placement.State.ToProto(),
+			Meta:  ranje.MetaToProto(pl.Range.Meta),
+			State: ranje.PlacementStateToProto(pl.Placement.State),
 		})
 	}
 

@@ -1,6 +1,7 @@
 package ranje
 
 import (
+	"fmt"
 	"log"
 
 	pb "github.com/adammck/ranger/pkg/proto/gen"
@@ -61,7 +62,7 @@ func FromProto(s *pb.RangeState) RangeState {
 	return RsUnknown
 }
 
-func (s RangeState) ToProto() pb.RangeState {
+func RangeStateToProto(s RangeState) pb.RangeState {
 	switch s {
 	case RsUnknown:
 		return pb.RangeState_RS_UNKNOWN
@@ -73,6 +74,5 @@ func (s RangeState) ToProto() pb.RangeState {
 		return pb.RangeState_RS_OBSOLETE
 	}
 
-	// Probably a state was added but this method wasn't updated.
-	panic("unknown RangeState value!")
+	panic(fmt.Sprintf("unknown RangeState: %#v", s))
 }

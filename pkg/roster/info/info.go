@@ -29,7 +29,7 @@ type LoadInfo struct {
 	Splits []ranje.Key
 }
 
-func (li *LoadInfo) ToProto() *pb.LoadInfo {
+func LoadInfoToProto(li LoadInfo) *pb.LoadInfo {
 	splits := make([]string, len(li.Splits))
 	for i := range li.Splits {
 		splits[i] = string(li.Splits[i])
@@ -61,11 +61,11 @@ type RangeInfo struct {
 	Info  LoadInfo
 }
 
-func (ri *RangeInfo) ToProto() *pb.RangeInfo {
+func RangeInfoToProto(ri RangeInfo) *pb.RangeInfo {
 	return &pb.RangeInfo{
-		Meta:  ri.Meta.ToProto(),
-		State: ri.State.ToProto(),
-		Info:  ri.Info.ToProto(),
+		Meta:  ranje.MetaToProto(ri.Meta),
+		State: state.RemoteStateToProto(ri.State),
+		Info:  LoadInfoToProto(ri.Info),
 	}
 }
 

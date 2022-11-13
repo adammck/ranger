@@ -63,9 +63,9 @@ func MetaFromProto(p *pb.RangeMeta) (*Meta, error) {
 	}, nil
 }
 
-func (m *Meta) ToProto() *pb.RangeMeta {
+func MetaToProto(m Meta) *pb.RangeMeta {
 	return &pb.RangeMeta{
-		Ident: m.Ident.ToProto(),
+		Ident: IdentToProto(m.Ident),
 		Start: []byte(m.Start),
 		End:   []byte(m.End),
 	}

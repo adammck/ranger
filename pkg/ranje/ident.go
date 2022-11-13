@@ -25,6 +25,6 @@ func IdentFromProto(p uint64) (Ident, error) {
 	return id, nil
 }
 
-func (id Ident) ToProto() uint64 {
-	return uint64(id)
+func IdentToProto(ident Ident) uint64 {
+	return uint64(ident)
 }

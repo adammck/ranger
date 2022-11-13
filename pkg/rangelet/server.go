@@ -76,7 +76,7 @@ func (ns *NodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveRe
 	}
 
 	return &pb.GiveResponse{
-		RangeInfo: ri.ToProto(),
+		RangeInfo: info.RangeInfoToProto(ri),
 	}, nil
 }
 
@@ -92,7 +92,7 @@ func (ns *NodeServer) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.Serv
 	}
 
 	return &pb.ServeResponse{
-		State: ri.State.ToProto(),
+		State: state.RemoteStateToProto(ri.State),
 	}, nil
 }
 
@@ -108,7 +108,7 @@ func (ns *NodeServer) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeRe
 	}
 
 	return &pb.TakeResponse{
-		State: ri.State.ToProto(),
+		State: state.RemoteStateToProto(ri.State),
 	}, nil
 }
 
@@ -124,7 +124,7 @@ func (ns *NodeServer) Drop(ctx context.Context, req *pb.DropRequest) (*pb.DropRe
 		// This is NOT a failure.
 		if err == ErrNotFound {
 			return &pb.DropResponse{
-				State: state.NsNotFound.ToProto(),
+				State: state.RemoteStateToProto(state.NsNotFound),
 			}, nil
 		}
 
@@ -133,7 +133,7 @@ func (ns *NodeServer) Drop(ctx context.Context, req *pb.DropRequest) (*pb.DropRe
 	}
 
 	return &pb.DropResponse{
-		State: ri.State.ToProto(),
+		State: state.RemoteStateToProto(ri.State),
 	}, nil
 }
 
@@ -148,7 +148,7 @@ func (ns *NodeServer) Info(ctx context.Context, req *pb.InfoRequest) (*pb.InfoRe
 	}
 
 	ns.r.walk(func(ri *info.RangeInfo) {
-		res.Ranges = append(res.Ranges, ri.ToProto())
+		res.Ranges = append(res.Ranges, info.RangeInfoToProto(*ri))
 	})
 
 	return res, nil

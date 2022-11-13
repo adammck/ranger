@@ -56,12 +56,12 @@ func pbPlacement(rost *roster.Roster, r *ranje.Range) *pb.Parent {
 
 		pbPlacements[i] = &pb.Placement{
 			Node:  node,
-			State: p.State.ToProto(),
+			State: ranje.PlacementStateToProto(p.State),
 		}
 	}
 
 	return &pb.Parent{
-		Range:      r.Meta.ToProto(),
+		Range:      ranje.MetaToProto(r.Meta),
 		Placements: pbPlacements,
 	}
 }

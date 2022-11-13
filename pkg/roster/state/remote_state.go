@@ -40,12 +40,10 @@ func RemoteStateFromProto(s pb.RangeNodeState) RemoteState {
 	switch s {
 	case pb.RangeNodeState_UNKNOWN:
 		return NsUnknown
-
 	case pb.RangeNodeState_INACTIVE:
 		return NsInactive
 	case pb.RangeNodeState_ACTIVE:
 		return NsActive
-
 	case pb.RangeNodeState_LOADING:
 		return NsLoading
 	case pb.RangeNodeState_ACTIVATING:
@@ -54,25 +52,22 @@ func RemoteStateFromProto(s pb.RangeNodeState) RemoteState {
 		return NsDeactivating
 	case pb.RangeNodeState_DROPPING:
 		return NsDropping
-
 	case pb.RangeNodeState_NOT_FOUND:
 		return NsNotFound
 	}
 
-	panic(fmt.Sprintf("RemoteStateFromProto got unknown node state: %#v", s))
 	//return StateUnknown
+	panic(fmt.Sprintf("RemoteStateFromProto got unknown node state: %#v", s))
 }
 
-func (rs RemoteState) ToProto() pb.RangeNodeState {
+func RemoteStateToProto(rs RemoteState) pb.RangeNodeState {
 	switch rs {
 	case NsUnknown:
 		return pb.RangeNodeState_UNKNOWN
-
 	case NsInactive:
 		return pb.RangeNodeState_INACTIVE
 	case NsActive:
 		return pb.RangeNodeState_ACTIVE
-
 	case NsLoading:
 		return pb.RangeNodeState_LOADING
 	case NsActivating:
@@ -81,11 +76,10 @@ func (rs RemoteState) ToProto() pb.RangeNodeState {
 		return pb.RangeNodeState_DEACTIVATING
 	case NsDropping:
 		return pb.RangeNodeState_DROPPING
-
 	case NsNotFound:
 		return pb.RangeNodeState_NOT_FOUND
 	}
 
-	panic(fmt.Sprintf("ToProto got unknown node state: %#v", rs))
 	//return pb.RangeNodeState_UNKNOWN
+	panic(fmt.Sprintf("unknown RemoteState: %#v", rs))
 }
