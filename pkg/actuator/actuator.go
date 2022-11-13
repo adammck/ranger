@@ -33,7 +33,8 @@ type Actuator struct {
 
 	// TODO: Use api.Command as the key.
 	// TODO: Trim contents periodically.
-	failures map[string][]time.Time
+	failures   map[string][]time.Time
+	failuresMu sync.Mutex
 }
 
 func New(ks *keyspace.Keyspace, ros *roster.Roster, impl Impl) *Actuator {
@@ -43,6 +44,13 @@ func New(ks *keyspace.Keyspace, ros *roster.Roster, impl Impl) *Actuator {
 		Impl:     impl,
 		inFlight: map[string]struct{}{},
 		failures: map[string][]time.Time{},
+	}
+}
+
+func (a *Actuator) Run(t *time.Ticker) {
+	// TODO: Replace this with something reactive; maybe chan from keyspace?
+	for ; true; <-t.C {
+		a.Tick()
 	}
 }
 
@@ -105,13 +113,10 @@ func (a *Actuator) consider(p *ranje.Placement) {
 		return
 	}
 
-	err = a.Impl.Command(action, p, n)
-	if err != nil {
-		a.incrementError(action, p, n)
-	}
+	a.Exec(action, p, n)
 }
 
-func (a *Actuator) Exec(action api.Action, p *ranje.Placement, n *roster.Node, f func()) {
+func (a *Actuator) Exec(action api.Action, p *ranje.Placement, n *roster.Node) {
 	key := fmt.Sprintf("%v:%s:%s", action, p.Range().Meta.Ident, n.Remote.Ident)
 
 	a.inFlightMu.Lock()
@@ -132,7 +137,11 @@ func (a *Actuator) Exec(action api.Action, p *ranje.Placement, n *roster.Node, f
 
 		// TODO: Inject some client-side chaos here, too. RPCs complete very
 		//       quickly locally, which doesn't test our in-flight thing well.
-		f()
+
+		err := a.Impl.Command(action, p, n)
+		if err != nil {
+			a.incrementError(action, p, n)
+		}
 
 		a.inFlightMu.Lock()
 		if _, ok := a.inFlight[key]; !ok {
@@ -182,14 +191,21 @@ func actuation(p *ranje.Placement) (api.Action, error) {
 func (a *Actuator) incrementError(action api.Action, p *ranje.Placement, n *roster.Node) {
 	key := fmt.Sprintf("%v:%s:%s", action, p.Range().Meta.Ident, n.Remote.Ident)
 
-	t, ok := a.failures[key]
-	if !ok {
-		t = []time.Time{}
-	}
+	f := 0
+	func() {
+		a.failuresMu.Lock()
+		defer a.failuresMu.Unlock()
 
-	t = append(t, time.Now())
-	a.failures[key] = t
-	f := len(t)
+		t, ok := a.failures[key]
+		if !ok {
+			t = []time.Time{}
+		}
+
+		t = append(t, time.Now())
+		a.failures[key] = t
+
+		f = len(t)
+	}()
 
 	if f >= maxFailures[action] {
 		delete(a.failures, key)

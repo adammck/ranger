@@ -136,6 +136,11 @@ func (c *Controller) Run(ctx context.Context) error {
 		// Start rebalancing loop.
 		go c.orch.Run(time.NewTicker(c.interval))
 
+		// Start incredibly actuation loop. The interval only affects how soon
+		// it will notice a pending actuation. Failed actuations should retry
+		// slower than this.
+		go c.act.Run(time.NewTicker(500 * time.Millisecond))
+
 		// Block until context is cancelled, indicating that caller wants
 		// shutdown.
 		if !c.once {
