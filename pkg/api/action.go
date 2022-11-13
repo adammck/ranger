@@ -12,4 +12,4 @@ const (
 	Drop
 )
 
-//go:generate stringer -type=Action -output=action_string.go
+//go:generate stringer -type=Action -output=zzz_action_string.go
