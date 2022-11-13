@@ -9,57 +9,50 @@ import (
 	"sync"
 
 	"github.com/adammck/ranger/pkg/api"
-	"github.com/adammck/ranger/pkg/keyspace"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
 )
 
 type Actuator struct {
-	ks  *keyspace.Keyspace
-	ros *roster.Roster
-
-	injects map[Command]*inject
+	injects map[api.Command]*Inject
 	strict  bool
 
-	commands   []Command
-	unexpected []Command
+	commands   []api.Command
+	unexpected []api.Command
 
 	// mu guards everything.
 	// No need for granularity.
 	mu sync.Mutex
 }
 
-func New(ks *keyspace.Keyspace, ros *roster.Roster, strict bool) *Actuator {
+func New(strict bool) *Actuator {
 	return &Actuator{
-		ks:         ks,
-		ros:        ros,
-		injects:    map[Command]*inject{},
+		injects:    map[api.Command]*Inject{},
 		strict:     strict,
-		commands:   []Command{},
-		unexpected: []Command{},
+		commands:   []api.Command{},
+		unexpected: []api.Command{},
 	}
 }
 
 func (a *Actuator) Reset() {
-	a.commands = []Command{}
-	a.unexpected = []Command{}
+	a.commands = []api.Command{}
+	a.unexpected = []api.Command{}
 }
 
-func (a *Actuator) Unexpected() []Command {
+func (a *Actuator) Unexpected() []api.Command {
 	return a.unexpected
 }
 
 // TODO: This is currently duplicated.
-func (a *Actuator) Command(action api.Action, p *ranje.Placement, n *roster.Node) {
-	s, err := a.cmd(action, p, n)
+func (a *Actuator) Command(cmd api.Command, p *ranje.Placement, n *roster.Node) error {
+	s, err := a.cmd(cmd.Action, p, n)
 	if err != nil {
-		log.Printf("actuation error: %v", err)
-		return
+		return err
 	}
 
 	// TODO: This special case is weird. It was less so when Give was a
 	//       separate method. Think about it or something.
-	if action == api.Give {
+	if cmd.Action == api.Give {
 		n.UpdateRangeInfo(&api.RangeInfo{
 			Meta:  p.Range().Meta,
 			State: s,
@@ -68,9 +61,8 @@ func (a *Actuator) Command(action api.Action, p *ranje.Placement, n *roster.Node
 	} else {
 		n.UpdateRangeState(p.Range().Meta.Ident, s)
 	}
-}
 
-func (a *Actuator) Wait() {
+	return nil
 }
 
 // command logs a command (to be retrived later via Commands), and returns the
@@ -78,15 +70,16 @@ func (a *Actuator) Wait() {
 // to the Roster. The default return given via def, but may be overriden via
 // Expect to simulate failures.
 func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (api.RemoteState, error) {
-	cmd := Command{
-		rID: p.Range().Meta.Ident,
-		nID: n.Ident(),
-		act: action,
+	cmd := api.Command{
+		RangeIdent: p.Range().Meta.Ident,
+		NodeIdent:  n.Ident(),
+		Action:     action,
 	}
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
+	log.Print(cmd.String())
 	a.commands = append(a.commands, cmd)
 	exp, ok := a.injects[cmd]
 
@@ -113,7 +106,7 @@ func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (a
 }
 
 // Default resulting state of each action. Note that we don't validate that the
-// fake remote transition at all, because real nodes (with rangelets) can become
+// fake remote transition at all, because real nodes (with rangelets) can assume
 // whatever state they like.
 var defaults = map[api.Action]api.RemoteState{
 	api.Give:  api.NsInactive,
@@ -131,34 +124,35 @@ func mustDefault(action api.Action) api.RemoteState {
 	return s
 }
 
-type inject struct {
+// TODO: Make private once orch tests fixed.
+type Inject struct {
 	success bool
 	ns      api.RemoteState
 }
 
-func (ij *inject) Success() *inject {
+func (ij *Inject) Success() *Inject {
 	ij.success = true
 	return ij
 }
 
-func (ij *inject) Failure() *inject {
+func (ij *Inject) Failure() *Inject {
 	ij.success = false
 	return ij
 }
 
-func (ij *inject) Response(ns api.RemoteState) *inject {
+func (ij *Inject) Response(ns api.RemoteState) *Inject {
 	ij.ns = ns
 	return ij
 }
 
-func (a *Actuator) Inject(nID string, rID api.Ident, act api.Action) *inject {
-	cmd := Command{
-		nID: nID,
-		rID: rID,
-		act: act,
+func (a *Actuator) Inject(nID string, rID api.Ident, act api.Action) *Inject {
+	cmd := api.Command{
+		RangeIdent: rID,
+		NodeIdent:  nID,
+		Action:     act,
 	}
 
-	exp := &inject{
+	exp := &Inject{
 		success: true,
 		ns:      api.NsUnknown,
 	}
@@ -171,7 +165,7 @@ func (a *Actuator) Inject(nID string, rID api.Ident, act api.Action) *inject {
 }
 
 // Unject removes a hook.
-func (a *Actuator) Unject(ij *inject) {
+func (a *Actuator) Unject(ij *Inject) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 

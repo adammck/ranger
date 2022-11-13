@@ -33,7 +33,7 @@ type Controller struct {
 	disc discovery.Discoverable
 	ks   *keyspace.Keyspace
 	rost *roster.Roster
-	act  actuator.Actuator
+	act  *actuator.Actuator
 	orch *orchestrator.Orchestrator
 }
 
@@ -68,9 +68,10 @@ func New(cfg config.Config, addrLis, addrPub string, interval time.Duration, onc
 	// TODO: Hook up the callbacks (or replace with channels)
 	rost := roster.New(cfg, disc, nil, nil, nil)
 
-	act := rpc_actuator.New(ks, rost)
+	actImpl := rpc_actuator.New(ks, rost)
+	act := actuator.New(ks, rost, time.Duration(3*time.Second), actImpl)
 
-	orch := orchestrator.New(cfg, ks, rost, act, srv)
+	orch := orchestrator.New(cfg, ks, rost, srv)
 
 	return &Controller{
 		cfg:      cfg,
@@ -124,6 +125,7 @@ func (c *Controller) Run(ctx context.Context) error {
 
 	if c.once {
 		c.orch.Tick()
+		c.act.Tick()
 
 	} else {
 
@@ -133,6 +135,11 @@ func (c *Controller) Run(ctx context.Context) error {
 
 		// Start rebalancing loop.
 		go c.orch.Run(time.NewTicker(c.interval))
+
+		// Start incredibly actuation loop. The interval only affects how soon
+		// it will notice a pending actuation. Failed actuations should retry
+		// slower than this.
+		go c.act.Run(time.NewTicker(500 * time.Millisecond))
 
 		// Block until context is cancelled, indicating that caller wants
 		// shutdown.

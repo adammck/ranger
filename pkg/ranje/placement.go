@@ -13,10 +13,17 @@ type Placement struct {
 	rang   *Range // owned by Keyspace.
 	NodeID string
 
-	// Controller-side State machine.
-	// Never modify this field directly! It's only public for deserialization
-	// from the store. Modify it via ToState.
-	State api.PlacementState
+	// StateCurrent is the controller-side state of the placement. It reflects
+	// the actual remote state, as reported by the Rangelet via the Roster.
+	//
+	// Don't access this field directly! It's only public for deserialization
+	// from the store. Modify it via ToState. This is currently violated all
+	// over the place.
+	StateCurrent api.PlacementState
+
+	// StateDesired is the state the Orchestator would like this placement to be
+	// in. The Actuator is responsible for telling the remote node about this.
+	StateDesired api.PlacementState
 
 	// Set by the orchestrator to indicate that this placement was created to
 	// replace the placement of the same range on some other node. Should be
@@ -24,36 +31,10 @@ type Placement struct {
 	// TODO: Change this to some kind of uuid.
 	IsReplacing string `json:",omitempty"` // NodeID
 
-	// How many times has this placement failed to advance to the next state?
-	// Orchestrator uses this to determine whether to give up or try again.
-	// Reset by ToState.
-	// TODO: Split this up into separate transitions, like DropAttempts.
-	Attempts int
-
-	// FailedGive is set by the orchestrator if the placement has been asked to
-	// give (to the specified NodeID) a few times but has failed. This indicates
-	// that it won't be attempted again.
-	// TODO: There is no failed give! The placement is just destroyed.
-	//FailedGive bool
-
-	// Once this is set, the placement is destined to be destroyed. It's never
-	// unset. Might take a few ticks in order to unwind things gracefully,
-	// depending on the state which the placement and its family are in.
-	FailedActivate bool
-
-	// The placement was attempted to be deactivated a few times, but the node
-	// refused. This is a really weird situation. But we need to stop trying
-	// eventually, so the replacements can be dropped and (presumably) an
-	// operator can be alerted.
-	FailedDeactivate bool
-
-	// How many times has this place been commanded to drop?
-	DropAttempts int
-
-	// The placement is inactive, but failed to drop. Probably no harm done,
-	// except that the node can't release the resources. An operator should be
-	// alerted.
-	FailedDrop bool
+	// failures is updated by the actuator when an action is attempted a few
+	// times but fails. This generally causes the placement to become wedged
+	// until an operator intervenes.
+	failures map[api.Action]bool
 
 	// Not persisted.
 	replaceDone func()
@@ -68,20 +49,22 @@ type Placement struct {
 
 func NewPlacement(r *Range, nodeID string) *Placement {
 	return &Placement{
-		rang:   r,
-		NodeID: nodeID,
-		State:  api.PsPending,
+		rang:         r,
+		NodeID:       nodeID,
+		StateCurrent: api.PsPending,
+		StateDesired: api.PsPending,
 	}
 }
 
 // Special constructor for placements replacing some other placement.
 func NewReplacement(r *Range, destNodeID, srcNodeID string, done func()) *Placement {
 	return &Placement{
-		rang:        r,
-		NodeID:      destNodeID,
-		State:       api.PsPending,
-		IsReplacing: srcNodeID,
-		replaceDone: done,
+		rang:         r,
+		NodeID:       destNodeID,
+		StateCurrent: api.PsPending,
+		StateDesired: api.PsPending,
+		IsReplacing:  srcNodeID,
+		replaceDone:  done,
 	}
 }
 
@@ -95,7 +78,7 @@ func (p *Placement) Repair(r *Range) {
 
 // TODO: Rename this to just String?
 func (p *Placement) LogString() string {
-	return fmt.Sprintf("{%s %s:%s}", p.rang.Meta, p.NodeID, p.State)
+	return fmt.Sprintf("{%s %s:%s}", p.rang.Meta, p.NodeID, p.StateCurrent)
 }
 
 func (p *Placement) Range() *Range {
@@ -113,19 +96,18 @@ func (p *Placement) DoneReplacing() {
 	}
 }
 
-func (p *Placement) ToState(new api.PlacementState) error {
-	ok := false
-	old := p.State
-
-	for _, t := range PlacementStateTransitions {
-		if t.from == old && t.to == new {
-			ok = true
-			break
-		}
+func (p *Placement) Want(new api.PlacementState) error {
+	if err := CanTransitionPlacement(p.StateCurrent, new); err != nil {
+		return err
 	}
 
-	if !ok {
-		return fmt.Errorf("invalid placement state transition: %s -> %s", old.String(), new.String())
+	p.StateDesired = new
+	return nil
+}
+
+func (p *Placement) ToState(new api.PlacementState) error {
+	if err := CanTransitionPlacement(p.StateCurrent, new); err != nil {
+		return err
 	}
 
 	// Special case: When entering PsActive, fire the optional callback.
@@ -135,14 +117,12 @@ func (p *Placement) ToState(new api.PlacementState) error {
 		}
 	}
 
-	p.State = new
-	p.Attempts = 0
-	p.FailedActivate = false
-	p.FailedDeactivate = false
+	p.StateCurrent = new
+	p.failures = nil
 	p.rang.dirty = true
 
 	// TODO: Make this less weird
-	log.Printf("R%d P %s -> %s", p.rang.Meta.Ident, old, new)
+	log.Printf("R%d P %s -> %s", p.rang.Meta.Ident, p.StateCurrent, new)
 
 	return nil
 }
@@ -155,11 +135,29 @@ func (p *Placement) OnReady(f func()) {
 		panic("placement already has non-nil onReady callback")
 	}
 
-	if p.State != api.PsPending {
+	if p.StateCurrent != api.PsPending {
 		panic(fmt.Sprintf(
 			"can't attach onReady callback to non-pending placement (s=%v, rID=%v, nID=%v)",
-			p.State, p.rang.Meta.Ident, p.NodeID))
+			p.StateCurrent, p.rang.Meta.Ident, p.NodeID))
 	}
 
 	p.onReady = f
+}
+
+// Failed returns true if the given action has been attempted but has failed.
+func (p *Placement) Failed(a api.Action) bool {
+	if p.failures == nil {
+		return false
+	}
+
+	return p.failures[a]
+}
+
+func (p *Placement) SetFailed(a api.Action, value bool) {
+	if p.failures == nil {
+		// lazy init, since most placements don't fail.
+		p.failures = map[api.Action]bool{}
+	}
+
+	p.failures[a] = value
 }

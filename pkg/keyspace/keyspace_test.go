@@ -382,7 +382,7 @@ func TestPlacementMayBecomeReady(t *testing.T) {
 				{
 					State:      api.RsActive,
 					Meta:       api.Meta{Ident: 1, Start: api.ZeroKey},
-					Placements: []*ranje.Placement{{NodeID: "n1", State: api.PsInactive}},
+					Placements: []*ranje.Placement{{NodeID: "n1", StateCurrent: api.PsInactive}},
 				},
 			},
 			output: [][]string{
@@ -396,19 +396,19 @@ func TestPlacementMayBecomeReady(t *testing.T) {
 					State:      api.RsSubsuming,
 					Children:   []api.Ident{3},
 					Meta:       api.Meta{Ident: 1, Start: api.ZeroKey, End: api.Key("ggg")},
-					Placements: []*ranje.Placement{{NodeID: "n1", State: api.PsInactive}},
+					Placements: []*ranje.Placement{{NodeID: "n1", StateCurrent: api.PsInactive}},
 				},
 				{
 					State:      api.RsSubsuming,
 					Children:   []api.Ident{3},
 					Meta:       api.Meta{Ident: 2, Start: api.Key("ggg"), End: api.ZeroKey},
-					Placements: []*ranje.Placement{{NodeID: "n2", State: api.PsInactive}},
+					Placements: []*ranje.Placement{{NodeID: "n2", StateCurrent: api.PsInactive}},
 				},
 				{
 					State:      api.RsActive,
 					Parents:    []api.Ident{1, 2},
 					Meta:       api.Meta{Ident: 3, Start: api.ZeroKey},
-					Placements: []*ranje.Placement{{NodeID: "n3", State: api.PsInactive}},
+					Placements: []*ranje.Placement{{NodeID: "n3", StateCurrent: api.PsInactive}},
 				},
 			},
 			output: [][]string{
@@ -458,7 +458,7 @@ func TestPlacementMayBeTaken(t *testing.T) {
 				{
 					State:      api.RsActive,
 					Meta:       api.Meta{Ident: 1, Start: api.ZeroKey},
-					Placements: []*ranje.Placement{{NodeID: "n1", State: api.PsActive}},
+					Placements: []*ranje.Placement{{NodeID: "n1", StateCurrent: api.PsActive}},
 				},
 			},
 			output: [][]string{
@@ -472,19 +472,19 @@ func TestPlacementMayBeTaken(t *testing.T) {
 					State:      api.RsSubsuming,
 					Children:   []api.Ident{3},
 					Meta:       api.Meta{Ident: 1, Start: api.ZeroKey, End: api.Key("ggg")},
-					Placements: []*ranje.Placement{{NodeID: "n1", State: api.PsActive}},
+					Placements: []*ranje.Placement{{NodeID: "n1", StateCurrent: api.PsActive}},
 				},
 				{
 					State:      api.RsSubsuming,
 					Children:   []api.Ident{3},
 					Meta:       api.Meta{Ident: 2, Start: api.Key("ggg"), End: api.ZeroKey},
-					Placements: []*ranje.Placement{{NodeID: "n2", State: api.PsActive}},
+					Placements: []*ranje.Placement{{NodeID: "n2", StateCurrent: api.PsActive}},
 				},
 				{
 					State:      api.RsActive,
 					Parents:    []api.Ident{1, 2},
 					Meta:       api.Meta{Ident: 3, Start: api.ZeroKey},
-					Placements: []*ranje.Placement{{NodeID: "n3", State: api.PsInactive}},
+					Placements: []*ranje.Placement{{NodeID: "n3", StateCurrent: api.PsInactive}},
 				},
 			},
 			output: [][]string{

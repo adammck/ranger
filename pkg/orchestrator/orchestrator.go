@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adammck/ranger/pkg/actuator"
 	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/keyspace"
@@ -16,18 +15,11 @@ import (
 	"google.golang.org/grpc"
 )
 
-// TODO: Move these to scope.
-const maxGiveAttempts = 3
-const maxTakeAttempts = 3
-const maxServeAttempts = 3
-const maxDropAttempts = 30 // Not actually forever.
-
 type Orchestrator struct {
 	cfg  config.Config
 	ks   *keyspace.Keyspace
 	rost *roster.Roster // TODO: Use simpler interface, not whole Roster.
 	srv  *grpc.Server
-	act  actuator.Actuator
 
 	bs  *orchestratorServer
 	dbg *debugServer
@@ -47,13 +39,12 @@ type Orchestrator struct {
 	opJoinsMu sync.RWMutex
 }
 
-func New(cfg config.Config, ks *keyspace.Keyspace, rost *roster.Roster, act actuator.Actuator, srv *grpc.Server) *Orchestrator {
+func New(cfg config.Config, ks *keyspace.Keyspace, rost *roster.Roster, srv *grpc.Server) *Orchestrator {
 	b := &Orchestrator{
 		cfg:      cfg,
 		ks:       ks,
 		rost:     rost,
 		srv:      srv,
-		act:      act,
 		opMoves:  []OpMove{},
 		opSplits: map[api.Ident]OpSplit{},
 		opJoins:  []OpJoin{},
@@ -402,7 +393,7 @@ func (b *Orchestrator) doMove(r *ranje.Range, opMove OpMove) error {
 
 		// No source node given, so just take the first Ready placement.
 		for _, p := range r.Placements {
-			if p.State == api.PsActive {
+			if p.StateCurrent == api.PsActive {
 				src = p
 				break
 			}
@@ -448,7 +439,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 	// Get the node that this placement is on.
 	// (This is a problem, in most states.)
 	n := b.rost.NodeByIdent(p.NodeID)
-	if p.State != api.PsGiveUp && p.State != api.PsDropped {
+	if p.StateCurrent != api.PsGiveUp && p.StateCurrent != api.PsDropped {
 		if n == nil {
 			// The node has disappeared.
 			log.Printf("missing node: %s", p.NodeID)
@@ -496,7 +487,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 		//p.SetWantMoveTo(ranje.AnyNode())
 	}
 
-	switch p.State {
+	switch p.StateCurrent {
 	case api.PsPending:
 		doPlace := false
 
@@ -509,7 +500,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			switch ri.State {
 			case api.NsLoading:
 				log.Printf("node %s still loading %s", n.Ident(), p.Range().Meta.Ident)
-				b.act.Command(api.Give, p, n)
+				p.Want(api.PsInactive)
 
 			case api.NsInactive:
 				b.ks.PlacementToState(p, api.PsInactive)
@@ -520,7 +511,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 				doPlace = true
 
 			default:
-				log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
+				log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.StateCurrent)
 				b.ks.PlacementToState(p, api.PsGiveUp)
 			}
 		} else {
@@ -528,15 +519,9 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 		}
 
 		if doPlace {
-			if p.Attempts >= maxGiveAttempts {
-				log.Printf("given up on placing (rID=%s, n=%s, attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
-				n.PlacementFailed(p.Range().Meta.Ident, time.Now())
+			p.Want(api.PsInactive)
+			if p.Failed(api.Give) {
 				destroy = true
-
-			} else {
-				p.Attempts += 1
-				log.Printf("will give %s to %s (attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
-				b.act.Command(api.Give, p, n)
 			}
 		}
 
@@ -546,7 +531,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 
 			// The node doesn't have the placement any more! Maybe we tried to
 			// activate it but gave up.
-			if p.FailedActivate {
+			if p.Failed(api.Serve) {
 				destroy = true
 				return
 			}
@@ -570,16 +555,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			// move to Ready, the one it is replacing (maybe) must reliniquish
 			// it first.
 			if err := op.MayActivate(p, r); err == nil {
-				if p.Attempts >= maxServeAttempts {
-					log.Printf("given up on serving prepared placement (rID=%s, n=%s, attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
-					n.PlacementFailed(p.Range().Meta.Ident, time.Now())
-					p.FailedActivate = true
-
-				} else {
-					p.Attempts += 1
-					log.Printf("will serve %s to %s (attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
-					b.act.Command(api.Serve, p, n)
-				}
+				p.Want(api.PsActive)
 
 				return
 			} else {
@@ -589,17 +565,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			// We are ready to move from Inactive to Dropped, but we have to wait
 			// for the placement(s) that are replacing this to become Ready.
 			if err := op.MayDrop(p, r); err == nil {
-				if p.DropAttempts >= maxDropAttempts {
-					if !p.FailedDrop {
-						log.Printf("drop failed after %d attempts (rID=%s, n=%s, attempt=%d)", p.Attempts, p.Range().Meta.Ident, n.Ident(), p.Attempts)
-						p.FailedDrop = true
-					}
-				} else {
-					p.DropAttempts += 1
-					log.Printf("will drop %s from %s", p.Range().Meta.Ident, n.Ident())
-					b.act.Command(api.Drop, p, n)
-				}
-				return
+				p.Want(api.PsDropped)
 			} else {
 				log.Printf("will not drop (rID=%s, n=%s, err=%s)", p.Range().Meta.Ident, n.Ident(), err)
 			}
@@ -612,20 +578,18 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			// check whether it's finished and is now Ready. (Or has changed to
 			// some other state through crash or bug.)
 			log.Printf("node %s still readying %s", n.Ident(), p.Range().Meta.Ident)
-			// 	log.Printf("placement waiting at NsReadying (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
-			b.act.Command(api.Serve, p, n)
+			p.Want(api.PsActive)
 
 		case api.NsDropping:
 			// This placement failed to serve too many times. We've given up on it.
 			log.Printf("node %s still dropping %s", n.Ident(), p.Range().Meta.Ident)
-			// 	log.Printf("placement waiting at NsDropping (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
-			b.act.Command(api.Drop, p, n)
+			p.Want(api.PsDropped)
 
 		case api.NsActive:
 			b.ks.PlacementToState(p, api.PsActive)
 
 		default:
-			log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
+			log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.StateCurrent)
 			b.ks.PlacementToState(p, api.PsGiveUp)
 			return
 		}
@@ -643,32 +607,24 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 
 		switch ri.State {
 		case api.NsActive:
-			// No need to keep logging this.
-			//log.Printf("ready: %s", p.LogString())
 			doTake = true
 
 		case api.NsDeactivating:
 			log.Printf("node %s still deactivating %s", n.Ident(), p.Range().Meta.Ident)
-			b.act.Command(api.Take, p, n)
+			p.Want(api.PsInactive)
 
 		case api.NsInactive:
 			b.ks.PlacementToState(p, api.PsInactive)
 
 		default:
-			log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.State)
+			log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.StateCurrent)
 			b.ks.PlacementToState(p, api.PsGiveUp)
 		}
 
 		if doTake {
 			if err := op.MayDeactivate(p, r); err == nil {
-				if p.Attempts >= maxTakeAttempts {
-					log.Printf("given up on deactivating placement (rID=%s, n=%s, attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
-					p.FailedDeactivate = true
-				} else {
-					p.Attempts += 1
-					log.Printf("will take %s from %s (attempt=%d)", p.Range().Meta.Ident, n.Ident(), p.Attempts)
-					b.act.Command(api.Take, p, n)
-				}
+				p.Want(api.PsInactive)
+
 			} else {
 				log.Printf("will not deactivate (rID=%s, n=%s, err=%s)", p.Range().Meta.Ident, n.Ident(), err)
 			}
@@ -687,7 +643,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 		return
 
 	default:
-		panic(fmt.Sprintf("unhandled PlacementState value: %s", p.State))
+		panic(fmt.Sprintf("unhandled PlacementState value: %s", p.StateCurrent))
 	}
 
 	return

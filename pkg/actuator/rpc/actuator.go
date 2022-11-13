@@ -3,7 +3,6 @@ package rpc
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/adammck/ranger/pkg/actuator/util"
@@ -18,7 +17,6 @@ import (
 type Actuator struct {
 	ks  *keyspace.Keyspace
 	ros *roster.Roster
-	dup util.Deduper
 }
 
 const rpcTimeout = 1 * time.Second
@@ -27,35 +25,29 @@ func New(ks *keyspace.Keyspace, ros *roster.Roster) *Actuator {
 	return &Actuator{
 		ks:  ks,
 		ros: ros,
-		dup: util.NewDeduper(),
 	}
 }
 
 // TODO: This is currently duplicated.
-func (a *Actuator) Command(action api.Action, p *ranje.Placement, n *roster.Node) {
-	a.dup.Exec(action, p, n, func() {
-		s, err := a.cmd(action, p, n)
-		if err != nil {
-			log.Printf("actuation error: %v", err)
-			return
-		}
+func (a *Actuator) Command(cmd api.Command, p *ranje.Placement, n *roster.Node) error {
+	s, err := a.cmd(cmd.Action, p, n)
+	if err != nil {
+		return err
+	}
 
-		// TODO: This special case is weird. It was less so when Give was a
-		//       separate method. Think about it or something.
-		if action == api.Give {
-			n.UpdateRangeInfo(&api.RangeInfo{
-				Meta:  p.Range().Meta,
-				State: s,
-				Info:  api.LoadInfo{},
-			})
-		} else {
-			n.UpdateRangeState(p.Range().Meta.Ident, s)
-		}
-	})
-}
+	// TODO: This special case is weird. It was less so when Give was a
+	//       separate method. Think about it or something.
+	if cmd.Action == api.Give {
+		n.UpdateRangeInfo(&api.RangeInfo{
+			Meta:  p.Range().Meta,
+			State: s,
+			Info:  api.LoadInfo{},
+		})
+	} else {
+		n.UpdateRangeState(p.Range().Meta.Ident, s)
+	}
 
-func (a *Actuator) Wait() {
-	a.dup.Wait()
+	return nil
 }
 
 func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (api.RemoteState, error) {

@@ -40,7 +40,7 @@ func rangeResponse(r *ranje.Range, rost *roster.Roster) *pb.RangeResponse {
 		plc := &pb.PlacementWithRangeInfo{
 			Placement: &pb.Placement{
 				Node:  p.NodeID,
-				State: conv.PlacementStateToProto(p.State),
+				State: conv.PlacementStateToProto(p.StateCurrent),
 			},
 		}
 
@@ -71,7 +71,7 @@ func nodeResponse(ks *keyspace.Keyspace, n *roster.Node) *pb.NodeResponse {
 	for _, pl := range ks.PlacementsByNodeID(n.Ident()) {
 		res.Ranges = append(res.Ranges, &pb.NodeRange{
 			Meta:  conv.MetaToProto(pl.Range.Meta),
-			State: conv.PlacementStateToProto(pl.Placement.State),
+			State: conv.PlacementStateToProto(pl.Placement.StateCurrent),
 		})
 	}
 
