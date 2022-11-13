@@ -14,11 +14,11 @@ import (
 )
 
 type Actuator struct {
-	injects map[Command]*Inject
+	injects map[api.Command]*Inject
 	strict  bool
 
-	commands   []Command
-	unexpected []Command
+	commands   []api.Command
+	unexpected []api.Command
 
 	// mu guards everything.
 	// No need for granularity.
@@ -27,19 +27,19 @@ type Actuator struct {
 
 func New(strict bool) *Actuator {
 	return &Actuator{
-		injects:    map[Command]*Inject{},
+		injects:    map[api.Command]*Inject{},
 		strict:     strict,
-		commands:   []Command{},
-		unexpected: []Command{},
+		commands:   []api.Command{},
+		unexpected: []api.Command{},
 	}
 }
 
 func (a *Actuator) Reset() {
-	a.commands = []Command{}
-	a.unexpected = []Command{}
+	a.commands = []api.Command{}
+	a.unexpected = []api.Command{}
 }
 
-func (a *Actuator) Unexpected() []Command {
+func (a *Actuator) Unexpected() []api.Command {
 	return a.unexpected
 }
 
@@ -70,10 +70,10 @@ func (a *Actuator) Command(action api.Action, p *ranje.Placement, n *roster.Node
 // to the Roster. The default return given via def, but may be overriden via
 // Expect to simulate failures.
 func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (api.RemoteState, error) {
-	cmd := Command{
-		rID: p.Range().Meta.Ident,
-		nID: n.Ident(),
-		act: action,
+	cmd := api.Command{
+		RangeIdent: p.Range().Meta.Ident,
+		NodeIdent:  n.Ident(),
+		Action:     action,
 	}
 
 	a.mu.Lock()
@@ -146,10 +146,10 @@ func (ij *Inject) Response(ns api.RemoteState) *Inject {
 }
 
 func (a *Actuator) Inject(nID string, rID api.Ident, act api.Action) *Inject {
-	cmd := Command{
-		nID: nID,
-		rID: rID,
-		act: act,
+	cmd := api.Command{
+		RangeIdent: rID,
+		NodeIdent:  nID,
+		Action:     act,
 	}
 
 	exp := &Inject{
