@@ -520,7 +520,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 
 		if doPlace {
 			p.Want(api.PsInactive)
-			if p.FailedGive {
+			if p.Failed(api.Give) {
 				destroy = true
 			}
 		}
@@ -531,7 +531,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 
 			// The node doesn't have the placement any more! Maybe we tried to
 			// activate it but gave up.
-			if p.FailedActivate {
+			if p.Failed(api.Serve) {
 				destroy = true
 				return
 			}

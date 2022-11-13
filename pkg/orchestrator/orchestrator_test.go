@@ -231,7 +231,7 @@ func TestPlaceFailure_AddRange(t *testing.T) {
 	}
 
 	p := mustGetPlacement(t, orch.ks, 1, "test-aaa")
-	require.True(t, p.FailedActivate)
+	require.True(t, p.Failed(api.Serve))
 
 	// 3. DropRange(1, aaa)
 
@@ -482,7 +482,7 @@ func TestMoveFailure_PrepareAddRange(t *testing.T) {
 	}
 
 	p := mustGetPlacement(t, orch.ks, 1, "test-bbb")
-	require.True(t, p.FailedGive)
+	require.True(t, p.Failed(api.Give))
 
 	// Failed placement is destroyed.
 
@@ -529,7 +529,7 @@ func TestMoveFailure_PrepareDropRange(t *testing.T) {
 	}
 
 	p := mustGetPlacement(t, orch.ks, 1, "test-aaa")
-	require.True(t, p.FailedDeactivate)
+	require.True(t, p.Failed(api.Take))
 
 	// 3. Node B gets DropRange, to abandon the placement it prepared. It will
 	//    never become ready.
@@ -599,7 +599,7 @@ func TestMoveFailure_AddRange(t *testing.T) {
 	}
 
 	p := mustGetPlacement(t, orch.ks, 1, "test-bbb")
-	require.True(t, p.FailedActivate)
+	require.True(t, p.Failed(api.Serve))
 
 	// Range is reactivated on the original node, because the new one failed.
 
@@ -950,7 +950,7 @@ func TestSplitFailure_PrepareAddRange(t *testing.T) {
 	}
 
 	p := mustGetPlacement(t, orch.ks, 2, "test-bbb")
-	assert.True(t, p.FailedGive)
+	assert.True(t, p.Failed(api.Give))
 
 	tickWait(t, orch, act)
 	// Failed placement is destroyed.
@@ -992,7 +992,7 @@ func TestSplitFailure_PrepareDropRange_Short(t *testing.T) {
 	// R1 is stuck until some operator comes and unsticks it.
 	// TODO: Make it possible (configurable) to automatically force drop it.
 	p := mustGetPlacement(t, orch.ks, 1, "test-aaa")
-	assert.True(t, p.FailedDeactivate)
+	assert.True(t, p.Failed(api.Take))
 }
 
 func TestSplitFailure_PrepareDropRange(t *testing.T) {
@@ -1061,7 +1061,7 @@ func TestSplitFailure_AddRange(t *testing.T) {
 	}
 
 	p := mustGetPlacement(t, orch.ks, 2, "test-bbb")
-	require.True(t, p.FailedActivate)
+	require.True(t, p.Failed(api.Serve))
 
 	// 4. PrepareDropRange
 	//
@@ -1073,7 +1073,7 @@ func TestSplitFailure_AddRange(t *testing.T) {
 	require.Equal(t, "Take(R3, test-bbb)", commands(t, act))
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
-	require.True(t, mustGetPlacement(t, orch.ks, 2, "test-bbb").FailedActivate)
+	require.True(t, mustGetPlacement(t, orch.ks, 2, "test-bbb").Failed(api.Serve))
 	require.Equal(t, "{Split 1 <- 2,3}", OpsString(orch.ks))
 
 	tickWait(t, orch, act)
@@ -1144,7 +1144,7 @@ func TestSplitFailure_DropRange_Short(t *testing.T) {
 	// R1 is stuck until some operator comes and unsticks it.
 	// TODO: Make it possible (configurable) to automatically force drop it.
 	p := mustGetPlacement(t, orch.ks, 1, "test-aaa")
-	assert.True(t, p.FailedDrop)
+	assert.True(t, p.Failed(api.Drop))
 }
 
 func TestJoin(t *testing.T) {
@@ -1327,7 +1327,7 @@ func TestJoinFailure_PrepareAddRange(t *testing.T) {
 
 	// Gave up on test-ccc...
 	p := mustGetPlacement(t, orch.ks, 3, "test-ccc")
-	require.True(t, p.FailedGive)
+	require.True(t, p.Failed(api.Give))
 
 	// But for better or worse, R3 now exists, and the orchestrator will try to
 	// place it rather than giving up altogether and abandonning the range. I'm
@@ -1383,7 +1383,7 @@ func TestJoinFailure_PrepareDropRange(t *testing.T) {
 	}
 
 	p := mustGetPlacement(t, orch.ks, 1, "test-aaa")
-	require.True(t, p.FailedDeactivate)
+	require.True(t, p.Failed(api.Take))
 
 	// Gave up on R1, so reactivate the one which did deactivate.
 
@@ -1391,7 +1391,7 @@ func TestJoinFailure_PrepareDropRange(t *testing.T) {
 	require.Equal(t, "Serve(R2, test-bbb)", commands(t, act))
 	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsInactive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc [3:NsInactive]} {test-ddd []}", orch.rost.TestString())
-	require.True(t, mustGetPlacement(t, orch.ks, 1, "test-aaa").FailedDeactivate)
+	require.True(t, mustGetPlacement(t, orch.ks, 1, "test-aaa").Failed(api.Take))
 	require.Equal(t, "{Join 1,2 <- 3}", OpsString(orch.ks))
 
 	// R2 updates state
@@ -1419,8 +1419,7 @@ func TestJoinFailure_PrepareDropRange(t *testing.T) {
 	// For now, reset the failure flag so the next tick will try again. (This
 	// actually seems like something there should be an operator interface for!)
 	r1p0 := mustGetPlacement(t, orch.ks, 1, "test-aaa")
-	r1p0.FailedDeactivate = false
-	r1p0.Failures = 0
+	r1p0.SetFailed(api.Take, false)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Take(R1, test-aaa), Take(R2, test-bbb)", commands(t, act))
@@ -1484,7 +1483,7 @@ func TestJoinFailure_AddRange_Short(t *testing.T) {
 	// The child range will be placed on ccc, but fail to activate a few times
 	// and eventually give up.
 	tickUntil(t, orch, act, func(ks, ro string) bool {
-		return mustGetPlacement(t, orch.ks, 3, "test-ccc").FailedActivate
+		return mustGetPlacement(t, orch.ks, 3, "test-ccc").Failed(api.Serve)
 	})
 
 	// This is a bad state to be in! But it's valid, because the parent ranges
@@ -1523,7 +1522,7 @@ func TestJoinFailure_DropRange_Short(t *testing.T) {
 	assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb []} {test-ccc [3:NsActive]}", orch.rost.TestString())
 
 	p := mustGetPlacement(t, orch.ks, 1, "test-aaa")
-	assert.True(t, p.FailedDrop)
+	assert.True(t, p.Failed(api.Drop))
 }
 
 func TestMissingPlacement(t *testing.T) {

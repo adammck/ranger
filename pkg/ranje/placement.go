@@ -31,35 +31,10 @@ type Placement struct {
 	// TODO: Change this to some kind of uuid.
 	IsReplacing string `json:",omitempty"` // NodeID
 
-	// How many times has this placement failed to advance to the next state?
-	// Orchestrator uses this to determine whether to give up or try again.
-	// Reset by ToState.
-	// TODO: Split this up into separate transitions, like DropAttempts.
-	Failures int
-
-	// FailedGive is set by the orchestrator if the placement has been asked to
-	// give (to the specified NodeID) a few times but has failed. This indicates
-	// that it won't be attempted again.
-	FailedGive bool
-
-	// Once this is set, the placement is destined to be destroyed. It's never
-	// unset. Might take a few ticks in order to unwind things gracefully,
-	// depending on the state which the placement and its family are in.
-	FailedActivate bool
-
-	// The placement was attempted to be deactivated a few times, but the node
-	// refused. This is a really weird situation. But we need to stop trying
-	// eventually, so the replacements can be dropped and (presumably) an
-	// operator can be alerted.
-	FailedDeactivate bool
-
-	// How many times has this place been commanded to drop?
-	DropFailures int
-
-	// The placement is inactive, but failed to drop. Probably no harm done,
-	// except that the node can't release the resources. An operator should be
-	// alerted.
-	FailedDrop bool
+	// failures is updated by the actuator when an action is attempted a few
+	// times but fails. This generally causes the placement to become wedged
+	// until an operator intervenes.
+	failures map[api.Action]bool
 
 	// Not persisted.
 	replaceDone func()
@@ -143,9 +118,7 @@ func (p *Placement) ToState(new api.PlacementState) error {
 	}
 
 	p.StateCurrent = new
-	p.Failures = 0
-	p.FailedActivate = false
-	p.FailedDeactivate = false
+	p.failures = nil
 	p.rang.dirty = true
 
 	// TODO: Make this less weird
@@ -169,4 +142,22 @@ func (p *Placement) OnReady(f func()) {
 	}
 
 	p.onReady = f
+}
+
+// Failed returns true if the given action has been attempted but has failed.
+func (p *Placement) Failed(a api.Action) bool {
+	if p.failures == nil {
+		return false
+	}
+
+	return p.failures[a]
+}
+
+func (p *Placement) SetFailed(a api.Action, value bool) {
+	if p.failures == nil {
+		// lazy init, since most placements don't fail.
+		p.failures = map[api.Action]bool{}
+	}
+
+	p.failures[a] = value
 }

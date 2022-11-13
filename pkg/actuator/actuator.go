@@ -99,22 +99,7 @@ func (a *Actuator) consider(p *ranje.Placement) {
 		return
 	}
 
-	f := false
-	switch action {
-	case api.Give:
-		f = p.FailedGive
-	case api.Serve:
-		f = p.FailedActivate
-	case api.Take:
-		f = p.FailedDeactivate
-	case api.Drop:
-		f = p.FailedDrop
-	default:
-		// TODO: Use exhaustive analyzer?
-		panic(fmt.Sprintf("unknown action: %v", action))
-	}
-
-	if f {
+	if p.Failed(action) {
 		log.Printf("Actuator.Consider(%s:%s): command previously failed",
 			p.Range().Meta.Ident, p.NodeID)
 		return
@@ -208,25 +193,12 @@ func (a *Actuator) incrementError(action api.Action, p *ranje.Placement, n *rost
 
 	if f >= maxFailures[action] {
 		delete(a.failures, key)
+		p.SetFailed(action, true)
 
-		switch action {
-		case api.Give:
+		// TODO: Can this go somewhere else? The roster needs to know that the
+		//       failure happened so it can avoid placing ranges on the node.
+		if action == api.Give || action == api.Serve {
 			n.PlacementFailed(p.Range().Meta.Ident, time.Now())
-			p.FailedGive = true
-
-		case api.Serve:
-			n.PlacementFailed(p.Range().Meta.Ident, time.Now())
-			p.FailedActivate = true
-
-		case api.Take:
-			p.FailedDeactivate = true
-
-		case api.Drop:
-			p.FailedDrop = true
-
-		default:
-			// TODO: Use exhaustive analyzer?
-			panic(fmt.Sprintf("unknown action: %v", action))
 		}
 	}
 }
