@@ -3,7 +3,6 @@ package rpc
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/adammck/ranger/pkg/actuator/util"
@@ -30,16 +29,15 @@ func New(ks *keyspace.Keyspace, ros *roster.Roster) *Actuator {
 }
 
 // TODO: This is currently duplicated.
-func (a *Actuator) Command(action api.Action, p *ranje.Placement, n *roster.Node) error {
-	s, err := a.cmd(action, p, n)
+func (a *Actuator) Command(cmd api.Command, p *ranje.Placement, n *roster.Node) error {
+	s, err := a.cmd(cmd.Action, p, n)
 	if err != nil {
-		log.Printf("actuation error: %v", err)
 		return err
 	}
 
 	// TODO: This special case is weird. It was less so when Give was a
 	//       separate method. Think about it or something.
-	if action == api.Give {
+	if cmd.Action == api.Give {
 		n.UpdateRangeInfo(&api.RangeInfo{
 			Meta:  p.Range().Meta,
 			State: s,

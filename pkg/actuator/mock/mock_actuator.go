@@ -44,15 +44,15 @@ func (a *Actuator) Unexpected() []api.Command {
 }
 
 // TODO: This is currently duplicated.
-func (a *Actuator) Command(action api.Action, p *ranje.Placement, n *roster.Node) error {
-	s, err := a.cmd(action, p, n)
+func (a *Actuator) Command(cmd api.Command, p *ranje.Placement, n *roster.Node) error {
+	s, err := a.cmd(cmd.Action, p, n)
 	if err != nil {
 		return err
 	}
 
 	// TODO: This special case is weird. It was less so when Give was a
 	//       separate method. Think about it or something.
-	if action == api.Give {
+	if cmd.Action == api.Give {
 		n.UpdateRangeInfo(&api.RangeInfo{
 			Meta:  p.Range().Meta,
 			State: s,

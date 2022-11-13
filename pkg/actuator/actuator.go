@@ -13,7 +13,10 @@ import (
 )
 
 type Impl interface {
-	Command(action api.Action, p *ranje.Placement, n *roster.Node) error
+	// TODO: This can probably be simplified further. Ideally just the command,
+	//       and the implementation can embed a keyspace or roster to look the
+	//       other stuff up if they want.
+	Command(cmd api.Command, p *ranje.Placement, n *roster.Node) error
 }
 
 type Actuator struct {
@@ -27,13 +30,12 @@ type Actuator struct {
 	// RPCs which have been sent (via orch.RPC) but not yet completed. Used to
 	// avoid sending the same RPC redundantly every single tick. (Though RPCs
 	// *can* be re-sent an arbitrary number of times. Rangelet will dedup them.)
-	// TODO: Use api.Command as the key.
-	inFlight   map[string]struct{}
+	inFlight   map[api.Command]struct{}
 	inFlightMu sync.Mutex
 
 	// TODO: Use api.Command as the key.
 	// TODO: Trim contents periodically.
-	failures   map[string][]time.Time
+	failures   map[api.Command][]time.Time
 	failuresMu sync.Mutex
 }
 
@@ -42,8 +44,8 @@ func New(ks *keyspace.Keyspace, ros *roster.Roster, impl Impl) *Actuator {
 		ks:       ks,
 		ros:      ros,
 		Impl:     impl,
-		inFlight: map[string]struct{}{},
-		failures: map[string][]time.Time{},
+		inFlight: map[api.Command]struct{}{},
+		failures: map[api.Command][]time.Time{},
 	}
 }
 
@@ -113,21 +115,25 @@ func (a *Actuator) consider(p *ranje.Placement) {
 		return
 	}
 
-	a.Exec(action, p, n)
+	cmd := api.Command{
+		RangeIdent: p.Range().Meta.Ident,
+		NodeIdent:  n.Remote.Ident,
+		Action:     action,
+	}
+
+	a.Exec(cmd, p, n)
 }
 
-func (a *Actuator) Exec(action api.Action, p *ranje.Placement, n *roster.Node) {
-	key := fmt.Sprintf("%v:%s:%s", action, p.Range().Meta.Ident, n.Remote.Ident)
-
+func (a *Actuator) Exec(cmd api.Command, p *ranje.Placement, n *roster.Node) {
 	a.inFlightMu.Lock()
-	_, ok := a.inFlight[key]
+	_, ok := a.inFlight[cmd]
 	if !ok {
-		a.inFlight[key] = struct{}{}
+		a.inFlight[cmd] = struct{}{}
 	}
 	a.inFlightMu.Unlock()
 
 	if ok {
-		log.Printf("dropping in-flight command: %s", key)
+		log.Printf("dropping in-flight command: %s", cmd)
 		return
 	}
 
@@ -138,20 +144,20 @@ func (a *Actuator) Exec(action api.Action, p *ranje.Placement, n *roster.Node) {
 		// TODO: Inject some client-side chaos here, too. RPCs complete very
 		//       quickly locally, which doesn't test our in-flight thing well.
 
-		err := a.Impl.Command(action, p, n)
+		err := a.Impl.Command(cmd, p, n)
 		if err != nil {
-			a.incrementError(action, p, n)
+			a.incrementError(cmd, p, n)
 		}
 
 		a.inFlightMu.Lock()
-		if _, ok := a.inFlight[key]; !ok {
+		if _, ok := a.inFlight[cmd]; !ok {
 			// Critical this works, because could drop all RPCs. Note that we
 			// don't release the lock, so no more RPCs even if the panic is
 			// caught, which it shouldn't be.
-			panic(fmt.Sprintf("no record of in-flight command: %s", key))
+			panic(fmt.Sprintf("no record of in-flight command: %s", cmd))
 		}
-		log.Printf("command completed: %s", key)
-		delete(a.inFlight, key)
+
+		delete(a.inFlight, cmd)
 		a.inFlightMu.Unlock()
 
 		a.wg.Done()
@@ -188,32 +194,30 @@ func actuation(p *ranje.Placement) (api.Action, error) {
 		p.StateDesired.String())
 }
 
-func (a *Actuator) incrementError(action api.Action, p *ranje.Placement, n *roster.Node) {
-	key := fmt.Sprintf("%v:%s:%s", action, p.Range().Meta.Ident, n.Remote.Ident)
-
+func (a *Actuator) incrementError(cmd api.Command, p *ranje.Placement, n *roster.Node) {
 	f := 0
 	func() {
 		a.failuresMu.Lock()
 		defer a.failuresMu.Unlock()
 
-		t, ok := a.failures[key]
+		t, ok := a.failures[cmd]
 		if !ok {
 			t = []time.Time{}
 		}
 
 		t = append(t, time.Now())
-		a.failures[key] = t
+		a.failures[cmd] = t
 
 		f = len(t)
 	}()
 
-	if f >= maxFailures[action] {
-		delete(a.failures, key)
-		p.SetFailed(action, true)
+	if f >= maxFailures[cmd.Action] {
+		delete(a.failures, cmd)
+		p.SetFailed(cmd.Action, true)
 
 		// TODO: Can this go somewhere else? The roster needs to know that the
 		//       failure happened so it can avoid placing ranges on the node.
-		if action == api.Give || action == api.Serve {
+		if cmd.Action == api.Give || cmd.Action == api.Serve {
 			n.PlacementFailed(p.Range().Meta.Ident, time.Now())
 		}
 	}
