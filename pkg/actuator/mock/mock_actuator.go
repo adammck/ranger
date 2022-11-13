@@ -9,15 +9,11 @@ import (
 	"sync"
 
 	"github.com/adammck/ranger/pkg/api"
-	"github.com/adammck/ranger/pkg/keyspace"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
 )
 
 type Actuator struct {
-	ks  *keyspace.Keyspace
-	ros *roster.Roster
-
 	injects map[Command]*Inject
 	strict  bool
 
@@ -29,10 +25,8 @@ type Actuator struct {
 	mu sync.Mutex
 }
 
-func New(ks *keyspace.Keyspace, ros *roster.Roster, strict bool) *Actuator {
+func New(strict bool) *Actuator {
 	return &Actuator{
-		ks:         ks,
-		ros:        ros,
 		injects:    map[Command]*Inject{},
 		strict:     strict,
 		commands:   []Command{},
@@ -69,9 +63,6 @@ func (a *Actuator) Command(action api.Action, p *ranje.Placement, n *roster.Node
 	}
 
 	return nil
-}
-
-func (a *Actuator) Wait() {
 }
 
 // command logs a command (to be retrived later via Commands), and returns the

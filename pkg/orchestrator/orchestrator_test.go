@@ -231,7 +231,6 @@ func TestPlaceFailure_AddRange(t *testing.T) {
 	}
 
 	p := mustGetPlacement(t, orch.ks, 1, "test-aaa")
-	require.Equal(t, 3, p.Failures)
 	require.True(t, p.FailedActivate)
 
 	// 3. DropRange(1, aaa)
@@ -483,7 +482,6 @@ func TestMoveFailure_PrepareAddRange(t *testing.T) {
 	}
 
 	p := mustGetPlacement(t, orch.ks, 1, "test-bbb")
-	require.Equal(t, 3, p.Failures)
 	require.True(t, p.FailedGive)
 
 	// Failed placement is destroyed.
@@ -531,7 +529,6 @@ func TestMoveFailure_PrepareDropRange(t *testing.T) {
 	}
 
 	p := mustGetPlacement(t, orch.ks, 1, "test-aaa")
-	require.Equal(t, 3, p.Failures)
 	require.True(t, p.FailedDeactivate)
 
 	// 3. Node B gets DropRange, to abandon the placement it prepared. It will
@@ -602,7 +599,6 @@ func TestMoveFailure_AddRange(t *testing.T) {
 	}
 
 	p := mustGetPlacement(t, orch.ks, 1, "test-bbb")
-	require.Equal(t, 3, p.Failures)
 	require.True(t, p.FailedActivate)
 
 	// Range is reactivated on the original node, because the new one failed.
@@ -656,9 +652,6 @@ func TestMoveFailure_DropRange(t *testing.T) {
 		// But no state changed.
 		assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive p1=test-bbb:PsActive:replacing(test-aaa)}", orch.ks.LogString())
 		assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [1:NsActive]}", orch.rost.TestString())
-
-		// (Except for this counter.)
-		assert.Equal(t, attempt, mustGetPlacement(t, orch.ks, 1, "test-aaa").DropFailures)
 	}
 
 	// Not checking stability here. Failing to drop will retry forever until an
@@ -957,7 +950,6 @@ func TestSplitFailure_PrepareAddRange(t *testing.T) {
 	}
 
 	p := mustGetPlacement(t, orch.ks, 2, "test-bbb")
-	assert.Equal(t, 3, p.Failures)
 	assert.True(t, p.FailedGive)
 
 	tickWait(t, orch, act)
@@ -1069,7 +1061,6 @@ func TestSplitFailure_AddRange(t *testing.T) {
 	}
 
 	p := mustGetPlacement(t, orch.ks, 2, "test-bbb")
-	require.Equal(t, 3, p.Failures)
 	require.True(t, p.FailedActivate)
 
 	// 4. PrepareDropRange
@@ -1336,7 +1327,6 @@ func TestJoinFailure_PrepareAddRange(t *testing.T) {
 
 	// Gave up on test-ccc...
 	p := mustGetPlacement(t, orch.ks, 3, "test-ccc")
-	require.Equal(t, 3, p.Failures)
 	require.True(t, p.FailedGive)
 
 	// But for better or worse, R3 now exists, and the orchestrator will try to
@@ -1393,7 +1383,6 @@ func TestJoinFailure_PrepareDropRange(t *testing.T) {
 	}
 
 	p := mustGetPlacement(t, orch.ks, 1, "test-aaa")
-	require.Equal(t, 3, p.Failures)
 	require.True(t, p.FailedDeactivate)
 
 	// Gave up on R1, so reactivate the one which did deactivate.
@@ -1787,10 +1776,7 @@ func orchFactoryNoCheck(t *testing.T, sKS, sRos string, cfg config.Config, stric
 	ks := keyspaceFactory(t, cfg, parseKeyspace(t, sKS))
 	ros := rosterFactory(t, cfg, context.TODO(), ks, parseRoster(t, sRos))
 	srv := grpc.NewServer() // TODO: Allow this to be nil.
-
-	actImpl := mock_actuator.New(ks, ros, strict)
-	act := actuator.New(ks, ros, actImpl)
-
+	act := actuator.New(ks, ros, mock_actuator.New(strict))
 	orch := New(cfg, ks, ros, srv)
 	return orch, act
 }

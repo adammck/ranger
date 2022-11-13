@@ -6,6 +6,7 @@ import (
 	"github.com/adammck/ranger/pkg/api"
 )
 
+// TODO: Move this into API. (But need to move ranje.Ident first.)
 type Command struct {
 	rID api.Ident // sort by this
 	nID string    // and then this

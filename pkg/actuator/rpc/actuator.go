@@ -18,7 +18,6 @@ import (
 type Actuator struct {
 	ks  *keyspace.Keyspace
 	ros *roster.Roster
-	dup util.Deduper
 }
 
 const rpcTimeout = 1 * time.Second
@@ -27,37 +26,30 @@ func New(ks *keyspace.Keyspace, ros *roster.Roster) *Actuator {
 	return &Actuator{
 		ks:  ks,
 		ros: ros,
-		dup: util.NewDeduper(),
 	}
 }
 
 // TODO: This is currently duplicated.
 func (a *Actuator) Command(action api.Action, p *ranje.Placement, n *roster.Node) error {
-	a.dup.Exec(action, p, n, func() {
-		s, err := a.cmd(action, p, n)
-		if err != nil {
-			log.Printf("actuation error: %v", err)
-			return
-		}
+	s, err := a.cmd(action, p, n)
+	if err != nil {
+		log.Printf("actuation error: %v", err)
+		return err
+	}
 
-		// TODO: This special case is weird. It was less so when Give was a
-		//       separate method. Think about it or something.
-		if action == api.Give {
-			n.UpdateRangeInfo(&api.RangeInfo{
-				Meta:  p.Range().Meta,
-				State: s,
-				Info:  api.LoadInfo{},
-			})
-		} else {
-			n.UpdateRangeState(p.Range().Meta.Ident, s)
-		}
-	})
+	// TODO: This special case is weird. It was less so when Give was a
+	//       separate method. Think about it or something.
+	if action == api.Give {
+		n.UpdateRangeInfo(&api.RangeInfo{
+			Meta:  p.Range().Meta,
+			State: s,
+			Info:  api.LoadInfo{},
+		})
+	} else {
+		n.UpdateRangeState(p.Range().Meta.Ident, s)
+	}
 
 	return nil
-}
-
-func (a *Actuator) Wait() {
-	a.dup.Wait()
 }
 
 func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (api.RemoteState, error) {
