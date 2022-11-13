@@ -54,7 +54,7 @@ message RangeInfo {
  }
 
 // TODO: Rename to RemoteState, like the non-proto type.
-// Keep synced with roster/state.RemoteState (in pkg/roster/state/remote_state.go)
+// Keep synced with roster/api.RemoteState (in pkg/roster/state/remote_state.go)
 enum RangeNodeState {
   UNKNOWN = 0;
 

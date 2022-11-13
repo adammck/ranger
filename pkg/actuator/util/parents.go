@@ -3,7 +3,9 @@ package util
 import (
 	"fmt"
 
+	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/keyspace"
+	"github.com/adammck/ranger/pkg/proto/conv"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
@@ -12,12 +14,12 @@ import (
 // TODO: Where does this belong? Probably not here!
 func GetParents(ks *keyspace.Keyspace, rost *roster.Roster, rang *ranje.Range) []*pb.Parent {
 	parents := []*pb.Parent{}
-	seen := map[ranje.Ident]struct{}{}
+	seen := map[api.Ident]struct{}{}
 	addParents(ks, rost, rang, &parents, seen)
 	return parents
 }
 
-func addParents(ks *keyspace.Keyspace, rost *roster.Roster, rang *ranje.Range, parents *[]*pb.Parent, seen map[ranje.Ident]struct{}) {
+func addParents(ks *keyspace.Keyspace, rost *roster.Roster, rang *ranje.Range, parents *[]*pb.Parent, seen map[api.Ident]struct{}) {
 	_, ok := seen[rang.Meta.Ident]
 	if ok {
 		return
@@ -56,12 +58,12 @@ func pbPlacement(rost *roster.Roster, r *ranje.Range) *pb.Parent {
 
 		pbPlacements[i] = &pb.Placement{
 			Node:  node,
-			State: p.State.ToProto(),
+			State: conv.PlacementStateToProto(p.State),
 		}
 	}
 
 	return &pb.Parent{
-		Range:      r.Meta.ToProto(),
+		Range:      conv.MetaToProto(r.Meta),
 		Placements: pbPlacements,
 	}
 }

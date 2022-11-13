@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/ranje"
 )
 
@@ -17,9 +18,9 @@ func (ks *Keyspace) Operations() ([]*Operation, error) {
 	// Build a set of active ranges to consider. This is churning through the
 	// whole range history, but only really needs the leaf ranges. Keep an index
 	// of those in the keyspace.
-	ranges := map[ranje.Ident]*ranje.Range{}
+	ranges := map[api.Ident]*ranje.Range{}
 	for _, r := range ks.ranges {
-		if r.State == ranje.RsActive {
+		if r.State == api.RsActive {
 			ranges[r.Meta.Ident] = r
 		}
 	}
@@ -66,7 +67,7 @@ type Operation struct {
 }
 
 func NewOperation(parents, children []*ranje.Range) *Operation {
-	sort := ranje.Ident(math.MaxInt)
+	sort := api.Ident(math.MaxInt)
 
 	// Sort by the lowest range ID in each operation.
 	for _, rs := range [][]*ranje.Range{parents, children} {
@@ -138,7 +139,7 @@ func (op *Operation) direction(d dir) []*ranje.Range {
 	}
 }
 
-func (op *Operation) isDirection(d dir, rID ranje.Ident) bool {
+func (op *Operation) isDirection(d dir, rID api.Ident) bool {
 	for _, rr := range op.direction(d) {
 		if rID == rr.Meta.Ident {
 			return true
@@ -173,7 +174,7 @@ func (op *Operation) CheckComplete(ks *Keyspace) (bool, error) {
 	}
 
 	for _, r := range op.parents {
-		err := ks.RangeToState(r, ranje.RsObsolete)
+		err := ks.RangeToState(r, api.RsObsolete)
 		if err != nil {
 			return false, fmt.Errorf("while completing operation: %w", err)
 		}
@@ -237,7 +238,7 @@ var ErrNoParents = errors.New("given range has no parents")
 var ErrObsoleteParents = errors.New("given range has obsolete parents")
 
 func opFromRange(ks *Keyspace, r *ranje.Range) (op *Operation, err error) {
-	if r.State != ranje.RsActive {
+	if r.State != api.RsActive {
 		panic("bug: called opFromRange with non-active range")
 	}
 
@@ -251,7 +252,7 @@ func opFromRange(ks *Keyspace, r *ranje.Range) (op *Operation, err error) {
 
 	// Keep track of the state of parent ranges as we iterate through them. (If
 	// we find any that don't match, the keyspace is borked.)
-	var sp ranje.RangeState
+	var sp api.RangeState
 
 	// Collect all of the parent ranges involved in this operation.
 	parents := make([]*ranje.Range, len(r.Parents))
@@ -279,7 +280,7 @@ func opFromRange(ks *Keyspace, r *ranje.Range) (op *Operation, err error) {
 	// be one parent or one child, and more than one of the other. We might
 	// support more complex (n:m) cases one day.
 	children := []*ranje.Range{} // length unknown
-	seen := map[ranje.Ident]struct{}{}
+	seen := map[api.Ident]struct{}{}
 	for i := range parents {
 		for _, cID := range parents[i].Children {
 			if _, ok := seen[cID]; ok {
@@ -297,11 +298,11 @@ func opFromRange(ks *Keyspace, r *ranje.Range) (op *Operation, err error) {
 
 	// If the parents are all obsolete, then there is no operation in progress.
 	// This is the case most of the time.
-	if sp == ranje.RsObsolete {
+	if sp == api.RsObsolete {
 		return nil, ErrObsoleteParents
 	}
 
-	if sp != ranje.RsSubsuming {
+	if sp != api.RsSubsuming {
 		return nil, fmt.Errorf(
 			"unexpected state for parents of rID=%d: %s",
 			r.Meta.Ident, sp)
@@ -324,8 +325,8 @@ func (op *Operation) MayActivate(p *ranje.Placement, r *ranje.Range) error {
 	// Beware! This is sometimes called with a nil operation!
 	// TODO: Figure out what to do for op-less placement judgments.
 
-	if p.State != ranje.PsInactive {
-		return fmt.Errorf("placment not in ranje.PsInactive")
+	if p.State != api.PsInactive {
+		return fmt.Errorf("placment not in api.PsInactive")
 	}
 
 	// If this placement has been given up on, it's destined to be dropped
@@ -339,7 +340,7 @@ func (op *Operation) MayActivate(p *ranje.Placement, r *ranje.Range) error {
 	// placement may become active.
 	n := 0
 	for _, pp := range r.Placements {
-		if pp.State == ranje.PsActive {
+		if pp.State == api.PsActive {
 			n += 1
 		}
 	}
@@ -369,7 +370,7 @@ func (op *Operation) MayActivate(p *ranje.Placement, r *ranje.Range) error {
 		// deactivated. Otherwise, there will be overlaps.
 		for _, rp := range op.direction(Source) {
 			for _, pp := range rp.Placements {
-				if pp.State == ranje.PsActive {
+				if pp.State == api.PsActive {
 					return fmt.Errorf("parent placement is PsActive")
 				}
 			}
@@ -389,8 +390,8 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 	// Beware! This is sometimes called with a nil operation!
 	// TODO: Figure out what to do for op-less placement judgments.
 
-	if p.State != ranje.PsActive {
-		return fmt.Errorf("placment not in ranje.PsActive")
+	if p.State != api.PsActive {
+		return fmt.Errorf("placment not in api.PsActive")
 	}
 
 	if p.FailedDeactivate {
@@ -410,7 +411,7 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 				return fmt.Errorf("replacement has given up")
 			}
 
-			if other.State != ranje.PsInactive {
+			if other.State != api.PsInactive {
 				return fmt.Errorf("replacement is not inactive")
 			}
 
@@ -441,7 +442,7 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 
 			n := 0
 			for _, pc := range rc.Placements {
-				if pc.State == ranje.PsInactive {
+				if pc.State == api.PsInactive {
 					n += 1
 				}
 			}
@@ -460,7 +461,7 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 
 // isChild returns true if the given range ID is one of the child ranges in this
 // operation. This mostly shouldn't be used. Special case just for MayDrop.
-func (op *Operation) isChild(rID ranje.Ident) bool {
+func (op *Operation) isChild(rID api.Ident) bool {
 	for _, rr := range op.children {
 		if rID == rr.Meta.Ident {
 			return true
@@ -476,16 +477,16 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 	// Beware! This is sometimes called with a nil operation!
 	// TODO: Figure out what to do for op-less placement judgments.
 
-	if p.State != ranje.PsInactive {
-		return fmt.Errorf("placment not in ranje.PsInactive")
+	if p.State != api.PsInactive {
+		return fmt.Errorf("placment not in api.PsInactive")
 	}
 
 	if op == nil {
 		// Is this placement being replaced by some other? Can drop as soon as
 		// that other placement becomes active.
 		if other := replacementFor(p); other != nil {
-			if other.State != ranje.PsActive {
-				return fmt.Errorf("replacement not ranje.PsActive; is %s", other.State)
+			if other.State != api.PsActive {
+				return fmt.Errorf("replacement not api.PsActive; is %s", other.State)
 			}
 
 			return nil
@@ -499,7 +500,7 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 			// dropped. In order to make that a bit safer and more orderly,
 			// delay the drop until after the other one has reactivated.
 			if p.FailedActivate {
-				if other.State == ranje.PsActive {
+				if other.State == api.PsActive {
 					return nil
 				} else {
 					return fmt.Errorf("won't drop aborted placement until original is reactivated")
@@ -542,7 +543,7 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 
 			active := 0
 			for _, p2 := range r2.Placements {
-				if p2.State == ranje.PsActive {
+				if p2.State == api.PsActive {
 					active += 1
 				}
 				if p2.FailedActivate {

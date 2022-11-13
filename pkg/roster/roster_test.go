@@ -6,11 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
 	"github.com/adammck/ranger/pkg/ranje"
-	"github.com/adammck/ranger/pkg/roster/info"
-	"github.com/adammck/ranger/pkg/roster/state"
 	"github.com/adammck/ranger/pkg/test/fake_nodes"
 	"github.com/stretchr/testify/suite"
 )
@@ -42,8 +41,8 @@ func (ts *RosterSuite) SetupTest() {
 
 	// Just to avoid constructing this thing everywhere.
 	ts.r = &ranje.Range{
-		Meta:  ranje.Meta{Ident: 1},
-		State: ranje.RsActive,
+		Meta:  api.Meta{Ident: 1},
+		State: api.RsActive,
 	}
 
 	// Empty by default.
@@ -86,20 +85,20 @@ func (ts *RosterSuite) TestCandidateByNodeID() {
 	}
 
 	r := &ranje.Range{
-		Meta: ranje.Meta{
+		Meta: api.Meta{
 			Ident: 1,
 		},
-		State: ranje.RsActive,
+		State: api.RsActive,
 		Placements: []*ranje.Placement{{
 			NodeID: aRem.Ident,
-			State:  ranje.PsActive,
+			State:  api.PsActive,
 		}},
 	}
 
-	aInfos := map[ranje.Ident]*info.RangeInfo{
+	aInfos := map[api.Ident]*api.RangeInfo{
 		r.Meta.Ident: {
 			Meta:  r.Meta,
-			State: state.NsActive,
+			State: api.NsActive,
 		},
 	}
 
@@ -149,23 +148,23 @@ func (ts *RosterSuite) TestProbeOne() {
 	}
 
 	r := &ranje.Range{
-		Meta: ranje.Meta{
+		Meta: api.Meta{
 			Ident: 1,
-			Start: ranje.ZeroKey,
-			End:   ranje.Key("ggg"),
+			Start: api.ZeroKey,
+			End:   api.Key("ggg"),
 		},
-		State: ranje.RsActive,
+		State: api.RsActive,
 		Placements: []*ranje.Placement{{
 			NodeID: rem.Ident,
-			State:  ranje.PsActive,
+			State:  api.PsActive,
 		}},
 	}
 
-	fakeInfos := map[ranje.Ident]*info.RangeInfo{
+	fakeInfos := map[api.Ident]*api.RangeInfo{
 		r.Meta.Ident: {
 			Meta:  r.Meta,
-			State: state.NsActive,
-			Info: info.LoadInfo{
+			State: api.NsActive,
+			Info: api.LoadInfo{
 				Keys: 123,
 			},
 		},

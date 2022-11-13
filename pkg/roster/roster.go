@@ -10,12 +10,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
+	"github.com/adammck/ranger/pkg/proto/conv"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
-	"github.com/adammck/ranger/pkg/roster/info"
-	"github.com/adammck/ranger/pkg/roster/state"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -28,7 +28,7 @@ type Roster struct {
 	cfg config.Config
 
 	// Public so Orchestrator can read the Nodes
-	// node ident (not ranje.Ident!!) -> Node
+	// node ident (not api.Ident!!) -> Node
 	Nodes map[string]*Node
 	sync.RWMutex
 
@@ -40,13 +40,13 @@ type Roster struct {
 
 	// info receives NodeInfo updated whenever we receive a probe response from
 	// a node, or when we expire a node.
-	info chan info.NodeInfo
+	info chan NodeInfo
 
 	// To be stubbed when testing.
 	NodeConnFactory func(ctx context.Context, remote discovery.Remote) (*grpc.ClientConn, error)
 }
 
-func New(cfg config.Config, disc discovery.Discoverable, add, remove func(rem *discovery.Remote), info chan info.NodeInfo) *Roster {
+func New(cfg config.Config, disc discovery.Discoverable, add, remove func(rem *discovery.Remote), info chan NodeInfo) *Roster {
 	return &Roster{
 		cfg:    cfg,
 		Nodes:  make(map[string]*Node),
@@ -103,16 +103,16 @@ func (ros *Roster) NodeByIdent(nodeIdent string) *Node {
 // Location is returned by the Locate method. Don't use it for anything else.
 type Location struct {
 	Node string
-	Info info.RangeInfo
+	Info api.RangeInfo
 }
 
 // Locate returns the list of node IDs that the given key can be found on, and
 // the state of the range containing the key.
-func (ros *Roster) Locate(k ranje.Key) []Location {
-	return ros.LocateInState(k, []state.RemoteState{})
+func (ros *Roster) Locate(k api.Key) []Location {
+	return ros.LocateInState(k, []api.RemoteState{})
 }
 
-func (ros *Roster) LocateInState(k ranje.Key, states []state.RemoteState) []Location {
+func (ros *Roster) LocateInState(k api.Key, states []api.RemoteState) []Location {
 	nodes := []Location{}
 
 	ros.RLock()
@@ -124,14 +124,14 @@ func (ros *Roster) LocateInState(k ranje.Key, states []state.RemoteState) []Loca
 			n.muRanges.RLock()
 			defer n.muRanges.RUnlock()
 
-			for _, info := range n.ranges {
-				if info.Meta.Contains(k) {
+			for _, ri := range n.ranges {
+				if ri.Meta.Contains(k) {
 
 					// Skip if not in one of given states.
 					if len(states) > 0 {
 						ok := false
 						for _, s := range states {
-							if info.State == s {
+							if ri.State == s {
 								ok = true
 								break
 							}
@@ -143,7 +143,7 @@ func (ros *Roster) LocateInState(k ranje.Key, states []state.RemoteState) []Loca
 
 					nodes = append(nodes, Location{
 						Node: n.Ident(),
-						Info: *info,
+						Info: *ri,
 					})
 				}
 			}
@@ -176,7 +176,7 @@ func (ros *Roster) Discover() {
 			ros.Nodes[r.Ident] = n
 			log.Printf("added node: %v", n.Ident())
 
-			// TODO: Should we also send a blank info.NodeInfo to introduce the
+			// TODO: Should we also send a blank NodeInfo to introduce the
 			//       node? We haven't probed yet, so don't know what's assigned.
 
 			// TODO: Do this outside of the lock!!
@@ -201,7 +201,7 @@ func (ros *Roster) expire() {
 			// Send a special loadinfo to the reconciler, to tell it that we've
 			// lost the node.
 			if ros.info != nil {
-				ros.info <- info.NodeInfo{
+				ros.info <- NodeInfo{
 					Time:    time.Now(),
 					NodeID:  n.Ident(),
 					Expired: true,
@@ -258,7 +258,7 @@ func (ros *Roster) probe() {
 func (ros *Roster) probeOne(ctx context.Context, n *Node) error {
 	// TODO: Abort if probe in progress.
 
-	ranges := make(map[ranje.Ident]*info.RangeInfo)
+	ranges := make(map[api.Ident]*api.RangeInfo)
 
 	// TODO: This is an InfoRequest now, but we also have RangesRequest which is
 	// sufficient for the proxy. Maybe make which one is sent configurable?
@@ -270,21 +270,21 @@ func (ros *Roster) probeOne(ctx context.Context, n *Node) error {
 		return err
 	}
 
-	ni := info.NodeInfo{
+	ni := NodeInfo{
 		Time:   time.Now(),
 		NodeID: n.Ident(),
 	}
 
 	for _, r := range res.Ranges {
 
-		info, err := info.RangeInfoFromProto(r)
+		ri, err := conv.RangeInfoFromProto(r)
 		if err != nil {
 			log.Printf("malformed probe response from %v: %v", n.Remote.Ident, err)
 			continue
 		}
 
-		ni.Ranges = append(ni.Ranges, info)
-		ranges[info.Meta.Ident] = &info
+		ni.Ranges = append(ni.Ranges, ri)
+		ranges[ri.Meta.Ident] = &ri
 	}
 
 	// TODO: Should this (nil info) even be allowed?
@@ -372,7 +372,7 @@ func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (string, error)
 		}
 	}
 
-	rID := ranje.ZeroRange
+	rID := api.ZeroRange
 	if rng != nil {
 		rID = rng.Meta.Ident
 	}
@@ -390,7 +390,7 @@ func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (string, error)
 	// 4. This range has failed to place on this node within the past minute.
 	//
 	for i := range nodes {
-		if rID != ranje.ZeroRange && nodes[i].HasRange(rng.Meta.Ident) {
+		if rID != api.ZeroRange && nodes[i].HasRange(rng.Meta.Ident) {
 			s := fmt.Sprintf("node already has range: %v", c.NodeID)
 			if c.NodeID != "" {
 				return "", errors.New(s)

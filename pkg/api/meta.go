@@ -1,13 +1,12 @@
-package ranje
+package api
 
 import (
 	"fmt"
-
-	pb "github.com/adammck/ranger/pkg/proto/gen"
 )
 
 // Meta is a range minus all the state.
 // Should be immutable after construction.
+// TODO: Rename this to RangeMeta.
 type Meta struct {
 	Ident Ident
 	Start Key // inclusive
@@ -48,25 +47,4 @@ func (m *Meta) Contains(k Key) bool {
 	}
 
 	return true
-}
-
-func MetaFromProto(p *pb.RangeMeta) (*Meta, error) {
-	id, err := IdentFromProto(p.Ident)
-	if err != nil {
-		return nil, err
-	}
-
-	return &Meta{
-		Ident: id,
-		Start: Key(p.Start),
-		End:   Key(p.End),
-	}, nil
-}
-
-func (m *Meta) ToProto() *pb.RangeMeta {
-	return &pb.RangeMeta{
-		Ident: m.Ident.ToProto(),
-		Start: []byte(m.Start),
-		End:   []byte(m.End),
-	}
 }

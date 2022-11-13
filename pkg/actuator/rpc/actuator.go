@@ -9,11 +9,10 @@ import (
 	"github.com/adammck/ranger/pkg/actuator/util"
 	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/keyspace"
+	"github.com/adammck/ranger/pkg/proto/conv"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
-	"github.com/adammck/ranger/pkg/roster/info"
-	"github.com/adammck/ranger/pkg/roster/state"
 )
 
 type Actuator struct {
@@ -44,10 +43,10 @@ func (a *Actuator) Command(action api.Action, p *ranje.Placement, n *roster.Node
 		// TODO: This special case is weird. It was less so when Give was a
 		//       separate method. Think about it or something.
 		if action == api.Give {
-			n.UpdateRangeInfo(&info.RangeInfo{
+			n.UpdateRangeInfo(&api.RangeInfo{
 				Meta:  p.Range().Meta,
 				State: s,
-				Info:  info.LoadInfo{},
+				Info:  api.LoadInfo{},
 			})
 		} else {
 			n.UpdateRangeState(p.Range().Meta.Ident, s)
@@ -59,7 +58,7 @@ func (a *Actuator) Wait() {
 	a.dup.Wait()
 }
 
-func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (state.RemoteState, error) {
+func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (api.RemoteState, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
 	defer cancel()
 
@@ -85,15 +84,15 @@ func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (s
 	}
 
 	if err != nil {
-		return state.NsUnknown, err
+		return api.NsUnknown, err
 	}
 
-	return state.RemoteStateFromProto(s), nil
+	return conv.RemoteStateFromProto(s), nil
 }
 
 func give(ctx context.Context, n *roster.Node, p *ranje.Placement, parents []*pb.Parent) (pb.RangeNodeState, error) {
 	req := &pb.GiveRequest{
-		Range:   p.Range().Meta.ToProto(),
+		Range:   conv.MetaToProto(p.Range().Meta),
 		Parents: parents,
 	}
 
@@ -109,7 +108,7 @@ func give(ctx context.Context, n *roster.Node, p *ranje.Placement, parents []*pb
 func serve(ctx context.Context, n *roster.Node, p *ranje.Placement) (pb.RangeNodeState, error) {
 	rID := p.Range().Meta.Ident
 	req := &pb.ServeRequest{
-		Range: rID.ToProto(),
+		Range: conv.IdentToProto(rID),
 	}
 
 	// TODO: Retry a few times before giving up.
@@ -124,7 +123,7 @@ func serve(ctx context.Context, n *roster.Node, p *ranje.Placement) (pb.RangeNod
 func take(ctx context.Context, n *roster.Node, p *ranje.Placement) (pb.RangeNodeState, error) {
 	rID := p.Range().Meta.Ident
 	req := &pb.TakeRequest{
-		Range: rID.ToProto(),
+		Range: conv.IdentToProto(rID),
 	}
 
 	// TODO: Retry a few times before giving up.
@@ -139,7 +138,7 @@ func take(ctx context.Context, n *roster.Node, p *ranje.Placement) (pb.RangeNode
 func drop(ctx context.Context, n *roster.Node, p *ranje.Placement) (pb.RangeNodeState, error) {
 	rID := p.Range().Meta.Ident
 	req := &pb.DropRequest{
-		Range: rID.ToProto(),
+		Range: conv.IdentToProto(rID),
 	}
 
 	// TODO: Retry a few times before giving up.

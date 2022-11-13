@@ -4,12 +4,11 @@ import (
 	"fmt"
 
 	"github.com/adammck/ranger/pkg/api"
-	"github.com/adammck/ranger/pkg/ranje"
 )
 
 type Command struct {
-	rID ranje.Ident // sort by this
-	nID string      // and then this
+	rID api.Ident // sort by this
+	nID string    // and then this
 	act api.Action
 }
 

@@ -13,9 +13,6 @@ import (
 	"github.com/adammck/ranger/pkg/api"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/rangelet"
-	"github.com/adammck/ranger/pkg/ranje"
-	"github.com/adammck/ranger/pkg/roster/info"
-	"github.com/adammck/ranger/pkg/roster/state"
 	"github.com/adammck/ranger/pkg/test/fake_storage"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/test/bufconn"
@@ -31,12 +28,12 @@ const (
 )
 
 type stateTransition struct {
-	src state.RemoteState
+	src api.RemoteState
 	bar *barrier
 }
 
 type ErrKey struct {
-	rID ranje.Ident
+	rID api.Ident
 	act Action
 }
 
@@ -45,7 +42,7 @@ type TestNode struct {
 	Conn *grpc.ClientConn
 	rglt *rangelet.Rangelet
 
-	loadInfos map[ranje.Ident]api.LoadInfo
+	loadInfos map[api.Ident]api.LoadInfo
 	muInfos   sync.Mutex
 
 	// Keep requests sent to this node.
@@ -56,7 +53,7 @@ type TestNode struct {
 	// Barriers to block on in the middle of range state changes. This allows
 	// tests to control exactly how long the interface methods (PrepareAddRange,
 	// AddRange, etc) take to return.
-	barriers map[ranje.Ident]*stateTransition
+	barriers map[api.Ident]*stateTransition
 	muBar    sync.Mutex
 
 	// Errors (or nils) which should be injected into range state changes.
@@ -67,11 +64,11 @@ type TestNode struct {
 	strictTransitions bool
 }
 
-func NewTestNode(ctx context.Context, addr string, rangeInfos map[ranje.Ident]*info.RangeInfo) (*TestNode, func()) {
+func NewTestNode(ctx context.Context, addr string, rangeInfos map[api.Ident]*api.RangeInfo) (*TestNode, func()) {
 
 	// Extract LoadInfos to keep in the client (TestNode). Rangelet fetches via
 	// GetLoadInfo.
-	li := map[ranje.Ident]api.LoadInfo{}
+	li := map[api.Ident]api.LoadInfo{}
 	for _, ri := range rangeInfos {
 		li[ri.Meta.Ident] = api.LoadInfo{
 			Keys: int(ri.Info.Keys),
@@ -81,7 +78,7 @@ func NewTestNode(ctx context.Context, addr string, rangeInfos map[ranje.Ident]*i
 	n := &TestNode{
 		Addr:      addr,
 		loadInfos: li,
-		barriers:  map[ranje.Ident]*stateTransition{},
+		barriers:  map[api.Ident]*stateTransition{},
 		errors:    map[ErrKey]error{},
 	}
 
@@ -104,7 +101,7 @@ func (n *TestNode) Listen(ctx context.Context, srv *grpc.Server) func() {
 	return closer
 }
 
-func (n *TestNode) transition(rID ranje.Ident, act Action) error {
+func (n *TestNode) transition(rID api.Ident, act Action) error {
 	n.muBar.Lock()
 
 	ek := ErrKey{
@@ -138,31 +135,31 @@ func (n *TestNode) transition(rID ranje.Ident, act Action) error {
 	return e
 }
 
-func (n *TestNode) GetLoadInfo(rID ranje.Ident) (api.LoadInfo, error) {
+func (n *TestNode) GetLoadInfo(rID api.Ident) (api.LoadInfo, error) {
 	n.muInfos.Lock()
 	defer n.muInfos.Unlock()
 
 	li, ok := n.loadInfos[rID]
 	if !ok {
-		return api.LoadInfo{}, api.NotFound
+		return api.LoadInfo{}, api.ErrNotFound
 	}
 
 	return li, nil
 }
 
-func (n *TestNode) PrepareAddRange(m ranje.Meta, p []api.Parent) error {
+func (n *TestNode) PrepareAddRange(m api.Meta, p []api.Parent) error {
 	return n.transition(m.Ident, PrepareAddRange)
 }
 
-func (n *TestNode) AddRange(rID ranje.Ident) error {
+func (n *TestNode) AddRange(rID api.Ident) error {
 	return n.transition(rID, AddRange)
 }
 
-func (n *TestNode) PrepareDropRange(rID ranje.Ident) error {
+func (n *TestNode) PrepareDropRange(rID api.Ident) error {
 	return n.transition(rID, PrepareDropRange)
 }
 
-func (n *TestNode) DropRange(rID ranje.Ident) error {
+func (n *TestNode) DropRange(rID api.Ident) error {
 	// TODO: Remove placement from loadinfos if transition succeeds?
 	return n.transition(rID, DropRange)
 }
@@ -215,7 +212,7 @@ func (n *TestNode) withTestInterceptor() grpc.DialOption {
 // SetReturnValue sets the value which should be returned from the given action
 // (i.e. one of the state-transitioning methods of the Rangelet interface) for
 // the given range on this test node.
-func (n *TestNode) SetReturnValue(t *testing.T, rID ranje.Ident, act Action, err error) {
+func (n *TestNode) SetReturnValue(t *testing.T, rID api.Ident, act Action, err error) {
 	ek := ErrKey{
 		rID: rID,
 		act: act,
@@ -226,7 +223,7 @@ func (n *TestNode) SetReturnValue(t *testing.T, rID ranje.Ident, act Action, err
 	n.muErr.Unlock()
 }
 
-func (n *TestNode) AddBarrier(t *testing.T, rID ranje.Ident, src state.RemoteState) *barrier {
+func (n *TestNode) AddBarrier(t *testing.T, rID api.Ident, src api.RemoteState) *barrier {
 	desc := fmt.Sprintf("node=%s, range=%s, src=%s", n.Addr, rID.String(), src.String())
 	wg := &sync.WaitGroup{}
 
@@ -249,7 +246,7 @@ func (n *TestNode) AddBarrier(t *testing.T, rID ranje.Ident, src state.RemoteSta
 	return st.bar
 }
 
-func (n *TestNode) ForceDrop(rID ranje.Ident) {
+func (n *TestNode) ForceDrop(rID api.Ident) {
 	n.muInfos.Lock()
 	defer n.muInfos.Unlock()
 	delete(n.loadInfos, rID)

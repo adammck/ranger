@@ -8,9 +8,6 @@ import (
 	"time"
 
 	"github.com/adammck/ranger/pkg/api"
-	"github.com/adammck/ranger/pkg/ranje"
-	"github.com/adammck/ranger/pkg/roster/info"
-	"github.com/adammck/ranger/pkg/roster/state"
 	"github.com/adammck/ranger/pkg/test/fake_storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -37,30 +34,30 @@ func Setup() (*MockNode, *Rangelet) {
 func TestGiveFast(t *testing.T) {
 	_, rglt := Setup()
 
-	m := ranje.Meta{Ident: 1}
+	m := api.Meta{Ident: 1}
 	p := []api.Parent{}
 
 	ri, err := rglt.give(m, p)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsInactive, ri.State)
+	assert.Equal(t, api.NsInactive, ri.State)
 
 	// Check range was created.
 	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
-	assert.Equal(t, state.NsInactive, ri.State)
+	assert.Equal(t, api.NsInactive, ri.State)
 
 	// Check idempotency.
 	ri, err = rglt.give(m, p)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsInactive, ri.State)
+	assert.Equal(t, api.NsInactive, ri.State)
 }
 
 func TestGiveSlow(t *testing.T) {
 	n, rglt := Setup()
 
-	m := ranje.Meta{Ident: 1}
+	m := api.Meta{Ident: 1}
 	p := []api.Parent{}
 
 	// PrepareAddRange will block.
@@ -70,7 +67,7 @@ func TestGiveSlow(t *testing.T) {
 		ri, err := rglt.give(m, p)
 		require.NoError(t, err)
 		assert.Equal(t, ri.Meta, m)
-		assert.Equal(t, state.NsLoading, ri.State)
+		assert.Equal(t, api.NsLoading, ri.State)
 	}
 
 	called := atomic.LoadUint32(&n.nPrepareAddRange)
@@ -78,7 +75,7 @@ func TestGiveSlow(t *testing.T) {
 
 	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
-	assert.Equal(t, state.NsLoading, ri.State)
+	assert.Equal(t, api.NsLoading, ri.State)
 
 	// Unblock PrepareAddRange.
 	n.wgPrepareAddRange.Done()
@@ -91,13 +88,13 @@ func TestGiveSlow(t *testing.T) {
 
 	ri, ok = rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
-	assert.Equal(t, state.NsInactive, ri.State)
+	assert.Equal(t, api.NsInactive, ri.State)
 
 	for i := 0; i < 2; i++ {
 		ri, err := rglt.give(m, p)
 		require.NoError(t, err)
 		assert.Equal(t, ri.Meta, m)
-		assert.Equal(t, state.NsInactive, ri.State)
+		assert.Equal(t, api.NsInactive, ri.State)
 	}
 }
 
@@ -105,24 +102,24 @@ func TestGiveErrorFast(t *testing.T) {
 	n, rglt := Setup()
 	n.erPrepareAddRange = errors.New("error from PrepareAddRange")
 
-	m := ranje.Meta{Ident: 1}
+	m := api.Meta{Ident: 1}
 	p := []api.Parent{}
 
 	ri, err := rglt.give(m, p)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsNotFound, ri.State)
+	assert.Equal(t, api.NsNotFound, ri.State)
 
 	// Check that no range was created.
 	ri, ok := rglt.rangeInfo(m.Ident)
 	assert.False(t, ok)
-	assert.Equal(t, info.RangeInfo{}, ri)
+	assert.Equal(t, api.RangeInfo{}, ri)
 }
 
 func TestGiveErrorSlow(t *testing.T) {
 	n, rglt := Setup()
 
-	m := ranje.Meta{Ident: 1}
+	m := api.Meta{Ident: 1}
 	p := []api.Parent{}
 
 	// PrepareAddRange will block, then return an error.
@@ -136,7 +133,7 @@ func TestGiveErrorSlow(t *testing.T) {
 		ri, err := rglt.give(m, p)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
-		assert.Equal(t, state.NsLoading, ri.State)
+		assert.Equal(t, api.NsLoading, ri.State)
 	}
 
 	called := atomic.LoadUint32(&n.nPrepareAddRange)
@@ -152,40 +149,40 @@ func TestGiveErrorSlow(t *testing.T) {
 	}, waitFor, tick)
 }
 
-func setupServe(infos map[ranje.Ident]*info.RangeInfo, m ranje.Meta) {
-	infos[m.Ident] = &info.RangeInfo{
+func setupServe(infos map[api.Ident]*api.RangeInfo, m api.Meta) {
+	infos[m.Ident] = &api.RangeInfo{
 		Meta:  m,
-		State: state.NsInactive,
+		State: api.NsInactive,
 	}
 }
 
 func TestServeFast(t *testing.T) {
 	_, rglt := Setup()
 
-	m := ranje.Meta{Ident: 1}
+	m := api.Meta{Ident: 1}
 	setupServe(rglt.info, m)
 
 	ri, err := rglt.serve(m.Ident)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsActive, ri.State)
+	assert.Equal(t, api.NsActive, ri.State)
 
 	// Check state became NsActive.
 	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
-	assert.Equal(t, state.NsActive, ri.State)
+	assert.Equal(t, api.NsActive, ri.State)
 
 	// Check idempotency.
 	ri, err = rglt.serve(m.Ident)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsActive, ri.State)
+	assert.Equal(t, api.NsActive, ri.State)
 }
 
 func TestServeSlow(t *testing.T) {
 	n, rglt := Setup()
 
-	m := ranje.Meta{Ident: 1}
+	m := api.Meta{Ident: 1}
 	setupServe(rglt.info, m)
 
 	// AddRange will take a long time!
@@ -195,12 +192,12 @@ func TestServeSlow(t *testing.T) {
 	ri, err := rglt.serve(m.Ident)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsActivating, ri.State)
+	assert.Equal(t, api.NsActivating, ri.State)
 
 	// Check that state was updated.
 	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
-	assert.Equal(t, state.NsActivating, ri.State)
+	assert.Equal(t, api.NsActivating, ri.State)
 
 	// Unblock AddRange.
 	n.wgAddRange.Done()
@@ -208,14 +205,14 @@ func TestServeSlow(t *testing.T) {
 	// Wait until state is returned to NsActive.
 	assert.Eventually(t, func() bool {
 		ri, ok := rglt.rangeInfo(m.Ident)
-		return ok && ri.State == state.NsActive
+		return ok && ri.State == api.NsActive
 	}, waitFor, tick)
 
 	for i := 0; i < 2; i++ {
 		ri, err = rglt.serve(m.Ident)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
-		assert.Equal(t, state.NsActive, ri.State)
+		assert.Equal(t, api.NsActive, ri.State)
 	}
 }
 
@@ -224,13 +221,13 @@ func TestServeUnknown(t *testing.T) {
 
 	ri, err := rglt.serve(1)
 	require.EqualError(t, err, "rpc error: code = InvalidArgument desc = can't Serve unknown range: 1")
-	assert.Equal(t, info.RangeInfo{}, ri)
+	assert.Equal(t, api.RangeInfo{}, ri)
 }
 
 func TestServeErrorFast(t *testing.T) {
 	n, rglt := Setup()
 
-	m := ranje.Meta{Ident: 1}
+	m := api.Meta{Ident: 1}
 	setupServe(rglt.info, m)
 
 	n.erAddRange = errors.New("error from AddRange")
@@ -238,18 +235,18 @@ func TestServeErrorFast(t *testing.T) {
 	ri, err := rglt.serve(m.Ident)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsInactive, ri.State)
+	assert.Equal(t, api.NsInactive, ri.State)
 
 	// State was updated.
 	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
-	assert.Equal(t, state.NsInactive, ri.State)
+	assert.Equal(t, api.NsInactive, ri.State)
 }
 
 func TestServeErrorSlow(t *testing.T) {
 	n, rglt := Setup()
 
-	m := ranje.Meta{Ident: 1}
+	m := api.Meta{Ident: 1}
 	setupServe(rglt.info, m)
 
 	// AddRange will block, then return an error.
@@ -260,7 +257,7 @@ func TestServeErrorSlow(t *testing.T) {
 		ri, err := rglt.serve(m.Ident)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
-		assert.Equal(t, state.NsActivating, ri.State)
+		assert.Equal(t, api.NsActivating, ri.State)
 	}
 
 	called := atomic.LoadUint32(&n.nAddRange)
@@ -272,44 +269,44 @@ func TestServeErrorSlow(t *testing.T) {
 	// Wait until state returns to Prepared (because AddRange returned error).
 	require.Eventually(t, func() bool {
 		ri, ok := rglt.rangeInfo(m.Ident)
-		return ok && ri.State == state.NsInactive
+		return ok && ri.State == api.NsInactive
 	}, waitFor, tick)
 }
 
-func setupTake(infos map[ranje.Ident]*info.RangeInfo, m ranje.Meta) {
-	infos[m.Ident] = &info.RangeInfo{
+func setupTake(infos map[api.Ident]*api.RangeInfo, m api.Meta) {
+	infos[m.Ident] = &api.RangeInfo{
 		Meta:  m,
-		State: state.NsActive,
+		State: api.NsActive,
 	}
 }
 
 func TestTakeFast(t *testing.T) {
 	_, rglt := Setup()
 
-	m := ranje.Meta{Ident: 1}
+	m := api.Meta{Ident: 1}
 	setupTake(rglt.info, m)
 
 	ri, err := rglt.take(m.Ident)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsInactive, ri.State)
+	assert.Equal(t, api.NsInactive, ri.State)
 
 	// Check state became NsInactive.
 	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
-	assert.Equal(t, state.NsInactive, ri.State)
+	assert.Equal(t, api.NsInactive, ri.State)
 
 	// Check idempotency.
 	ri, err = rglt.take(m.Ident)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsInactive, ri.State)
+	assert.Equal(t, api.NsInactive, ri.State)
 }
 
 func TestTakeSlow(t *testing.T) {
 	n, rglt := Setup()
 
-	m := ranje.Meta{Ident: 1}
+	m := api.Meta{Ident: 1}
 	setupTake(rglt.info, m)
 
 	n.wgPrepareDropRange.Add(1)
@@ -320,13 +317,13 @@ func TestTakeSlow(t *testing.T) {
 		ri, err := rglt.take(m.Ident)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
-		assert.Equal(t, state.NsDeactivating, ri.State)
+		assert.Equal(t, api.NsDeactivating, ri.State)
 	}
 
 	// Check that state was updated.
 	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
-	assert.Equal(t, state.NsDeactivating, ri.State)
+	assert.Equal(t, api.NsDeactivating, ri.State)
 
 	// Unblock PrepareDropRange.
 	n.wgPrepareDropRange.Done()
@@ -334,14 +331,14 @@ func TestTakeSlow(t *testing.T) {
 	// Wait until state is updated.
 	assert.Eventually(t, func() bool {
 		ri, ok := rglt.rangeInfo(m.Ident)
-		return ok && ri.State == state.NsInactive
+		return ok && ri.State == api.NsInactive
 	}, waitFor, tick)
 
 	for i := 0; i < 2; i++ {
 		ri, err := rglt.take(m.Ident)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
-		assert.Equal(t, state.NsInactive, ri.State)
+		assert.Equal(t, api.NsInactive, ri.State)
 	}
 }
 
@@ -350,13 +347,13 @@ func TestTakeUnknown(t *testing.T) {
 
 	ri, err := rglt.take(1)
 	require.EqualError(t, err, "rpc error: code = InvalidArgument desc = can't Take unknown range: 1")
-	assert.Equal(t, info.RangeInfo{}, ri)
+	assert.Equal(t, api.RangeInfo{}, ri)
 }
 
 func TestTakeErrorFast(t *testing.T) {
 	n, rglt := Setup()
 
-	m := ranje.Meta{Ident: 1}
+	m := api.Meta{Ident: 1}
 	setupTake(rglt.info, m)
 
 	n.erPrepareDropRange = errors.New("error from PrepareDropRange")
@@ -364,18 +361,18 @@ func TestTakeErrorFast(t *testing.T) {
 	ri, err := rglt.take(m.Ident)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsActive, ri.State)
+	assert.Equal(t, api.NsActive, ri.State)
 
 	// Check state was updated.
 	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
-	assert.Equal(t, state.NsActive, ri.State)
+	assert.Equal(t, api.NsActive, ri.State)
 }
 
 func TestTakeErrorSlow(t *testing.T) {
 	n, rglt := Setup()
 
-	m := ranje.Meta{Ident: 1}
+	m := api.Meta{Ident: 1}
 	setupTake(rglt.info, m)
 
 	// PrepareDropRange will block, then return an error.
@@ -386,7 +383,7 @@ func TestTakeErrorSlow(t *testing.T) {
 		ri, err := rglt.take(m.Ident)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
-		assert.Equal(t, state.NsDeactivating, ri.State)
+		assert.Equal(t, api.NsDeactivating, ri.State)
 	}
 
 	called := atomic.LoadUint32(&n.nPrepareDropRange)
@@ -398,27 +395,27 @@ func TestTakeErrorSlow(t *testing.T) {
 	// Wait until state returns to Ready (because PrepareDropRange returned error).
 	require.Eventually(t, func() bool {
 		ri, ok := rglt.rangeInfo(m.Ident)
-		return ok && ri.State == state.NsActive
+		return ok && ri.State == api.NsActive
 	}, waitFor, tick)
 }
 
-func setupDrop(infos map[ranje.Ident]*info.RangeInfo, m ranje.Meta) {
-	infos[m.Ident] = &info.RangeInfo{
+func setupDrop(infos map[api.Ident]*api.RangeInfo, m api.Meta) {
+	infos[m.Ident] = &api.RangeInfo{
 		Meta:  m,
-		State: state.NsInactive,
+		State: api.NsInactive,
 	}
 }
 
 func TestDropFast(t *testing.T) {
 	_, rglt := Setup()
 
-	m := ranje.Meta{Ident: 1}
+	m := api.Meta{Ident: 1}
 	setupDrop(rglt.info, m)
 
 	ri, err := rglt.drop(m.Ident)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsNotFound, ri.State)
+	assert.Equal(t, api.NsNotFound, ri.State)
 
 	// Check range was successfully deleted.
 	assert.NotContains(t, rglt.info, m.Ident)
@@ -427,13 +424,13 @@ func TestDropFast(t *testing.T) {
 	ri, err = rglt.drop(m.Ident)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsNotFound, ri.State)
+	assert.Equal(t, api.NsNotFound, ri.State)
 }
 
 func TestDropSlow(t *testing.T) {
 	n, rglt := Setup()
 
-	m := ranje.Meta{Ident: 1}
+	m := api.Meta{Ident: 1}
 	setupDrop(rglt.info, m)
 
 	// DropRange will block.
@@ -443,7 +440,7 @@ func TestDropSlow(t *testing.T) {
 		ri, err := rglt.drop(m.Ident)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
-		assert.Equal(t, state.NsDropping, ri.State)
+		assert.Equal(t, api.NsDropping, ri.State)
 	}
 
 	called := atomic.LoadUint32(&n.nDropRange)
@@ -462,7 +459,7 @@ func TestDropSlow(t *testing.T) {
 		ri, err := rglt.drop(m.Ident)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
-		assert.Equal(t, state.NsNotFound, ri.State)
+		assert.Equal(t, api.NsNotFound, ri.State)
 	}
 }
 
@@ -472,16 +469,16 @@ func TestDropUnknown(t *testing.T) {
 	ri, err := rglt.drop(1)
 	require.NoError(t, err)
 	assert.Equal(t,
-		info.RangeInfo{
-			Meta:  ranje.Meta{Ident: 1},
-			State: state.NsNotFound,
+		api.RangeInfo{
+			Meta:  api.Meta{Ident: 1},
+			State: api.NsNotFound,
 		}, ri)
 }
 
 func TestDropErrorFast(t *testing.T) {
 	n, rglt := Setup()
 
-	m := ranje.Meta{Ident: 1}
+	m := api.Meta{Ident: 1}
 	setupDrop(rglt.info, m)
 
 	n.erDropRange = errors.New("error from DropRange")
@@ -489,18 +486,18 @@ func TestDropErrorFast(t *testing.T) {
 	ri, err := rglt.drop(m.Ident)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
-	assert.Equal(t, state.NsInactive, ri.State)
+	assert.Equal(t, api.NsInactive, ri.State)
 
 	// Check state was updated.
 	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
-	assert.Equal(t, state.NsInactive, ri.State)
+	assert.Equal(t, api.NsInactive, ri.State)
 }
 
 func TestDropErrorSlow(t *testing.T) {
 	n, rglt := Setup()
 
-	m := ranje.Meta{Ident: 1}
+	m := api.Meta{Ident: 1}
 	setupDrop(rglt.info, m)
 
 	// DropRange will block, then return an error.
@@ -511,7 +508,7 @@ func TestDropErrorSlow(t *testing.T) {
 		ri, err := rglt.drop(m.Ident)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
-		assert.Equal(t, state.NsDropping, ri.State)
+		assert.Equal(t, api.NsDropping, ri.State)
 	}
 
 	called := atomic.LoadUint32(&n.nDropRange)
@@ -523,7 +520,7 @@ func TestDropErrorSlow(t *testing.T) {
 	// Wait until state returns to Taken (because DropRange returned error).
 	require.Eventually(t, func() bool {
 		ri, ok := rglt.rangeInfo(m.Ident)
-		return ok && ri.State == state.NsInactive
+		return ok && ri.State == api.NsInactive
 	}, waitFor, tick)
 }
 
@@ -547,30 +544,30 @@ type MockNode struct {
 	nDropRange  uint32
 }
 
-func (n *MockNode) PrepareAddRange(m ranje.Meta, p []api.Parent) error {
+func (n *MockNode) PrepareAddRange(m api.Meta, p []api.Parent) error {
 	atomic.AddUint32(&n.nPrepareAddRange, 1)
 	n.wgPrepareAddRange.Wait()
 	return n.erPrepareAddRange
 }
 
-func (n *MockNode) AddRange(rID ranje.Ident) error {
+func (n *MockNode) AddRange(rID api.Ident) error {
 	atomic.AddUint32(&n.nAddRange, 1)
 	n.wgAddRange.Wait()
 	return n.erAddRange
 }
 
-func (n *MockNode) PrepareDropRange(rID ranje.Ident) error {
+func (n *MockNode) PrepareDropRange(rID api.Ident) error {
 	atomic.AddUint32(&n.nPrepareDropRange, 1)
 	n.wgPrepareDropRange.Wait()
 	return n.erPrepareDropRange
 }
 
-func (n *MockNode) DropRange(rID ranje.Ident) error {
+func (n *MockNode) DropRange(rID api.Ident) error {
 	atomic.AddUint32(&n.nDropRange, 1)
 	n.wgDropRange.Wait()
 	return n.erDropRange
 }
 
-func (n *MockNode) GetLoadInfo(rID ranje.Ident) (api.LoadInfo, error) {
+func (n *MockNode) GetLoadInfo(rID api.Ident) (api.LoadInfo, error) {
 	return api.LoadInfo{}, errors.New("not implemented")
 }

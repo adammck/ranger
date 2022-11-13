@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/persister"
 	"github.com/adammck/ranger/pkg/ranje"
@@ -22,7 +23,7 @@ type Keyspace struct {
 	pers     persister.Persister
 	ranges   []*ranje.Range // TODO: don't be dumb, use an interval tree
 	mu       sync.RWMutex
-	maxIdent ranje.Ident
+	maxIdent api.Ident
 }
 
 func New(cfg config.Config, persister persister.Persister) (*Keyspace, error) {
@@ -93,7 +94,7 @@ func (ks *Keyspace) SanityCheck() error {
 
 	// Check for no duplicate range IDs.
 
-	seen := map[ranje.Ident]struct{}{}
+	seen := map[api.Ident]struct{}{}
 	for _, r := range ks.ranges {
 		if _, ok := seen[r.Meta.Ident]; ok {
 			return fmt.Errorf("duplicate range ID (i=%d)", r.Meta.Ident)
@@ -103,7 +104,7 @@ func (ks *Keyspace) SanityCheck() error {
 
 	// Check for any ranges in an unknown state.
 	for i := range ks.ranges {
-		if ks.ranges[i].State == ranje.RsUnknown {
+		if ks.ranges[i].State == api.RsUnknown {
 			return fmt.Errorf("range in unknown state (rID=%v)", ks.ranges[i].Meta.Ident)
 		}
 	}
@@ -136,16 +137,16 @@ func (ks *Keyspace) SanityCheck() error {
 	})
 
 	for i, r := range leafs {
-		if r.State != ranje.RsActive {
+		if r.State != api.RsActive {
 			return fmt.Errorf("non-active leaf range with no children (rID=%v)", r.Meta.Ident)
 		}
 
 		if i == 0 { // first range
-			if r.Meta.Start != ranje.ZeroKey {
+			if r.Meta.Start != api.ZeroKey {
 				return fmt.Errorf("first leaf range did not start with zero key (rID=%d)", r.Meta.Ident)
 			}
 		} else { // not first range
-			if r.Meta.Start == ranje.ZeroKey {
+			if r.Meta.Start == api.ZeroKey {
 				return fmt.Errorf("non-first leaf range started with zero key (rID=%d)", r.Meta.Ident)
 			}
 			if r.Meta.Start != leafs[i-1].Meta.End {
@@ -153,11 +154,11 @@ func (ks *Keyspace) SanityCheck() error {
 			}
 		}
 		if i == len(leafs)-1 { // last range
-			if r.Meta.End != ranje.ZeroKey {
+			if r.Meta.End != api.ZeroKey {
 				return fmt.Errorf("last leaf range did not end with zero key (rID=%d)", r.Meta.Ident)
 			}
 		} else { // not last range
-			if r.Meta.End == ranje.ZeroKey {
+			if r.Meta.End == api.ZeroKey {
 				return fmt.Errorf("non-last leaf range ended with zero key (rID=%d)", r.Meta.Ident)
 			}
 		}
@@ -171,13 +172,13 @@ func (ks *Keyspace) Ranges() ([]*ranje.Range, func()) {
 	return ks.ranges, ks.mu.Unlock
 }
 
-func (ks *Keyspace) Split(r *ranje.Range, k ranje.Key) (one *ranje.Range, two *ranje.Range, err error) {
-	if k == ranje.ZeroKey {
+func (ks *Keyspace) Split(r *ranje.Range, k api.Key) (one *ranje.Range, two *ranje.Range, err error) {
+	if k == api.ZeroKey {
 		err = fmt.Errorf("can't split on zero key")
 		return
 	}
 
-	if r.State != ranje.RsActive {
+	if r.State != api.RsActive {
 		err = errors.New("can't split non-active range")
 		return
 	}
@@ -201,7 +202,7 @@ func (ks *Keyspace) Split(r *ranje.Range, k ranje.Key) (one *ranje.Range, two *r
 	// Change the state of the splitting range directly via Range.toState rather
 	// than Keyspace.ToState as (usually!) recommended, because we don't want
 	// to persist the change until the two new ranges have been created, below.
-	err = r.ToState(ranje.RsSubsuming)
+	err = r.ToState(api.RsSubsuming)
 	if err != nil {
 		// The error is clear enough, no need to wrap it.
 		return
@@ -210,19 +211,19 @@ func (ks *Keyspace) Split(r *ranje.Range, k ranje.Key) (one *ranje.Range, two *r
 	one = ks.Range()
 	one.Meta.Start = r.Meta.Start
 	one.Meta.End = k
-	one.Parents = []ranje.Ident{r.Meta.Ident}
+	one.Parents = []api.Ident{r.Meta.Ident}
 
 	two = ks.Range()
 	two.Meta.Start = k
 	two.Meta.End = r.Meta.End
-	two.Parents = []ranje.Ident{r.Meta.Ident}
+	two.Parents = []api.Ident{r.Meta.Ident}
 
 	// append to the end of the ranges
 	// TODO: Insert the children after the parent, not at the end!
 	ks.ranges = append(ks.ranges, one)
 	ks.ranges = append(ks.ranges, two)
 
-	r.Children = []ranje.Ident{
+	r.Children = []api.Ident{
 		one.Meta.Ident,
 		two.Meta.Ident,
 	}
@@ -236,7 +237,7 @@ func (ks *Keyspace) Split(r *ranje.Range, k ranje.Key) (one *ranje.Range, two *r
 // Get returns a range by its ident, or an error if no such range exists.
 // TODO: Allow getting by other things.
 // TODO: Should this lock ranges? Or the caller do it?
-func (ks *Keyspace) Get(id ranje.Ident) (*ranje.Range, error) {
+func (ks *Keyspace) Get(id api.Ident) (*ranje.Range, error) {
 	for _, r := range ks.ranges {
 		if r.Meta.Ident == id {
 			return r, nil
@@ -303,7 +304,7 @@ func (ks *Keyspace) PlacementsByNodeID(nID string) []PBNID {
 // RangeToState tries to move the given range into the given state.
 // TODO: This is currently only used to move ranges into Obsolete after they
 //       have been subsumed. Can we replace this with *ObsoleteRange*?
-func (ks *Keyspace) RangeToState(r *ranje.Range, state ranje.RangeState) error {
+func (ks *Keyspace) RangeToState(r *ranje.Range, state api.RangeState) error {
 	// Orchestrator already has lock.
 	// TODO: Verify this somehow?
 
@@ -317,7 +318,7 @@ func (ks *Keyspace) RangeToState(r *ranje.Range, state ranje.RangeState) error {
 
 // Callers don't bother checking the error we return, so we panic instead.
 // TODO: Update callers to check the error!
-func (ks *Keyspace) PlacementToState(p *ranje.Placement, state ranje.PlacementState) error {
+func (ks *Keyspace) PlacementToState(p *ranje.Placement, state api.PlacementState) error {
 	err := p.ToState(state)
 	if err != nil {
 		panic(fmt.Sprintf("toState: %v", err))
@@ -352,7 +353,7 @@ func (ks *Keyspace) mustPersistDirtyRanges() error {
 // Caller must hold the keyspace lock.
 func (ks *Keyspace) JoinTwo(one *ranje.Range, two *ranje.Range) (*ranje.Range, error) {
 	for _, r := range []*ranje.Range{one, two} {
-		if r.State != ranje.RsActive {
+		if r.State != api.RsActive {
 			return nil, errors.New("can't join non-ready ranges")
 		}
 
@@ -368,7 +369,7 @@ func (ks *Keyspace) JoinTwo(one *ranje.Range, two *ranje.Range) (*ranje.Range, e
 	}
 
 	for _, r := range []*ranje.Range{one, two} {
-		err := r.ToState(ranje.RsSubsuming)
+		err := r.ToState(api.RsSubsuming)
 		if err != nil {
 			// The error is clear enough, no need to wrap it.
 			return nil, err
@@ -378,13 +379,13 @@ func (ks *Keyspace) JoinTwo(one *ranje.Range, two *ranje.Range) (*ranje.Range, e
 	three := ks.Range()
 	three.Meta.Start = one.Meta.Start
 	three.Meta.End = two.Meta.End
-	three.Parents = []ranje.Ident{one.Meta.Ident, two.Meta.Ident}
+	three.Parents = []api.Ident{one.Meta.Ident, two.Meta.Ident}
 
 	// Insert new range at the end.
 	ks.ranges = append(ks.ranges, three)
 
-	one.Children = []ranje.Ident{three.Meta.Ident}
-	two.Children = []ranje.Ident{three.Meta.Ident}
+	one.Children = []api.Ident{three.Meta.Ident}
+	two.Children = []api.Ident{three.Meta.Ident}
 
 	// Persist all three ranges atomically.
 	ks.mustPersistDirtyRanges()

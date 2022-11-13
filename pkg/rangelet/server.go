@@ -4,10 +4,8 @@ import (
 	"context"
 
 	"github.com/adammck/ranger/pkg/api"
+	"github.com/adammck/ranger/pkg/proto/conv"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
-	"github.com/adammck/ranger/pkg/ranje"
-	"github.com/adammck/ranger/pkg/roster/info"
-	"github.com/adammck/ranger/pkg/roster/state"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -31,21 +29,21 @@ func parentsFromProto(prot []*pb.Parent) ([]api.Parent, error) {
 	p := []api.Parent{}
 
 	for _, pp := range prot {
-		m, err := ranje.MetaFromProto(pp.Range)
+		m, err := conv.MetaFromProto(pp.Range)
 		if err != nil {
 			return p, err
 		}
 
-		parentIds := make([]ranje.Ident, len(pp.Parent))
+		parentIds := make([]api.Ident, len(pp.Parent))
 		for i := range pp.Parent {
-			parentIds[i] = ranje.Ident(pp.Parent[i])
+			parentIds[i] = api.Ident(pp.Parent[i])
 		}
 
 		placements := make([]api.Placement, len(pp.Placements))
 		for i := range pp.Placements {
 			placements[i] = api.Placement{
 				Node:  pp.Placements[i].Node,
-				State: ranje.PlacementStateFromProto(&pp.Placements[i].State),
+				State: conv.PlacementStateFromProto(pp.Placements[i].State),
 			}
 		}
 
@@ -60,7 +58,7 @@ func parentsFromProto(prot []*pb.Parent) ([]api.Parent, error) {
 }
 
 func (ns *NodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveResponse, error) {
-	meta, err := ranje.MetaFromProto(req.Range)
+	meta, err := conv.MetaFromProto(req.Range)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "error parsing range meta: %v", err)
 	}
@@ -76,12 +74,12 @@ func (ns *NodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveRe
 	}
 
 	return &pb.GiveResponse{
-		RangeInfo: ri.ToProto(),
+		RangeInfo: conv.RangeInfoToProto(ri),
 	}, nil
 }
 
 func (ns *NodeServer) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.ServeResponse, error) {
-	rID, err := ranje.IdentFromProto(req.Range)
+	rID, err := conv.IdentFromProto(req.Range)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -92,12 +90,12 @@ func (ns *NodeServer) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.Serv
 	}
 
 	return &pb.ServeResponse{
-		State: ri.State.ToProto(),
+		State: conv.RemoteStateToProto(ri.State),
 	}, nil
 }
 
 func (ns *NodeServer) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeResponse, error) {
-	rID, err := ranje.IdentFromProto(req.Range)
+	rID, err := conv.IdentFromProto(req.Range)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -108,13 +106,13 @@ func (ns *NodeServer) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeRe
 	}
 
 	return &pb.TakeResponse{
-		State: ri.State.ToProto(),
+		State: conv.RemoteStateToProto(ri.State),
 	}, nil
 }
 
 func (ns *NodeServer) Drop(ctx context.Context, req *pb.DropRequest) (*pb.DropResponse, error) {
 
-	rID, err := ranje.IdentFromProto(req.Range)
+	rID, err := conv.IdentFromProto(req.Range)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -122,9 +120,9 @@ func (ns *NodeServer) Drop(ctx context.Context, req *pb.DropRequest) (*pb.DropRe
 	ri, err := ns.r.drop(rID)
 	if err != nil {
 		// This is NOT a failure.
-		if err == ErrNotFound {
+		if err == api.ErrNotFound {
 			return &pb.DropResponse{
-				State: state.NsNotFound.ToProto(),
+				State: conv.RemoteStateToProto(api.NsNotFound),
 			}, nil
 		}
 
@@ -133,7 +131,7 @@ func (ns *NodeServer) Drop(ctx context.Context, req *pb.DropRequest) (*pb.DropRe
 	}
 
 	return &pb.DropResponse{
-		State: ri.State.ToProto(),
+		State: conv.RemoteStateToProto(ri.State),
 	}, nil
 }
 
@@ -147,8 +145,8 @@ func (ns *NodeServer) Info(ctx context.Context, req *pb.InfoRequest) (*pb.InfoRe
 		WantDrain: ns.r.wantDrain(),
 	}
 
-	ns.r.walk(func(ri *info.RangeInfo) {
-		res.Ranges = append(res.Ranges, ri.ToProto())
+	ns.r.walk(func(ri *api.RangeInfo) {
+		res.Ranges = append(res.Ranges, conv.RangeInfoToProto(*ri))
 	})
 
 	return res, nil

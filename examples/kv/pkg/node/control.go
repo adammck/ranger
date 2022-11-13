@@ -10,16 +10,15 @@ import (
 	"time"
 
 	"github.com/adammck/ranger/pkg/api"
-	"github.com/adammck/ranger/pkg/ranje"
 )
 
-func (n *Node) GetLoadInfo(rID ranje.Ident) (api.LoadInfo, error) {
+func (n *Node) GetLoadInfo(rID api.Ident) (api.LoadInfo, error) {
 	n.rangesMu.RLock()
 	defer n.rangesMu.RUnlock()
 
 	r, ok := n.ranges[rID]
 	if !ok {
-		return api.LoadInfo{}, api.NotFound
+		return api.LoadInfo{}, api.ErrNotFound
 	}
 
 	keys := []string{}
@@ -34,20 +33,20 @@ func (n *Node) GetLoadInfo(rID ranje.Ident) (api.LoadInfo, error) {
 		}
 	}()
 
-	var split ranje.Key
+	var split api.Key
 	if len(keys) > 2 {
 		sort.Strings(keys)
-		split = ranje.Key(keys[len(keys)/2])
+		split = api.Key(keys[len(keys)/2])
 	}
 
 	return api.LoadInfo{
 		Keys:   len(keys),
-		Splits: []ranje.Key{split},
+		Splits: []api.Key{split},
 	}, nil
 }
 
 // PrepareAddRange: Create the range, but don't do anything with it yet.
-func (n *Node) PrepareAddRange(rm ranje.Meta, parents []api.Parent) error {
+func (n *Node) PrepareAddRange(rm api.Meta, parents []api.Parent) error {
 	if err := n.performChaos(); err != nil {
 		return err
 	}
@@ -74,7 +73,7 @@ func (n *Node) PrepareAddRange(rm ranje.Meta, parents []api.Parent) error {
 }
 
 // AddRange:
-func (n *Node) AddRange(rID ranje.Ident) error {
+func (n *Node) AddRange(rID api.Ident) error {
 	if err := n.performChaos(); err != nil {
 		return err
 	}
@@ -101,7 +100,7 @@ func (n *Node) AddRange(rID ranje.Ident) error {
 // PrepareDropRange: Disable writes to the range, because we're about to move
 // it and I don't have the time to implement something better today. In this
 // example, keys are writable on exactly one node. (Or zero, during failures!)
-func (n *Node) PrepareDropRange(rID ranje.Ident) error {
+func (n *Node) PrepareDropRange(rID api.Ident) error {
 	if err := n.performChaos(); err != nil {
 		return err
 	}
@@ -122,7 +121,7 @@ func (n *Node) PrepareDropRange(rID ranje.Ident) error {
 }
 
 // DropRange: Discard the range.
-func (n *Node) DropRange(rID ranje.Ident) error {
+func (n *Node) DropRange(rID api.Ident) error {
 	if err := n.performChaos(); err != nil {
 		return err
 	}

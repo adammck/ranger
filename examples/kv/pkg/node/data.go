@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 
 	pbkv "github.com/adammck/ranger/examples/kv/proto/gen"
-	"github.com/adammck/ranger/pkg/ranje"
+	"github.com/adammck/ranger/pkg/api"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -36,7 +36,7 @@ func (s *kvServer) Get(ctx context.Context, req *pbkv.GetRequest) (*pbkv.GetResp
 		return nil, status.Error(codes.InvalidArgument, "missing: key")
 	}
 
-	rID, ok := s.node.rglt.Find(ranje.Key(k))
+	rID, ok := s.node.rglt.Find(api.Key(k))
 	if !ok {
 		return nil, status.Error(codes.Aborted, "no such range")
 	}
@@ -79,7 +79,7 @@ func (s *kvServer) Put(ctx context.Context, req *pbkv.PutRequest) (*pbkv.PutResp
 		return nil, status.Error(codes.InvalidArgument, "missing: key")
 	}
 
-	rID, ok := s.node.rglt.Find(ranje.Key(k))
+	rID, ok := s.node.rglt.Find(api.Key(k))
 	if !ok {
 		return nil, status.Error(codes.Aborted, "no such range")
 	}
@@ -116,7 +116,7 @@ func (s *kvServer) Put(ctx context.Context, req *pbkv.PutRequest) (*pbkv.PutResp
 // Dump is called by other nodes during range moves, splits, and joins, to fetch
 // data currently stores on this node.
 func (s *kvServer) Dump(ctx context.Context, req *pbkv.DumpRequest) (*pbkv.DumpResponse, error) {
-	ident := ranje.Ident(req.RangeIdent)
+	ident := api.Ident(req.RangeIdent)
 	if ident == 0 {
 		return nil, status.Error(codes.InvalidArgument, "missing: range_ident")
 	}

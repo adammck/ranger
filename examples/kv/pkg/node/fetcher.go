@@ -8,22 +8,21 @@ import (
 
 	pbkv "github.com/adammck/ranger/examples/kv/proto/gen"
 	"github.com/adammck/ranger/pkg/api"
-	"github.com/adammck/ranger/pkg/ranje"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 )
 
 type src struct {
-	meta ranje.Meta
+	meta api.Meta
 	node string
 }
 
 type fetcher struct {
-	meta ranje.Meta
+	meta api.Meta
 	srcs []src
 }
 
-func newFetcher(rm ranje.Meta, parents []api.Parent) *fetcher {
+func newFetcher(rm api.Meta, parents []api.Parent) *fetcher {
 	srcs := []src{}
 
 	// If this is a range move, we can just fetch the whole thing from a single
@@ -32,7 +31,7 @@ func newFetcher(rm ranje.Meta, parents []api.Parent) *fetcher {
 
 	for _, par := range parents {
 		for _, plc := range par.Placements {
-			if plc.State == ranje.PsActive {
+			if plc.State == api.PsActive {
 				src := src{meta: par.Meta, node: plc.Node}
 				srcs = append(srcs, src)
 			}
@@ -81,7 +80,7 @@ func (f *fetcher) Fetch(dest *Range) error {
 	return nil
 }
 
-func fetch(ctx context.Context, dest *Range, meta ranje.Meta, addr string, src ranje.Meta) error {
+func fetch(ctx context.Context, dest *Range, meta api.Meta, addr string, src api.Meta) error {
 	log.Printf("fetch: %s from: %s", src.Ident, addr)
 
 	conn, err := grpc.DialContext(
@@ -114,7 +113,7 @@ func fetch(ctx context.Context, dest *Range, meta ranje.Meta, addr string, src r
 
 			// Ignore any keys which are not in the destination range, since we
 			// might be reading from a dump of a superset (if this is a join).
-			if !meta.Contains(ranje.Key(pair.Key)) {
+			if !meta.Contains(api.Key(pair.Key)) {
 				skip += 1
 				continue
 			}
