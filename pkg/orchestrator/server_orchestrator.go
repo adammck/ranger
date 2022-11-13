@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/adammck/ranger/pkg/api"
+	"github.com/adammck/ranger/pkg/proto/conv"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
-	"github.com/adammck/ranger/pkg/ranje"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -140,7 +140,7 @@ func getRange(bs *orchestratorServer, pbid uint64, field string) (api.Ident, err
 		return api.ZeroRange, status.Error(codes.InvalidArgument, fmt.Sprintf("missing: %s", field))
 	}
 
-	id, err := ranje.IdentFromProto(pbid)
+	id, err := conv.IdentFromProto(pbid)
 	if err != nil {
 		return api.ZeroRange, status.Error(codes.InvalidArgument, fmt.Sprintf("invalid %s: %s", field, err.Error()))
 	}

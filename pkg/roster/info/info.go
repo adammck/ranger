@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/adammck/ranger/pkg/api"
+	"github.com/adammck/ranger/pkg/proto/conv"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
-	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster/state"
 )
 
@@ -48,7 +48,7 @@ func LoadInfoFromProto(pbli *pb.LoadInfo) api.LoadInfo {
 
 func RangeInfoToProto(ri api.RangeInfo) *pb.RangeInfo {
 	return &pb.RangeInfo{
-		Meta:  ranje.MetaToProto(ri.Meta),
+		Meta:  conv.MetaToProto(ri.Meta),
 		State: state.RemoteStateToProto(ri.State),
 		Info:  LoadInfoToProto(ri.Info),
 	}
@@ -59,7 +59,7 @@ func RangeInfoFromProto(r *pb.RangeInfo) (api.RangeInfo, error) {
 		return api.RangeInfo{}, fmt.Errorf("missing: meta")
 	}
 
-	m, err := ranje.MetaFromProto(r.Meta)
+	m, err := conv.MetaFromProto(r.Meta)
 	if err != nil {
 		return api.RangeInfo{}, fmt.Errorf("parsing meta: %v", err)
 	}

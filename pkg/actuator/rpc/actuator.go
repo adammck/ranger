@@ -9,6 +9,7 @@ import (
 	"github.com/adammck/ranger/pkg/actuator/util"
 	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/keyspace"
+	"github.com/adammck/ranger/pkg/proto/conv"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
@@ -92,7 +93,7 @@ func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (a
 
 func give(ctx context.Context, n *roster.Node, p *ranje.Placement, parents []*pb.Parent) (pb.RangeNodeState, error) {
 	req := &pb.GiveRequest{
-		Range:   ranje.MetaToProto(p.Range().Meta),
+		Range:   conv.MetaToProto(p.Range().Meta),
 		Parents: parents,
 	}
 
@@ -108,7 +109,7 @@ func give(ctx context.Context, n *roster.Node, p *ranje.Placement, parents []*pb
 func serve(ctx context.Context, n *roster.Node, p *ranje.Placement) (pb.RangeNodeState, error) {
 	rID := p.Range().Meta.Ident
 	req := &pb.ServeRequest{
-		Range: ranje.IdentToProto(rID),
+		Range: conv.IdentToProto(rID),
 	}
 
 	// TODO: Retry a few times before giving up.
@@ -123,7 +124,7 @@ func serve(ctx context.Context, n *roster.Node, p *ranje.Placement) (pb.RangeNod
 func take(ctx context.Context, n *roster.Node, p *ranje.Placement) (pb.RangeNodeState, error) {
 	rID := p.Range().Meta.Ident
 	req := &pb.TakeRequest{
-		Range: ranje.IdentToProto(rID),
+		Range: conv.IdentToProto(rID),
 	}
 
 	// TODO: Retry a few times before giving up.
@@ -138,7 +139,7 @@ func take(ctx context.Context, n *roster.Node, p *ranje.Placement) (pb.RangeNode
 func drop(ctx context.Context, n *roster.Node, p *ranje.Placement) (pb.RangeNodeState, error) {
 	rID := p.Range().Meta.Ident
 	req := &pb.DropRequest{
-		Range: ranje.IdentToProto(rID),
+		Range: conv.IdentToProto(rID),
 	}
 
 	// TODO: Retry a few times before giving up.

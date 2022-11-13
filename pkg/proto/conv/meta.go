@@ -1,4 +1,4 @@
-package ranje
+package conv
 
 import (
 	"github.com/adammck/ranger/pkg/api"

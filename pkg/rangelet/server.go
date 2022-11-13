@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"github.com/adammck/ranger/pkg/api"
+	"github.com/adammck/ranger/pkg/proto/conv"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
-	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster/info"
 	"github.com/adammck/ranger/pkg/roster/state"
 	"google.golang.org/grpc"
@@ -31,7 +31,7 @@ func parentsFromProto(prot []*pb.Parent) ([]api.Parent, error) {
 	p := []api.Parent{}
 
 	for _, pp := range prot {
-		m, err := ranje.MetaFromProto(pp.Range)
+		m, err := conv.MetaFromProto(pp.Range)
 		if err != nil {
 			return p, err
 		}
@@ -45,7 +45,7 @@ func parentsFromProto(prot []*pb.Parent) ([]api.Parent, error) {
 		for i := range pp.Placements {
 			placements[i] = api.Placement{
 				Node:  pp.Placements[i].Node,
-				State: ranje.PlacementStateFromProto(&pp.Placements[i].State),
+				State: conv.PlacementStateFromProto(&pp.Placements[i].State),
 			}
 		}
 
@@ -60,7 +60,7 @@ func parentsFromProto(prot []*pb.Parent) ([]api.Parent, error) {
 }
 
 func (ns *NodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveResponse, error) {
-	meta, err := ranje.MetaFromProto(req.Range)
+	meta, err := conv.MetaFromProto(req.Range)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "error parsing range meta: %v", err)
 	}
@@ -81,7 +81,7 @@ func (ns *NodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveRe
 }
 
 func (ns *NodeServer) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.ServeResponse, error) {
-	rID, err := ranje.IdentFromProto(req.Range)
+	rID, err := conv.IdentFromProto(req.Range)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -97,7 +97,7 @@ func (ns *NodeServer) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.Serv
 }
 
 func (ns *NodeServer) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeResponse, error) {
-	rID, err := ranje.IdentFromProto(req.Range)
+	rID, err := conv.IdentFromProto(req.Range)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -114,7 +114,7 @@ func (ns *NodeServer) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeRe
 
 func (ns *NodeServer) Drop(ctx context.Context, req *pb.DropRequest) (*pb.DropResponse, error) {
 
-	rID, err := ranje.IdentFromProto(req.Range)
+	rID, err := conv.IdentFromProto(req.Range)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}

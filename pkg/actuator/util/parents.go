@@ -5,6 +5,7 @@ import (
 
 	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/keyspace"
+	"github.com/adammck/ranger/pkg/proto/conv"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
@@ -57,12 +58,12 @@ func pbPlacement(rost *roster.Roster, r *ranje.Range) *pb.Parent {
 
 		pbPlacements[i] = &pb.Placement{
 			Node:  node,
-			State: ranje.PlacementStateToProto(p.State),
+			State: conv.PlacementStateToProto(p.State),
 		}
 	}
 
 	return &pb.Parent{
-		Range:      ranje.MetaToProto(r.Meta),
+		Range:      conv.MetaToProto(r.Meta),
 		Placements: pbPlacements,
 	}
 }

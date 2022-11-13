@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/adammck/ranger/pkg/keyspace"
+	"github.com/adammck/ranger/pkg/proto/conv"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
@@ -21,17 +22,17 @@ type debugServer struct {
 func rangeResponse(r *ranje.Range, rost *roster.Roster) *pb.RangeResponse {
 	parents := make([]uint64, len(r.Parents))
 	for i, rID := range r.Parents {
-		parents[i] = ranje.IdentToProto(rID)
+		parents[i] = conv.IdentToProto(rID)
 	}
 
 	children := make([]uint64, len(r.Children))
 	for i, rID := range r.Children {
-		children[i] = ranje.IdentToProto(rID)
+		children[i] = conv.IdentToProto(rID)
 	}
 
 	res := &pb.RangeResponse{
-		Meta:     ranje.MetaToProto(r.Meta),
-		State:    ranje.RangeStateToProto(r.State),
+		Meta:     conv.MetaToProto(r.Meta),
+		State:    conv.RangeStateToProto(r.State),
 		Parents:  parents,
 		Children: children,
 	}
@@ -40,7 +41,7 @@ func rangeResponse(r *ranje.Range, rost *roster.Roster) *pb.RangeResponse {
 		plc := &pb.PlacementWithRangeInfo{
 			Placement: &pb.Placement{
 				Node:  p.NodeID,
-				State: ranje.PlacementStateToProto(p.State),
+				State: conv.PlacementStateToProto(p.State),
 			},
 		}
 
@@ -70,8 +71,8 @@ func nodeResponse(ks *keyspace.Keyspace, n *roster.Node) *pb.NodeResponse {
 
 	for _, pl := range ks.PlacementsByNodeID(n.Ident()) {
 		res.Ranges = append(res.Ranges, &pb.NodeRange{
-			Meta:  ranje.MetaToProto(pl.Range.Meta),
-			State: ranje.PlacementStateToProto(pl.Placement.State),
+			Meta:  conv.MetaToProto(pl.Range.Meta),
+			State: conv.PlacementStateToProto(pl.Placement.State),
 		})
 	}
 
@@ -98,7 +99,7 @@ func (srv *debugServer) Range(ctx context.Context, req *pb.RangeRequest) (*pb.Ra
 		return nil, status.Error(codes.InvalidArgument, "missing: range")
 	}
 
-	rID, err := ranje.IdentFromProto(req.Range)
+	rID, err := conv.IdentFromProto(req.Range)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("IdentFromProto failed: %v", err))
 	}
