@@ -87,18 +87,17 @@ func nodeConnFactory(ctx context.Context, remote discovery.Remote) (*grpc.Client
 	return grpc.DialContext(ctx, remote.Addr(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 }
 
-// TODO: Return an error from this func, to avoid duplicating it in callers.
-func (ros *Roster) NodeByIdent(nID api.NodeID) *Node {
+func (ros *Roster) NodeByIdent(nID api.NodeID) (*Node, error) {
 	ros.RLock()
 	defer ros.RUnlock()
 
 	for nid, n := range ros.Nodes {
 		if nid == nID {
-			return n
+			return n, nil
 		}
 	}
 
-	return nil
+	return nil, ErrNodeNotFound{nID}
 }
 
 // Location is returned by the Locate method. Don't use it for anything else.

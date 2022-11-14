@@ -43,12 +43,13 @@ func pbPlacement(ros roster.NodeGetter, r *ranje.Range) *pb.Parent {
 	// TODO: The kv example doesn't care about range history, because it has no
 	//       external write log, so can only fetch from nodes. So we can skip
 	//       sending them at all. Maybe add a controller feature flag?
-	//
 
 	pbPlacements := make([]*pb.Placement, len(r.Placements))
 
 	for i, p := range r.Placements {
-		n := ros.NodeByIdent(p.NodeID)
+
+		// TODO: Don't ignore errors here.
+		n, _ := ros.NodeByIdent(p.NodeID)
 
 		node := ""
 		if n != nil {

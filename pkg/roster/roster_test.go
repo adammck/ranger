@@ -177,10 +177,11 @@ func (ts *RosterSuite) TestProbeOne() {
 	ts.rost.Discover()
 
 	// Far as the roster is concerned, this is a real node.
-	rostNode := ts.rost.NodeByIdent("test-aaa")
+	rostNode, err := ts.rost.NodeByIdent("test-aaa")
+	ts.Require().NoError(err)
 	ts.Require().NotNil(rostNode)
 
-	err := ts.rost.probeOne(ts.ctx, rostNode)
+	err = ts.rost.probeOne(ts.ctx, rostNode)
 	if ts.NoError(err) {
 		if rostInfo, ok := rostNode.Get(1); ts.True(ok) {
 

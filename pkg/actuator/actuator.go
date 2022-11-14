@@ -104,11 +104,10 @@ func (a *Actuator) consider(p *ranje.Placement) {
 		return
 	}
 
-	n := a.ros.NodeByIdent(p.NodeID)
-	if n == nil {
-		// TODO: Rerturn an error from NodeByIdent instead?
-		log.Printf("Actuator.Consider(%s:%s): no such node",
-			p.Range().Meta.Ident, p.NodeID)
+	n, err := a.ros.NodeByIdent(p.NodeID)
+	if err != nil {
+		log.Printf("Actuator.Consider(%s:%s): %v",
+			p.Range().Meta.Ident, p.NodeID, err)
 		return
 	}
 

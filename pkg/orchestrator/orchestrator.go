@@ -436,13 +436,12 @@ func (b *Orchestrator) doMove(r *ranje.Range, opMove OpMove) error {
 func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *keyspace.Operation) (destroy bool) {
 	destroy = false
 
-	// Get the node that this placement is on.
-	// (This is a problem, in most states.)
-	n := b.rost.NodeByIdent(p.NodeID)
-	if p.StateCurrent != api.PsGiveUp && p.StateCurrent != api.PsDropped {
-		if n == nil {
-			// The node has disappeared.
-			log.Printf("missing node: %s", p.NodeID)
+	// Get the node that this placement is on. If the node couldn't be fetched,
+	// it's probably crashed, so move the placement to GiveUp so it's replaced.
+	n, err := b.rost.NodeByIdent(p.NodeID)
+	if err != nil {
+		if p.StateCurrent != api.PsGiveUp && p.StateCurrent != api.PsDropped {
+			log.Printf("error getting node: %v", err)
 			b.ks.PlacementToState(p, api.PsGiveUp)
 			return
 		}

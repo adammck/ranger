@@ -26,7 +26,8 @@ import (
 func TestGive(t *testing.T) {
 	h := setup(t)
 	p := getPlacement(t, h.rangeGetter, 2, 0)
-	n := h.nodeGetter.NodeByIdent("node-aaa")
+	n, err := h.nodeGetter.NodeByIdent("node-aaa")
+	assert.NilError(t, err)
 
 	cmd := api.Command{
 		RangeIdent: 2,
@@ -36,7 +37,7 @@ func TestGive(t *testing.T) {
 
 	// success
 
-	err := h.actuator.Command(cmd, p, n)
+	err = h.actuator.Command(cmd, p, n)
 	assert.NilError(t, err)
 
 	assert.Assert(t, h.node.giveReq != nil)
@@ -85,7 +86,8 @@ func TestGive(t *testing.T) {
 func TestServe(t *testing.T) {
 	h := setup(t)
 	p := getPlacement(t, h.rangeGetter, 3, 0)
-	n := h.nodeGetter.NodeByIdent("node-aaa")
+	n, err := h.nodeGetter.NodeByIdent("node-aaa")
+	assert.NilError(t, err)
 
 	cmd := api.Command{
 		RangeIdent: 3,
@@ -95,7 +97,7 @@ func TestServe(t *testing.T) {
 
 	// success
 
-	err := h.actuator.Command(cmd, p, n)
+	err = h.actuator.Command(cmd, p, n)
 	assert.NilError(t, err)
 
 	assert.Assert(t, h.node.serveReq != nil)
@@ -115,7 +117,8 @@ func TestServe(t *testing.T) {
 func TestTake(t *testing.T) {
 	h := setup(t)
 	p := getPlacement(t, h.rangeGetter, 3, 0)
-	n := h.nodeGetter.NodeByIdent("node-aaa")
+	n, err := h.nodeGetter.NodeByIdent("node-aaa")
+	assert.NilError(t, err)
 
 	cmd := api.Command{
 		RangeIdent: 3,
@@ -125,7 +128,7 @@ func TestTake(t *testing.T) {
 
 	// success
 
-	err := h.actuator.Command(cmd, p, n)
+	err = h.actuator.Command(cmd, p, n)
 	assert.NilError(t, err)
 
 	assert.Assert(t, h.node.takeReq != nil)
@@ -144,7 +147,8 @@ func TestTake(t *testing.T) {
 func TestDrop(t *testing.T) {
 	h := setup(t)
 	p := getPlacement(t, h.rangeGetter, 3, 0)
-	n := h.nodeGetter.NodeByIdent("node-aaa")
+	n, err := h.nodeGetter.NodeByIdent("node-aaa")
+	assert.NilError(t, err)
 
 	cmd := api.Command{
 		RangeIdent: 3,
@@ -154,7 +158,7 @@ func TestDrop(t *testing.T) {
 
 	// success
 
-	err := h.actuator.Command(cmd, p, n)
+	err = h.actuator.Command(cmd, p, n)
 	assert.NilError(t, err)
 
 	assert.Assert(t, h.node.dropReq != nil)
@@ -180,7 +184,8 @@ func TestInvalidAction(t *testing.T) {
 	p := r.Placements[0]
 	require.NotNil(t, p)
 
-	n := h.nodeGetter.NodeByIdent("node-aaa")
+	n, err := h.nodeGetter.NodeByIdent("node-aaa")
+	assert.NilError(t, err)
 
 	invalid := api.Action(99)
 
@@ -226,8 +231,12 @@ type FakeNodeGetter struct {
 	n map[api.NodeID]*roster.Node
 }
 
-func (rg *FakeNodeGetter) NodeByIdent(nID api.NodeID) *roster.Node {
-	return rg.n[nID]
+func (rg *FakeNodeGetter) NodeByIdent(nID api.NodeID) (*roster.Node, error) {
+	n, ok := rg.n[nID]
+	if !ok {
+		return nil, roster.ErrNodeNotFound{NodeID: nID}
+	}
+	return n, nil
 }
 
 // ----------------------------------------------------------------- TestNode --

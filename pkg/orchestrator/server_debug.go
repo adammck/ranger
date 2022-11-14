@@ -46,7 +46,7 @@ func rangeResponse(r *ranje.Range, rost *roster.Roster) *pb.RangeResponse {
 
 		// If RangeInfo is available include it.
 		// Might not be, if the node has just vanished or forgotten the range.
-		nod := rost.NodeByIdent(p.NodeID)
+		nod, _ := rost.NodeByIdent(p.NodeID)
 		if nod != nil {
 			if ri, ok := nod.Get(r.Meta.Ident); ok {
 				plc.RangeInfo = conv.RangeInfoToProto(ri)
@@ -121,9 +121,9 @@ func (srv *debugServer) Node(ctx context.Context, req *pb.NodeRequest) (*pb.Node
 		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("NodeIDFromProto failed: %v", err))
 	}
 
-	node := srv.orch.rost.NodeByIdent(nID)
-	if node == nil {
-		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("No such node: %s", nID))
+	node, err := srv.orch.rost.NodeByIdent(nID)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
 	res := nodeResponse(srv.orch.ks, node)
