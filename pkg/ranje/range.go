@@ -91,9 +91,25 @@ func (r *Range) Dirty() bool {
 	return r.dirty
 }
 
-// ???
-func (r *Range) MinReady() int {
+// MinPlacements returns the number of placements (in any state) that this range
+// should have. If it has fewer than this, more should be created asap.
+func (r *Range) MinPlacements() int {
 	return 1
+}
+
+// MaxActive returns the maximum number of active placements that this range
+// should ever have. Ranger will aim for exactly this number; any fewer, and
+// more should be activated asap.
+func (r *Range) MaxActive() int {
+	return 1
+}
+
+// MinActive returns the minimum number of active placements that this range
+// should ever have. This is the *lower bound*; there will usually be more, but
+// during operations will be allowed to proceed so long as the number of active
+// ranges is not below this number. It can be equal to this number!
+func (r *Range) MinActive() int {
+	return 0
 }
 
 func (r *Range) ToState(new api.RangeState) error {

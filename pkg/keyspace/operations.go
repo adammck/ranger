@@ -345,9 +345,8 @@ func (op *Operation) MayActivate(p *ranje.Placement, r *ranje.Range) error {
 		}
 	}
 
-	// TODO: Isn't this bounded by MaxReady, instead?
-	if n >= r.MinReady() {
-		return fmt.Errorf("too many ready placements (n=%d, MinReady=%d)", n, r.MinReady())
+	if n >= r.MaxActive() {
+		return fmt.Errorf("too many active placements (n=%d, MaxActive=%d)", n, r.MaxActive())
 	}
 
 	if op == nil {
@@ -447,7 +446,10 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 				}
 			}
 
-			if n < rc.MinReady() {
+			// TODO: This is weird. Why are we waiting for the *maximum* number
+			//       of placements to be ready in the dest? I think it's because
+			//       min/max doesn't make much sense until we have replicas.
+			if n < rc.MaxActive() {
 				return fmt.Errorf("not enough inactive children")
 			}
 		}
@@ -550,8 +552,8 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 					return fmt.Errorf("child range has placement given up, which will be dropped")
 				}
 			}
-			if active < r2.MinReady() {
-				return fmt.Errorf("child range has too few active placements (want=%d, got=%d)", r2.MinReady(), active)
+			if active < r2.MaxActive() {
+				return fmt.Errorf("child range has too few active placements (want=%d, got=%d)", r2.MaxActive(), active)
 			}
 		}
 

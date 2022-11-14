@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/adammck/ranger/pkg/api"
-	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/test/fake_nodes"
@@ -18,7 +16,6 @@ import (
 type RosterSuite struct {
 	suite.Suite
 	ctx   context.Context
-	cfg   config.Config
 	nodes *fake_nodes.TestNodes
 	rost  *Roster
 
@@ -33,13 +30,6 @@ func TestExampleTestSuite(t *testing.T) {
 func (ts *RosterSuite) SetupTest() {
 	ts.ctx = context.Background()
 
-	// Sensible defaults.
-	ts.cfg = config.Config{
-		DrainNodesBeforeShutdown: false,
-		NodeExpireDuration:       1 * time.Hour, // never
-		Replication:              1,
-	}
-
 	// Just to avoid constructing this thing everywhere.
 	ts.r = &ranje.Range{
 		Meta:  api.Meta{Ident: 1},
@@ -51,7 +41,7 @@ func (ts *RosterSuite) SetupTest() {
 }
 
 func (ts *RosterSuite) Init() {
-	ts.rost = New(ts.cfg, ts.nodes.Discovery(), nil, nil, nil)
+	ts.rost = New(ts.nodes.Discovery(), nil, nil, nil)
 	ts.rost.NodeConnFactory = ts.nodes.NodeConnFactory
 }
 

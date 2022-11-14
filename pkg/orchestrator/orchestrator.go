@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/adammck/ranger/pkg/api"
-	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/keyspace"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
@@ -16,7 +15,6 @@ import (
 )
 
 type Orchestrator struct {
-	cfg  config.Config
 	ks   *keyspace.Keyspace
 	rost *roster.Roster // TODO: Use simpler interface, not whole Roster.
 	srv  *grpc.Server
@@ -39,9 +37,8 @@ type Orchestrator struct {
 	opJoinsMu sync.RWMutex
 }
 
-func New(cfg config.Config, ks *keyspace.Keyspace, rost *roster.Roster, srv *grpc.Server) *Orchestrator {
+func New(ks *keyspace.Keyspace, rost *roster.Roster, srv *grpc.Server) *Orchestrator {
 	b := &Orchestrator{
-		cfg:      cfg,
 		ks:       ks,
 		rost:     rost,
 		srv:      srv,
@@ -201,7 +198,7 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 	case api.RsActive:
 
 		// Not enough placements? Create one!
-		if len(r.Placements) < b.cfg.Replication {
+		if len(r.Placements) < r.MinPlacements() {
 
 			nID, err := b.rost.Candidate(r, ranje.AnyNode)
 			if err != nil {

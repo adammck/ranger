@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/adammck/ranger/pkg/api"
-	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
 	"github.com/adammck/ranger/pkg/proto/conv"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
@@ -25,7 +24,12 @@ const (
 )
 
 type Roster struct {
-	cfg config.Config
+
+	// How long should the controller wait for a node to respond to a probe
+	// before expiring it? The default value (zero) means that nodes expire as
+	// soon as they are discovered, which means that nothing every works. That
+	// is non-ideal.
+	NodeExpireDuration time.Duration
 
 	// TODO: Can this be private now?
 	Nodes map[api.NodeID]*Node
@@ -45,9 +49,8 @@ type Roster struct {
 	NodeConnFactory func(ctx context.Context, remote discovery.Remote) (*grpc.ClientConn, error)
 }
 
-func New(cfg config.Config, disc discovery.Discoverable, add, remove func(rem *discovery.Remote), info chan NodeInfo) *Roster {
+func New(disc discovery.Discoverable, add, remove func(rem *discovery.Remote), info chan NodeInfo) *Roster {
 	return &Roster{
-		cfg:    cfg,
 		Nodes:  make(map[api.NodeID]*Node),
 		disc:   disc,
 		add:    add,
@@ -57,6 +60,8 @@ func New(cfg config.Config, disc discovery.Discoverable, add, remove func(rem *d
 		// Defaults to production implementation.
 		// Patch it after construction for tests.
 		NodeConnFactory: nodeConnFactory,
+
+		NodeExpireDuration: 1 * time.Minute,
 	}
 }
 
@@ -194,7 +199,7 @@ func (ros *Roster) expire() {
 	now := time.Now()
 
 	for nID, n := range ros.Nodes {
-		if n.IsMissing(ros.cfg, now) {
+		if n.IsMissing(ros.NodeExpireDuration, now) {
 			// The node hasn't responded to probes in a while.
 			log.Printf("expired node: %v", n.Ident())
 
@@ -213,7 +218,7 @@ func (ros *Roster) expire() {
 				ros.remove(&n.Remote)
 			}
 
-			if n.IsGoneFromServiceDiscovery(ros.cfg, now) {
+			if n.IsGoneFromServiceDiscovery(now) {
 				// The node has also been missing from service discovery for a
 				// while, so we can forget about it and stop probing.
 				log.Printf("removing node: %v", n.Ident())
@@ -410,7 +415,7 @@ func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (api.NodeID, er
 			continue
 		}
 
-		if nodes[i].IsMissing(r.cfg, time.Now()) {
+		if nodes[i].IsMissing(r.NodeExpireDuration, time.Now()) {
 			s := fmt.Sprintf("node is missing: %v", nodes[i].Ident())
 			if c.NodeID != "" {
 				return "", errors.New(s)

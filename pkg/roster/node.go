@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/adammck/ranger/pkg/api"
-	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"google.golang.org/grpc"
@@ -140,14 +139,14 @@ func (n *Node) String() string {
 	return fmt.Sprintf("N{%s}", n.Ident())
 }
 
-func (n *Node) IsGoneFromServiceDiscovery(cfg config.Config, now time.Time) bool {
+func (n *Node) IsGoneFromServiceDiscovery(now time.Time) bool {
 	return n.whenLastSeen.Before(now.Add(-10 * time.Second))
 }
 
 // IsMissing returns true if this node hasn't responded to a probe in long
 // enough that we think it's dead, and should move its ranges elsewhere.
-func (n *Node) IsMissing(cfg config.Config, now time.Time) bool {
-	return (!n.whenLastProbed.IsZero()) && n.whenLastProbed.Before(now.Add(-cfg.NodeExpireDuration))
+func (n *Node) IsMissing(expireDuration time.Duration, now time.Time) bool {
+	return (!n.whenLastProbed.IsZero()) && n.whenLastProbed.Before(now.Add(-expireDuration))
 }
 
 // Utilization returns a uint in [0, 255], indicating how busy this node is.

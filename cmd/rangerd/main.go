@@ -8,17 +8,9 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-
-	"github.com/adammck/ranger/pkg/config"
 )
 
 func main() {
-	cfg := config.Config{
-		DrainNodesBeforeShutdown: true,
-		NodeExpireDuration:       5 * time.Second,
-		Replication:              1, // only thing that works for now
-	}
-
 	addrLis := flag.String("addr", "localhost:8000", "address to start grpc server on")
 	addrPub := flag.String("pub-addr", "", "address for other nodes to reach this (default: same as -addr)")
 	interval := flag.Duration("interval", 250*time.Millisecond, "frequency of orchestration loop")
@@ -34,7 +26,7 @@ func main() {
 	logger := log.New(os.Stdout, "", 0)
 	*log.Default() = *logger
 
-	cmd, err := New(cfg, *addrLis, *addrPub, *interval, *once)
+	cmd, err := New(*addrLis, *addrPub, *interval, *once)
 	if err != nil {
 		exit(err)
 	}

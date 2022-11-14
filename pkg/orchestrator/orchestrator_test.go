@@ -7,14 +7,12 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"context"
 
 	"github.com/adammck/ranger/pkg/actuator"
 	mock_actuator "github.com/adammck/ranger/pkg/actuator/mock"
 	"github.com/adammck/ranger/pkg/api"
-	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
 	mock_disc "github.com/adammck/ranger/pkg/discovery/mock"
 	"github.com/adammck/ranger/pkg/keyspace"
@@ -61,7 +59,7 @@ const noStrictTransactions = false
 func TestPlace(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 
 	// First tick: Placement created, Give RPC sent to node and returned
 	// successfully. Remote state is updated in roster, but not keyspace.
@@ -101,7 +99,7 @@ func TestPlace(t *testing.T) {
 func TestPlace_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 
 	tickUntilStable(t, orch, act)
 	assert.Equal(t, "{test-aaa [1:NsActive]}", orch.rost.TestString())
@@ -111,7 +109,7 @@ func TestPlace_Short(t *testing.T) {
 func TestPlace_Slow(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), strictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, strictTransactions)
 
 	i1g := inject(t, act, "test-aaa", 1, api.Give).Response(api.NsLoading)
 
@@ -175,7 +173,7 @@ func TestPlace_Slow(t *testing.T) {
 func TestPlaceFailure_PrepareAddRange_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []} {test-bbb []}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 
 	inject(t, act, "test-aaa", 1, api.Give).Failure()
 
@@ -188,7 +186,7 @@ func TestPlaceFailure_PrepareAddRange_Short(t *testing.T) {
 func TestPlaceFailure_AddRange_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []} {test-bbb []}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 
 	// Serving R1 will always fail on node aaa.
 	// (But Give will succeed, as is the default)
@@ -202,7 +200,7 @@ func TestPlaceFailure_AddRange_Short(t *testing.T) {
 func TestPlaceFailure_AddRange(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []} {test-bbb []}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 
 	// Serving R1 will always fail on node aaa.
 	// (But Give will succeed, as is the default)
@@ -256,7 +254,7 @@ func TestPlaceFailure_AddRange(t *testing.T) {
 func TestMove(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 	requireStable(t, orch, act)
 
 	moveOp(orch, 1, "test-bbb")
@@ -316,7 +314,7 @@ func TestMove(t *testing.T) {
 func TestMove_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 	requireStable(t, orch, act)
 
 	moveOp(orch, 1, "test-bbb")
@@ -330,7 +328,7 @@ func TestMove_Short(t *testing.T) {
 func TestMove_Slow(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), strictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, strictTransactions)
 	moveOp(orch, 1, "test-bbb")
 
 	//
@@ -468,7 +466,7 @@ func TestMove_Slow(t *testing.T) {
 func TestMoveFailure_PrepareAddRange(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 	inject(t, act, "test-bbb", 1, api.Give).Failure()
 	moveOp(orch, 1, "test-bbb")
 
@@ -499,7 +497,7 @@ func TestMoveFailure_PrepareAddRange(t *testing.T) {
 func TestMoveFailure_PrepareDropRange(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 	inject(t, act, "test-aaa", 1, api.Take).Failure()
 	moveOp(orch, 1, "test-bbb")
 
@@ -559,7 +557,7 @@ func TestMoveFailure_PrepareDropRange(t *testing.T) {
 func TestMoveFailure_AddRange(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 	inject(t, act, "test-bbb", 1, api.Serve).Failure()
 	moveOp(orch, 1, "test-bbb")
 
@@ -631,7 +629,7 @@ func TestMoveFailure_AddRange(t *testing.T) {
 func TestMoveFailure_DropRange(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 	moveOp(orch, 1, "test-bbb")
 
 	i1d := inject(t, act, "test-aaa", 1, api.Drop).Failure()
@@ -667,7 +665,7 @@ func TestMoveFailure_DropRange(t *testing.T) {
 func TestSplit(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 	requireStable(t, orch, act)
 
 	// 0. Initiate
@@ -744,7 +742,7 @@ func TestSplit(t *testing.T) {
 func TestSplit_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 
 	splitOp(orch, 1)
 	tickUntilStable(t, orch, act)
@@ -757,7 +755,7 @@ func TestSplit_Short(t *testing.T) {
 func TestSplit_Slow(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), strictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, strictTransactions)
 	opErr := splitOp(orch, 1)
 
 	//
@@ -924,7 +922,7 @@ func TestSplit_Slow(t *testing.T) {
 func TestSplitFailure_PrepareAddRange(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 	inject(t, act, "test-bbb", 2, api.Give).Failure()
 	splitOp(orch, 1)
 
@@ -979,7 +977,7 @@ func TestSplitFailure_PrepareAddRange(t *testing.T) {
 func TestSplitFailure_PrepareDropRange_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 	inject(t, act, "test-aaa", 1, api.Take).Failure()
 	splitOp(orch, 1)
 
@@ -1002,7 +1000,7 @@ func TestSplitFailure_PrepareDropRange(t *testing.T) {
 func TestSplitFailure_AddRange_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 	inject(t, act, "test-bbb", 2, api.Serve).Failure()
 	splitOp(orch, 1)
 
@@ -1014,7 +1012,7 @@ func TestSplitFailure_AddRange_Short(t *testing.T) {
 func TestSplitFailure_AddRange(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 	inject(t, act, "test-bbb", 2, api.Serve).Failure()
 	splitOp(orch, 1)
 
@@ -1131,7 +1129,7 @@ func TestSplitFailure_DropRange(t *testing.T) {
 func TestSplitFailure_DropRange_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 	inject(t, act, "test-aaa", 1, api.Drop).Failure()
 	splitOp(orch, 1)
 
@@ -1154,7 +1152,7 @@ func TestJoin(t *testing.T) {
 func TestJoin_Short(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 	joinOp(orch, 1, 2, "test-ccc")
 
 	tickUntilStable(t, orch, act)
@@ -1166,7 +1164,7 @@ func TestJoin_Short(t *testing.T) {
 func TestJoin_Slow(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), strictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, strictTransactions)
 	opErr := joinOp(orch, 1, 2, "test-ccc")
 
 	//
@@ -1308,7 +1306,7 @@ func TestJoin_Slow(t *testing.T) {
 func TestJoinFailure_PrepareAddRange(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []} {test-ddd []}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 	inject(t, act, "test-ccc", 3, api.Give).Failure()
 
 	// 0. Initiate
@@ -1343,7 +1341,7 @@ func TestJoinFailure_PrepareAddRange(t *testing.T) {
 func TestJoinFailure_PrepareDropRange(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []} {test-ddd []}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 	_ = joinOp(orch, 1, 2, "test-ccc")
 
 	i1t := inject(t, act, "test-aaa", 1, api.Take).Failure()
@@ -1476,7 +1474,7 @@ func TestJoinFailure_PrepareDropRange(t *testing.T) {
 func TestJoinFailure_AddRange_Short(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 	inject(t, act, "test-ccc", 3, api.Serve).Failure()
 	joinOp(orch, 1, 2, "test-ccc")
 
@@ -1510,7 +1508,7 @@ func TestJoinFailure_AddRange_Short(t *testing.T) {
 func TestJoinFailure_DropRange_Short(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 	inject(t, act, "test-aaa", 1, api.Drop).Failure()
 	joinOp(orch, 1, 2, "test-ccc")
 
@@ -1528,7 +1526,7 @@ func TestJoinFailure_DropRange_Short(t *testing.T) {
 func TestMissingPlacement(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa []}"
-	orch, act := orchFactory(t, ksStr, rosStr, testConfig(), noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 
 	// Orchestrator notices that the node doesn't have the range, so marks the
 	// placement as abandoned.
@@ -1563,14 +1561,6 @@ func TestMissingPlacement(t *testing.T) {
 }
 
 // ----------------------------------------------------------- fixture factories
-
-func testConfig() config.Config {
-	return config.Config{
-		DrainNodesBeforeShutdown: false,
-		NodeExpireDuration:       1 * time.Hour, // ~never
-		Replication:              1,
-	}
-}
 
 type rangeStub struct {
 	rID        string
@@ -1693,7 +1683,7 @@ func parseRoster(t *testing.T, s string) []nodeStub {
 }
 
 // TODO: Remove config param. Config was a mistake.
-func keyspaceFactory(t *testing.T, cfg config.Config, stubs []rangeStub) *keyspace.Keyspace {
+func keyspaceFactory(t *testing.T, stubs []rangeStub) *keyspace.Keyspace {
 	ranges := make([]*ranje.Range, len(stubs))
 	for i := range stubs {
 		r := ranje.NewRange(api.RangeID(i + 1))
@@ -1722,7 +1712,7 @@ func keyspaceFactory(t *testing.T, cfg config.Config, stubs []rangeStub) *keyspa
 	pers := &FakePersister{ranges: ranges}
 
 	var err error
-	ks, err := keyspace.New(cfg, pers)
+	ks, err := keyspace.New(pers)
 	if err != nil {
 		t.Fatalf("keyspace.New: %s", err)
 	}
@@ -1730,7 +1720,7 @@ func keyspaceFactory(t *testing.T, cfg config.Config, stubs []rangeStub) *keyspa
 	return ks
 }
 
-func rosterFactory(t *testing.T, cfg config.Config, ctx context.Context, ks *keyspace.Keyspace, stubs []nodeStub) *roster.Roster {
+func rosterFactory(t *testing.T, ctx context.Context, ks *keyspace.Keyspace, stubs []nodeStub) *roster.Roster {
 	disc := mock_disc.New()
 
 	for i := range stubs {
@@ -1742,7 +1732,7 @@ func rosterFactory(t *testing.T, cfg config.Config, ctx context.Context, ks *key
 		})
 	}
 
-	rost := roster.New(cfg, disc, nil, nil, nil)
+	rost := roster.New(disc, nil, nil, nil)
 
 	// Run a single discovery cycle to populate rost.Nodes with empty nodes from
 	// the mock discovery above. But don't actually tick; that part isn't mocked
@@ -1771,17 +1761,17 @@ func rosterFactory(t *testing.T, cfg config.Config, ctx context.Context, ks *key
 }
 
 // TODO: Merge this with orchFactoryCheck once TestJunk is gone.
-func orchFactoryNoCheck(t *testing.T, sKS, sRos string, cfg config.Config, strict bool) (*Orchestrator, *actuator.Actuator) {
-	ks := keyspaceFactory(t, cfg, parseKeyspace(t, sKS))
-	ros := rosterFactory(t, cfg, context.TODO(), ks, parseRoster(t, sRos))
+func orchFactoryNoCheck(t *testing.T, sKS, sRos string, strict bool) (*Orchestrator, *actuator.Actuator) {
+	ks := keyspaceFactory(t, parseKeyspace(t, sKS))
+	ros := rosterFactory(t, context.TODO(), ks, parseRoster(t, sRos))
 	srv := grpc.NewServer() // TODO: Allow this to be nil.
 	act := actuator.New(ks, ros, 0, mock_actuator.New(strict))
-	orch := New(cfg, ks, ros, srv)
+	orch := New(ks, ros, srv)
 	return orch, act
 }
 
-func orchFactory(t *testing.T, sKS, sRos string, cfg config.Config, strict bool) (*Orchestrator, *actuator.Actuator) {
-	orch, act := orchFactoryNoCheck(t, sKS, sRos, cfg, strict)
+func orchFactory(t *testing.T, sKS, sRos string, strict bool) (*Orchestrator, *actuator.Actuator) {
+	orch, act := orchFactoryNoCheck(t, sKS, sRos, strict)
 
 	// Verify that the current state of the keyspace and roster is what was
 	// requested. (Require it, because if not, the test harness is broken.)

@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/adammck/ranger/pkg/api"
-	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/persister"
 	"github.com/adammck/ranger/pkg/ranje"
 )
@@ -19,16 +18,14 @@ import (
 // range in the steady-state, where nothing is being moved around, and two
 // ranges while rebalancing is in progress.
 type Keyspace struct {
-	cfg      config.Config
 	pers     persister.Persister
 	ranges   []*ranje.Range // TODO: don't be dumb, use an interval tree
 	mu       sync.RWMutex
 	maxIdent api.RangeID
 }
 
-func New(cfg config.Config, persister persister.Persister) (*Keyspace, error) {
+func New(persister persister.Persister) (*Keyspace, error) {
 	ks := &Keyspace{
-		cfg:  cfg,
 		pers: persister,
 	}
 

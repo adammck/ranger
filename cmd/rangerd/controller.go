@@ -8,7 +8,6 @@ import (
 
 	"github.com/adammck/ranger/pkg/actuator"
 	rpc_actuator "github.com/adammck/ranger/pkg/actuator/rpc"
-	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
 	"github.com/adammck/ranger/pkg/keyspace"
 	"github.com/adammck/ranger/pkg/orchestrator"
@@ -22,8 +21,6 @@ import (
 )
 
 type Controller struct {
-	cfg config.Config
-
 	addrLis  string
 	addrPub  string // do we actually need this? maybe only discovery does.
 	interval time.Duration
@@ -37,7 +34,7 @@ type Controller struct {
 	orch *orchestrator.Orchestrator
 }
 
-func New(cfg config.Config, addrLis, addrPub string, interval time.Duration, once bool) (*Controller, error) {
+func New(addrLis, addrPub string, interval time.Duration, once bool) (*Controller, error) {
 	var opts []grpc.ServerOption
 	srv := grpc.NewServer(opts...)
 
@@ -60,21 +57,20 @@ func New(cfg config.Config, addrLis, addrPub string, interval time.Duration, onc
 
 	// This loads the ranges from storage, so will fail if the persister (e.g.
 	// Consul) isn't available. Starting with an empty keyspace should be rare.
-	ks, err := keyspace.New(cfg, pers)
+	ks, err := keyspace.New(pers)
 	if err != nil {
 		return nil, err
 	}
 
 	// TODO: Hook up the callbacks (or replace with channels)
-	rost := roster.New(cfg, disc, nil, nil, nil)
+	rost := roster.New(disc, nil, nil, nil)
 
 	actImpl := rpc_actuator.New(ks, rost)
 	act := actuator.New(ks, rost, time.Duration(3*time.Second), actImpl)
 
-	orch := orchestrator.New(cfg, ks, rost, srv)
+	orch := orchestrator.New(ks, rost, srv)
 
 	return &Controller{
-		cfg:      cfg,
 		addrLis:  addrLis,
 		addrPub:  addrPub,
 		interval: interval,

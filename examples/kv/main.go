@@ -13,7 +13,6 @@ import (
 
 	"github.com/adammck/ranger/examples/kv/pkg/node"
 	"github.com/adammck/ranger/examples/kv/pkg/proxy"
-	"github.com/adammck/ranger/pkg/config"
 )
 
 type Runner interface {
@@ -25,17 +24,12 @@ func init() {
 }
 
 func main() {
-	cfg := config.Config{
-		DrainNodesBeforeShutdown: true,
-		NodeExpireDuration:       5 * time.Second,
-		Replication:              1, // only thing that works for now
-	}
-
 	fnod := flag.Bool("node", false, "start a node")
 	fprx := flag.Bool("proxy", false, "start a proxy")
 
 	addrLis := flag.String("addr", "localhost:8000", "address to start grpc server on")
 	addrPub := flag.String("pub-addr", "", "address for other nodes to reach this (default: same as -listen)")
+	drain := flag.Bool("drain", false, "node: drain ranges before shutting down")
 	LogReqs := flag.Bool("log-reqs", false, "proxy, node: enable request logging")
 	chaos := flag.Bool("chaos", false, "enable random failures and delays")
 	flag.Parse()
@@ -62,10 +56,10 @@ func main() {
 	var err error
 
 	if *fnod && !*fprx {
-		cmd, err = node.New(cfg, *addrLis, *addrPub, *LogReqs, *chaos)
+		cmd, err = node.New(*addrLis, *addrPub, *drain, *LogReqs, *chaos)
 
 	} else if !*fnod && *fprx {
-		cmd, err = proxy.New(cfg, *addrLis, *addrPub, *LogReqs)
+		cmd, err = proxy.New(*addrLis, *addrPub, *LogReqs)
 
 	} else {
 		err = errors.New("must provide one of -node, -proxy")

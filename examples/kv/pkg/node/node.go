@@ -12,7 +12,6 @@ import (
 
 	pbkv "github.com/adammck/ranger/examples/kv/proto/gen"
 	"github.com/adammck/ranger/pkg/api"
-	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
 	consuldisc "github.com/adammck/ranger/pkg/discovery/consul"
 	"github.com/adammck/ranger/pkg/rangelet"
@@ -28,7 +27,7 @@ type Range struct {
 }
 
 type Node struct {
-	cfg config.Config
+	DrainBeforeShutdown bool
 
 	ranges   map[api.RangeID]*Range
 	rangesMu sync.RWMutex // guards ranges
@@ -51,7 +50,7 @@ func init() {
 	var _ api.Node = ns
 }
 
-func New(cfg config.Config, addrLis, addrPub string, logReqs bool, chaos bool) (*Node, error) {
+func New(addrLis, addrPub string, drainBeforeShutdown bool, logReqs bool, chaos bool) (*Node, error) {
 	var opts []grpc.ServerOption
 	srv := grpc.NewServer(opts...)
 
@@ -65,12 +64,12 @@ func New(cfg config.Config, addrLis, addrPub string, logReqs bool, chaos bool) (
 	}
 
 	n := &Node{
-		cfg:     cfg,
-		ranges:  map[api.RangeID]*Range{},
-		addrLis: addrLis,
-		addrPub: addrPub,
-		srv:     srv,
-		disc:    disc,
+		DrainBeforeShutdown: drainBeforeShutdown,
+		ranges:              map[api.RangeID]*Range{},
+		addrLis:             addrLis,
+		addrPub:             addrPub,
+		srv:                 srv,
+		disc:                disc,
 
 		logReqs: logReqs,
 		chaos:   chaos,
@@ -118,7 +117,7 @@ func (n *Node) Run(ctx context.Context) error {
 	// may take a while and involve a bunch of RPCs.) If this is disabled, the
 	// node will just disappear, and the controller will wait until it expires
 	// before assigning the range to other nodes.
-	if n.cfg.DrainNodesBeforeShutdown {
+	if n.DrainBeforeShutdown {
 		n.DrainRanges()
 	} else {
 		log.Printf("not draining ranges")
