@@ -8,7 +8,7 @@ type storage struct {
 	infos []*api.RangeInfo
 }
 
-func NewFakeStorage(rangeInfos map[api.Ident]*api.RangeInfo) *storage {
+func NewFakeStorage(rangeInfos map[api.RangeID]*api.RangeInfo) *storage {
 	infos := []*api.RangeInfo{}
 	for _, ri := range rangeInfos {
 		infos = append(infos, ri)

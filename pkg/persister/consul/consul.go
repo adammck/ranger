@@ -59,7 +59,7 @@ func (cp *Persister) GetRanges() ([]*ranje.Range, error) {
 		r := &ranje.Range{}
 		json.Unmarshal(kv.Value, r)
 
-		rID := rapi.Ident(key)
+		rID := rapi.RangeID(key)
 		if rID != r.Meta.Ident {
 			log.Printf("mismatch between Consul KV key and encoded range: key=%v, r.meta.ident=%v", key, r.Meta.Ident)
 			continue

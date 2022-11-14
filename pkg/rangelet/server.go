@@ -34,9 +34,9 @@ func parentsFromProto(prot []*pb.Parent) ([]api.Parent, error) {
 			return p, err
 		}
 
-		parentIds := make([]api.Ident, len(pp.Parent))
+		parentIds := make([]api.RangeID, len(pp.Parent))
 		for i := range pp.Parent {
-			parentIds[i] = api.Ident(pp.Parent[i])
+			parentIds[i] = api.RangeID(pp.Parent[i])
 		}
 
 		placements := make([]api.Placement, len(pp.Placements))
@@ -79,7 +79,7 @@ func (ns *NodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveRe
 }
 
 func (ns *NodeServer) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.ServeResponse, error) {
-	rID, err := conv.IdentFromProto(req.Range)
+	rID, err := conv.RangeIDFromProto(req.Range)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -95,7 +95,7 @@ func (ns *NodeServer) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.Serv
 }
 
 func (ns *NodeServer) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeResponse, error) {
-	rID, err := conv.IdentFromProto(req.Range)
+	rID, err := conv.RangeIDFromProto(req.Range)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -112,7 +112,7 @@ func (ns *NodeServer) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeRe
 
 func (ns *NodeServer) Drop(ctx context.Context, req *pb.DropRequest) (*pb.DropResponse, error) {
 
-	rID, err := conv.IdentFromProto(req.Range)
+	rID, err := conv.RangeIDFromProto(req.Range)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}

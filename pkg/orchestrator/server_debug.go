@@ -21,12 +21,12 @@ type debugServer struct {
 func rangeResponse(r *ranje.Range, rost *roster.Roster) *pb.RangeResponse {
 	parents := make([]uint64, len(r.Parents))
 	for i, rID := range r.Parents {
-		parents[i] = conv.IdentToProto(rID)
+		parents[i] = conv.RangeIDToProto(rID)
 	}
 
 	children := make([]uint64, len(r.Children))
 	for i, rID := range r.Children {
-		children[i] = conv.IdentToProto(rID)
+		children[i] = conv.RangeIDToProto(rID)
 	}
 
 	res := &pb.RangeResponse{
@@ -98,7 +98,7 @@ func (srv *debugServer) Range(ctx context.Context, req *pb.RangeRequest) (*pb.Ra
 		return nil, status.Error(codes.InvalidArgument, "missing: range")
 	}
 
-	rID, err := conv.IdentFromProto(req.Range)
+	rID, err := conv.RangeIDFromProto(req.Range)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("IdentFromProto failed: %v", err))
 	}

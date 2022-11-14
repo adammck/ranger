@@ -30,7 +30,7 @@ type Range struct {
 type Node struct {
 	cfg config.Config
 
-	ranges   map[api.Ident]*Range
+	ranges   map[api.RangeID]*Range
 	rangesMu sync.RWMutex // guards ranges
 
 	addrLis string
@@ -66,7 +66,7 @@ func New(cfg config.Config, addrLis, addrPub string, logReqs bool, chaos bool) (
 
 	n := &Node{
 		cfg:     cfg,
-		ranges:  map[api.Ident]*Range{},
+		ranges:  map[api.RangeID]*Range{},
 		addrLis: addrLis,
 		addrPub: addrPub,
 		srv:     srv,

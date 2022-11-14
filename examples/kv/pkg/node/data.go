@@ -116,7 +116,7 @@ func (s *kvServer) Put(ctx context.Context, req *pbkv.PutRequest) (*pbkv.PutResp
 // Dump is called by other nodes during range moves, splits, and joins, to fetch
 // data currently stores on this node.
 func (s *kvServer) Dump(ctx context.Context, req *pbkv.DumpRequest) (*pbkv.DumpResponse, error) {
-	ident := api.Ident(req.RangeIdent)
+	ident := api.RangeID(req.RangeIdent)
 	if ident == 0 {
 		return nil, status.Error(codes.InvalidArgument, "missing: range_ident")
 	}

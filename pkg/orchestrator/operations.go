@@ -4,14 +4,14 @@ import "github.com/adammck/ranger/pkg/api"
 
 // TODO: Split this into Add, Remove
 type OpMove struct {
-	Range api.Ident
+	Range api.RangeID
 	Src   string
 	Dest  string
 	Err   chan error
 }
 
 type OpSplit struct {
-	Range api.Ident
+	Range api.RangeID
 	Key   api.Key
 	Left  string
 	Right string
@@ -19,8 +19,8 @@ type OpSplit struct {
 }
 
 type OpJoin struct {
-	Left  api.Ident
-	Right api.Ident
+	Left  api.RangeID
+	Right api.RangeID
 	Dest  string
 	Err   chan error
 }

@@ -12,7 +12,7 @@ import (
 	"github.com/adammck/ranger/pkg/api"
 )
 
-func (n *Node) GetLoadInfo(rID api.Ident) (api.LoadInfo, error) {
+func (n *Node) GetLoadInfo(rID api.RangeID) (api.LoadInfo, error) {
 	n.rangesMu.RLock()
 	defer n.rangesMu.RUnlock()
 
@@ -73,7 +73,7 @@ func (n *Node) PrepareAddRange(rm api.Meta, parents []api.Parent) error {
 }
 
 // AddRange:
-func (n *Node) AddRange(rID api.Ident) error {
+func (n *Node) AddRange(rID api.RangeID) error {
 	if err := n.performChaos(); err != nil {
 		return err
 	}
@@ -100,7 +100,7 @@ func (n *Node) AddRange(rID api.Ident) error {
 // PrepareDropRange: Disable writes to the range, because we're about to move
 // it and I don't have the time to implement something better today. In this
 // example, keys are writable on exactly one node. (Or zero, during failures!)
-func (n *Node) PrepareDropRange(rID api.Ident) error {
+func (n *Node) PrepareDropRange(rID api.RangeID) error {
 	if err := n.performChaos(); err != nil {
 		return err
 	}
@@ -121,7 +121,7 @@ func (n *Node) PrepareDropRange(rID api.Ident) error {
 }
 
 // DropRange: Discard the range.
-func (n *Node) DropRange(rID api.Ident) error {
+func (n *Node) DropRange(rID api.RangeID) error {
 	if err := n.performChaos(); err != nil {
 		return err
 	}

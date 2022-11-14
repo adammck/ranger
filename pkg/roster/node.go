@@ -15,7 +15,7 @@ import (
 )
 
 type PlacementFailure struct {
-	rID  api.Ident
+	rID  api.RangeID
 	when time.Time
 }
 
@@ -45,7 +45,7 @@ type Node struct {
 
 	// Populated by probeOne
 	wantDrain bool
-	ranges    map[api.Ident]*api.RangeInfo
+	ranges    map[api.RangeID]*api.RangeInfo
 	muRanges  sync.RWMutex
 }
 
@@ -58,7 +58,7 @@ func NewNode(remote discovery.Remote, conn *grpc.ClientConn) *Node {
 		placementFailures: []PlacementFailure{},
 		conn:              conn,
 		Client:            pb.NewNodeClient(conn),
-		ranges:            make(map[api.Ident]*api.RangeInfo),
+		ranges:            make(map[api.RangeID]*api.RangeInfo),
 	}
 }
 
@@ -68,7 +68,7 @@ func (n *Node) UpdateRangeInfo(ri *api.RangeInfo) {
 	n.ranges[ri.Meta.Ident] = ri
 }
 
-func (n *Node) UpdateRangeState(rID api.Ident, s api.RemoteState) error {
+func (n *Node) UpdateRangeState(rID api.RangeID, s api.RemoteState) error {
 	n.muRanges.Lock()
 	defer n.muRanges.Unlock()
 
@@ -96,7 +96,7 @@ func (n *Node) TestString() string {
 	n.muRanges.RLock()
 	defer n.muRanges.RUnlock()
 
-	rIDs := []api.Ident{}
+	rIDs := []api.RangeID{}
 	for rID := range n.ranges {
 		rIDs = append(rIDs, rID)
 	}
@@ -116,7 +116,7 @@ func (n *Node) TestString() string {
 	return fmt.Sprintf("{%s [%s]}", n.Remote.Ident, strings.Join(s, " "))
 }
 
-func (n *Node) Get(rangeID api.Ident) (api.RangeInfo, bool) {
+func (n *Node) Get(rangeID api.RangeID) (api.RangeInfo, bool) {
 	n.muRanges.RLock()
 	defer n.muRanges.RUnlock()
 
@@ -172,7 +172,7 @@ func (n *Node) WantDrain() bool {
 }
 
 // HasRange returns whether we think this node has the given range.
-func (n *Node) HasRange(rID api.Ident) bool {
+func (n *Node) HasRange(rID api.RangeID) bool {
 	n.muRanges.RLock()
 	defer n.muRanges.RUnlock()
 	ri, ok := n.ranges[rID]
@@ -186,13 +186,13 @@ func (n *Node) HasRange(rID api.Ident) bool {
 	return ok && !(ri.State == api.NsNotFound)
 }
 
-func (n *Node) PlacementFailed(rID api.Ident, t time.Time) {
+func (n *Node) PlacementFailed(rID api.RangeID, t time.Time) {
 	n.muPF.Lock()
 	defer n.muPF.Unlock()
 	n.placementFailures = append(n.placementFailures, PlacementFailure{rID: rID, when: t})
 }
 
-func (n *Node) PlacementFailures(rID api.Ident, after time.Time) int {
+func (n *Node) PlacementFailures(rID api.RangeID, after time.Time) int {
 	n.muPF.RLock()
 	defer n.muPF.RUnlock()
 

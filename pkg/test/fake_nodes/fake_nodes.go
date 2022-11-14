@@ -33,7 +33,7 @@ func (tn *TestNodes) Close() {
 	}
 }
 
-func (tn *TestNodes) Add(ctx context.Context, remote discovery.Remote, rangeInfos map[api.Ident]*api.RangeInfo) {
+func (tn *TestNodes) Add(ctx context.Context, remote discovery.Remote, rangeInfos map[api.RangeID]*api.RangeInfo) {
 	n, closer := fake_node.NewTestNode(ctx, remote.Addr(), rangeInfos)
 	tn.closers = append(tn.closers, closer)
 	tn.nodes[remote.Ident] = n

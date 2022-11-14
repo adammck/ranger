@@ -1696,7 +1696,7 @@ func parseRoster(t *testing.T, s string) []nodeStub {
 func keyspaceFactory(t *testing.T, cfg config.Config, stubs []rangeStub) *keyspace.Keyspace {
 	ranges := make([]*ranje.Range, len(stubs))
 	for i := range stubs {
-		r := ranje.NewRange(api.Ident(i + 1))
+		r := ranje.NewRange(api.RangeID(i + 1))
 		r.State = api.RsActive
 
 		if i > 0 {
@@ -1754,7 +1754,7 @@ func rosterFactory(t *testing.T, cfg config.Config, ctx context.Context, ks *key
 		nod := rost.Nodes[nID]
 
 		for _, pStub := range stubs[i].placements {
-			rID := api.Ident(pStub.rID)
+			rID := api.RangeID(pStub.rID)
 			r, err := ks.Get(rID)
 			if err != nil {
 				t.Fatalf("invalid node placement stub: %v", err)
@@ -1844,7 +1844,7 @@ func moveOp(orch *Orchestrator, rID int, dest string) chan error {
 	ch := make(chan error)
 
 	op := OpMove{
-		Range: api.Ident(rID),
+		Range: api.RangeID(rID),
 		Dest:  dest,
 	}
 
@@ -1857,7 +1857,7 @@ func moveOp(orch *Orchestrator, rID int, dest string) chan error {
 
 func splitOp(orch *Orchestrator, rID int) chan error {
 	ch := make(chan error)
-	rID_ := api.Ident(rID)
+	rID_ := api.RangeID(rID)
 
 	op := OpSplit{
 		Range: rID_,
@@ -1883,8 +1883,8 @@ func joinOp(orch *Orchestrator, r1ID, r2ID int, dest string) chan error {
 	//       node
 
 	op := OpJoin{
-		Left:  api.Ident(r1ID),
-		Right: api.Ident(r2ID),
+		Left:  api.RangeID(r1ID),
+		Right: api.RangeID(r2ID),
 		Dest:  dest,
 		Err:   ch,
 	}
@@ -2037,7 +2037,7 @@ func requireStable(t *testing.T, orch *Orchestrator, act *actuator.Actuator) {
 
 // mustGetRange returns a range from the given keyspace or fails the test.
 func mustGetRange(t *testing.T, ks *keyspace.Keyspace, rID int) *ranje.Range {
-	r, err := ks.Get(api.Ident(rID))
+	r, err := ks.Get(api.RangeID(rID))
 	if err != nil {
 		t.Fatalf("ks.Get(%d): %v", rID, err)
 	}
@@ -2076,7 +2076,7 @@ func commands(t *testing.T, a *actuator.Actuator) string {
 	return ma.Commands()
 }
 
-func inject(t *testing.T, a *actuator.Actuator, nID string, rID api.Ident, act api.Action) *mock_actuator.Inject {
+func inject(t *testing.T, a *actuator.Actuator, nID string, rID api.RangeID, act api.Action) *mock_actuator.Inject {
 	ma, ok := a.Impl.(*mock_actuator.Actuator)
 	if !ok {
 		t.Fatalf("expected mock actuator, got: %T", a.Impl)

@@ -258,7 +258,7 @@ func (ros *Roster) probe() {
 func (ros *Roster) probeOne(ctx context.Context, n *Node) error {
 	// TODO: Abort if probe in progress.
 
-	ranges := make(map[api.Ident]*api.RangeInfo)
+	ranges := make(map[api.RangeID]*api.RangeInfo)
 
 	// TODO: This is an InfoRequest now, but we also have RangesRequest which is
 	// sufficient for the proxy. Maybe make which one is sent configurable?

@@ -15,20 +15,20 @@ type Node interface {
 	// Implementations should return NotFound if (from their point of view) the
 	// range doesn't exist. This can happen when GetLoadInfo and PrepareAddRange
 	// and/or DropRange are racing.
-	GetLoadInfo(rID Ident) (LoadInfo, error)
+	GetLoadInfo(rID RangeID) (LoadInfo, error)
 
 	// PrepareAddRange.
 	PrepareAddRange(m Meta, p []Parent) error
 
 	// AddRange
-	AddRange(rID Ident) error
+	AddRange(rID RangeID) error
 
 	// PrepareDropRange
-	PrepareDropRange(rID Ident) error
+	PrepareDropRange(rID RangeID) error
 
 	// DropRange
 	// Range state will be set to NsDropping before calling this. If an error is
 	// returned, the range will be forgotten. If no error is returned, the range
 	// state will be set to NsDroppingError.
-	DropRange(rID Ident) error
+	DropRange(rID RangeID) error
 }

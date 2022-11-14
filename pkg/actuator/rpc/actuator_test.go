@@ -198,11 +198,11 @@ func TestInvalidAction(t *testing.T) {
 // -------------------------------------------------------------- RangeGetter --
 
 type FakeRangeGetter struct {
-	r map[api.Ident]*ranje.Range
+	r map[api.RangeID]*ranje.Range
 }
 
 func NewFakeRangeGetter(ranges ...*ranje.Range) *FakeRangeGetter {
-	m := map[api.Ident]*ranje.Range{}
+	m := map[api.RangeID]*ranje.Range{}
 	for _, r := range ranges {
 		m[r.Meta.Ident] = r
 	}
@@ -212,7 +212,7 @@ func NewFakeRangeGetter(ranges ...*ranje.Range) *FakeRangeGetter {
 	}
 }
 
-func (rg *FakeRangeGetter) Get(id api.Ident) (*ranje.Range, error) {
+func (rg *FakeRangeGetter) Get(id api.RangeID) (*ranje.Range, error) {
 	r, ok := rg.r[id]
 	if !ok {
 		return nil, fmt.Errorf("no such range: %s", id)
@@ -373,7 +373,7 @@ func setupRangeGetter() *FakeRangeGetter {
 
 	r1 := &ranje.Range{
 		State:    api.RsSubsuming,
-		Children: []api.Ident{2, 3},
+		Children: []api.RangeID{2, 3},
 		Meta:     api.Meta{Ident: 1, Start: api.ZeroKey, End: api.ZeroKey},
 	}
 	r1p0 := ranje.NewPlacement(r1, "node-aaa")
@@ -383,8 +383,8 @@ func setupRangeGetter() *FakeRangeGetter {
 
 	r2 := &ranje.Range{
 		State:    api.RsActive,
-		Parents:  []api.Ident{1},
-		Children: []api.Ident{},
+		Parents:  []api.RangeID{1},
+		Children: []api.RangeID{},
 		Meta:     api.Meta{Ident: 2, End: api.Key("ccc")},
 	}
 	r2p0 := ranje.NewPlacement(r2, "node-aaa")
@@ -394,8 +394,8 @@ func setupRangeGetter() *FakeRangeGetter {
 
 	r3 := &ranje.Range{
 		State:    api.RsActive,
-		Parents:  []api.Ident{1},
-		Children: []api.Ident{},
+		Parents:  []api.RangeID{1},
+		Children: []api.RangeID{},
 		Meta:     api.Meta{Ident: 3, Start: api.Key("ccc")},
 	}
 	r3p0 := ranje.NewPlacement(r3, "node-aaa")
@@ -436,7 +436,7 @@ func setup(t *testing.T) *Harness {
 	}
 }
 
-func getPlacement(t *testing.T, rg *FakeRangeGetter, rID api.Ident, i int) *ranje.Placement {
+func getPlacement(t *testing.T, rg *FakeRangeGetter, rID api.RangeID, i int) *ranje.Placement {
 	r2, err := rg.Get(rID)
 	assert.NilError(t, err)
 	assert.Assert(t, len(r2.Placements) >= i+1)

@@ -149,7 +149,7 @@ func TestGiveErrorSlow(t *testing.T) {
 	}, waitFor, tick)
 }
 
-func setupServe(infos map[api.Ident]*api.RangeInfo, m api.Meta) {
+func setupServe(infos map[api.RangeID]*api.RangeInfo, m api.Meta) {
 	infos[m.Ident] = &api.RangeInfo{
 		Meta:  m,
 		State: api.NsInactive,
@@ -273,7 +273,7 @@ func TestServeErrorSlow(t *testing.T) {
 	}, waitFor, tick)
 }
 
-func setupTake(infos map[api.Ident]*api.RangeInfo, m api.Meta) {
+func setupTake(infos map[api.RangeID]*api.RangeInfo, m api.Meta) {
 	infos[m.Ident] = &api.RangeInfo{
 		Meta:  m,
 		State: api.NsActive,
@@ -399,7 +399,7 @@ func TestTakeErrorSlow(t *testing.T) {
 	}, waitFor, tick)
 }
 
-func setupDrop(infos map[api.Ident]*api.RangeInfo, m api.Meta) {
+func setupDrop(infos map[api.RangeID]*api.RangeInfo, m api.Meta) {
 	infos[m.Ident] = &api.RangeInfo{
 		Meta:  m,
 		State: api.NsInactive,
@@ -550,24 +550,24 @@ func (n *MockNode) PrepareAddRange(m api.Meta, p []api.Parent) error {
 	return n.erPrepareAddRange
 }
 
-func (n *MockNode) AddRange(rID api.Ident) error {
+func (n *MockNode) AddRange(rID api.RangeID) error {
 	atomic.AddUint32(&n.nAddRange, 1)
 	n.wgAddRange.Wait()
 	return n.erAddRange
 }
 
-func (n *MockNode) PrepareDropRange(rID api.Ident) error {
+func (n *MockNode) PrepareDropRange(rID api.RangeID) error {
 	atomic.AddUint32(&n.nPrepareDropRange, 1)
 	n.wgPrepareDropRange.Wait()
 	return n.erPrepareDropRange
 }
 
-func (n *MockNode) DropRange(rID api.Ident) error {
+func (n *MockNode) DropRange(rID api.RangeID) error {
 	atomic.AddUint32(&n.nDropRange, 1)
 	n.wgDropRange.Wait()
 	return n.erDropRange
 }
 
-func (n *MockNode) GetLoadInfo(rID api.Ident) (api.LoadInfo, error) {
+func (n *MockNode) GetLoadInfo(rID api.RangeID) (api.LoadInfo, error) {
 	return api.LoadInfo{}, errors.New("not implemented")
 }

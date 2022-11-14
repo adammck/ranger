@@ -23,7 +23,7 @@ type Keyspace struct {
 	pers     persister.Persister
 	ranges   []*ranje.Range // TODO: don't be dumb, use an interval tree
 	mu       sync.RWMutex
-	maxIdent api.Ident
+	maxIdent api.RangeID
 }
 
 func New(cfg config.Config, persister persister.Persister) (*Keyspace, error) {
@@ -94,7 +94,7 @@ func (ks *Keyspace) SanityCheck() error {
 
 	// Check for no duplicate range IDs.
 
-	seen := map[api.Ident]struct{}{}
+	seen := map[api.RangeID]struct{}{}
 	for _, r := range ks.ranges {
 		if _, ok := seen[r.Meta.Ident]; ok {
 			return fmt.Errorf("duplicate range ID (i=%d)", r.Meta.Ident)
@@ -211,19 +211,19 @@ func (ks *Keyspace) Split(r *ranje.Range, k api.Key) (one *ranje.Range, two *ran
 	one = ks.Range()
 	one.Meta.Start = r.Meta.Start
 	one.Meta.End = k
-	one.Parents = []api.Ident{r.Meta.Ident}
+	one.Parents = []api.RangeID{r.Meta.Ident}
 
 	two = ks.Range()
 	two.Meta.Start = k
 	two.Meta.End = r.Meta.End
-	two.Parents = []api.Ident{r.Meta.Ident}
+	two.Parents = []api.RangeID{r.Meta.Ident}
 
 	// append to the end of the ranges
 	// TODO: Insert the children after the parent, not at the end!
 	ks.ranges = append(ks.ranges, one)
 	ks.ranges = append(ks.ranges, two)
 
-	r.Children = []api.Ident{
+	r.Children = []api.RangeID{
 		one.Meta.Ident,
 		two.Meta.Ident,
 	}
@@ -237,7 +237,7 @@ func (ks *Keyspace) Split(r *ranje.Range, k api.Key) (one *ranje.Range, two *ran
 // Get returns a range by its ident, or an error if no such range exists.
 // TODO: Allow getting by other things.
 // TODO: Should this lock ranges? Or the caller do it?
-func (ks *Keyspace) Get(id api.Ident) (*ranje.Range, error) {
+func (ks *Keyspace) Get(id api.RangeID) (*ranje.Range, error) {
 	for _, r := range ks.ranges {
 		if r.Meta.Ident == id {
 			return r, nil
@@ -379,13 +379,13 @@ func (ks *Keyspace) JoinTwo(one *ranje.Range, two *ranje.Range) (*ranje.Range, e
 	three := ks.Range()
 	three.Meta.Start = one.Meta.Start
 	three.Meta.End = two.Meta.End
-	three.Parents = []api.Ident{one.Meta.Ident, two.Meta.Ident}
+	three.Parents = []api.RangeID{one.Meta.Ident, two.Meta.Ident}
 
 	// Insert new range at the end.
 	ks.ranges = append(ks.ranges, three)
 
-	one.Children = []api.Ident{three.Meta.Ident}
-	two.Children = []api.Ident{three.Meta.Ident}
+	one.Children = []api.RangeID{three.Meta.Ident}
+	two.Children = []api.RangeID{three.Meta.Ident}
 
 	// Persist all three ranges atomically.
 	ks.mustPersistDirtyRanges()

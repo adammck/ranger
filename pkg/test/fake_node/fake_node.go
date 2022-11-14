@@ -33,7 +33,7 @@ type stateTransition struct {
 }
 
 type ErrKey struct {
-	rID api.Ident
+	rID api.RangeID
 	act Action
 }
 
@@ -42,7 +42,7 @@ type TestNode struct {
 	Conn *grpc.ClientConn
 	rglt *rangelet.Rangelet
 
-	loadInfos map[api.Ident]api.LoadInfo
+	loadInfos map[api.RangeID]api.LoadInfo
 	muInfos   sync.Mutex
 
 	// Keep requests sent to this node.
@@ -53,7 +53,7 @@ type TestNode struct {
 	// Barriers to block on in the middle of range state changes. This allows
 	// tests to control exactly how long the interface methods (PrepareAddRange,
 	// AddRange, etc) take to return.
-	barriers map[api.Ident]*stateTransition
+	barriers map[api.RangeID]*stateTransition
 	muBar    sync.Mutex
 
 	// Errors (or nils) which should be injected into range state changes.
@@ -64,11 +64,11 @@ type TestNode struct {
 	strictTransitions bool
 }
 
-func NewTestNode(ctx context.Context, addr string, rangeInfos map[api.Ident]*api.RangeInfo) (*TestNode, func()) {
+func NewTestNode(ctx context.Context, addr string, rangeInfos map[api.RangeID]*api.RangeInfo) (*TestNode, func()) {
 
 	// Extract LoadInfos to keep in the client (TestNode). Rangelet fetches via
 	// GetLoadInfo.
-	li := map[api.Ident]api.LoadInfo{}
+	li := map[api.RangeID]api.LoadInfo{}
 	for _, ri := range rangeInfos {
 		li[ri.Meta.Ident] = api.LoadInfo{
 			Keys: int(ri.Info.Keys),
@@ -78,7 +78,7 @@ func NewTestNode(ctx context.Context, addr string, rangeInfos map[api.Ident]*api
 	n := &TestNode{
 		Addr:      addr,
 		loadInfos: li,
-		barriers:  map[api.Ident]*stateTransition{},
+		barriers:  map[api.RangeID]*stateTransition{},
 		errors:    map[ErrKey]error{},
 	}
 
@@ -101,7 +101,7 @@ func (n *TestNode) Listen(ctx context.Context, srv *grpc.Server) func() {
 	return closer
 }
 
-func (n *TestNode) transition(rID api.Ident, act Action) error {
+func (n *TestNode) transition(rID api.RangeID, act Action) error {
 	n.muBar.Lock()
 
 	ek := ErrKey{
@@ -135,7 +135,7 @@ func (n *TestNode) transition(rID api.Ident, act Action) error {
 	return e
 }
 
-func (n *TestNode) GetLoadInfo(rID api.Ident) (api.LoadInfo, error) {
+func (n *TestNode) GetLoadInfo(rID api.RangeID) (api.LoadInfo, error) {
 	n.muInfos.Lock()
 	defer n.muInfos.Unlock()
 
@@ -151,15 +151,15 @@ func (n *TestNode) PrepareAddRange(m api.Meta, p []api.Parent) error {
 	return n.transition(m.Ident, PrepareAddRange)
 }
 
-func (n *TestNode) AddRange(rID api.Ident) error {
+func (n *TestNode) AddRange(rID api.RangeID) error {
 	return n.transition(rID, AddRange)
 }
 
-func (n *TestNode) PrepareDropRange(rID api.Ident) error {
+func (n *TestNode) PrepareDropRange(rID api.RangeID) error {
 	return n.transition(rID, PrepareDropRange)
 }
 
-func (n *TestNode) DropRange(rID api.Ident) error {
+func (n *TestNode) DropRange(rID api.RangeID) error {
 	// TODO: Remove placement from loadinfos if transition succeeds?
 	return n.transition(rID, DropRange)
 }
@@ -212,7 +212,7 @@ func (n *TestNode) withTestInterceptor() grpc.DialOption {
 // SetReturnValue sets the value which should be returned from the given action
 // (i.e. one of the state-transitioning methods of the Rangelet interface) for
 // the given range on this test node.
-func (n *TestNode) SetReturnValue(t *testing.T, rID api.Ident, act Action, err error) {
+func (n *TestNode) SetReturnValue(t *testing.T, rID api.RangeID, act Action, err error) {
 	ek := ErrKey{
 		rID: rID,
 		act: act,
@@ -223,7 +223,7 @@ func (n *TestNode) SetReturnValue(t *testing.T, rID api.Ident, act Action, err e
 	n.muErr.Unlock()
 }
 
-func (n *TestNode) AddBarrier(t *testing.T, rID api.Ident, src api.RemoteState) *barrier {
+func (n *TestNode) AddBarrier(t *testing.T, rID api.RangeID, src api.RemoteState) *barrier {
 	desc := fmt.Sprintf("node=%s, range=%s, src=%s", n.Addr, rID.String(), src.String())
 	wg := &sync.WaitGroup{}
 
@@ -246,7 +246,7 @@ func (n *TestNode) AddBarrier(t *testing.T, rID api.Ident, src api.RemoteState) 
 	return st.bar
 }
 
-func (n *TestNode) ForceDrop(rID api.Ident) {
+func (n *TestNode) ForceDrop(rID api.RangeID) {
 	n.muInfos.Lock()
 	defer n.muInfos.Unlock()
 	delete(n.loadInfos, rID)

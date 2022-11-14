@@ -15,7 +15,7 @@ import (
 )
 
 type Rangelet struct {
-	info         map[api.Ident]*api.RangeInfo
+	info         map[api.RangeID]*api.RangeInfo
 	sync.RWMutex // guards info (keys *and* values) and callbacks
 
 	n api.Node
@@ -36,13 +36,13 @@ type Rangelet struct {
 }
 
 type callback struct {
-	rID   api.Ident
+	rID   api.RangeID
 	state api.RemoteState
 }
 
 func NewRangelet(n api.Node, sr grpc.ServiceRegistrar, s api.Storage) *Rangelet {
 	r := &Rangelet{
-		info: map[api.Ident]*api.RangeInfo{},
+		info: map[api.RangeID]*api.RangeInfo{},
 		n:    n,
 		s:    s,
 
@@ -65,7 +65,7 @@ func NewRangelet(n api.Node, sr grpc.ServiceRegistrar, s api.Storage) *Rangelet 
 
 var ErrNotFound = errors.New("not found")
 
-func (r *Rangelet) runThenUpdateState(rID api.Ident, old api.RemoteState, success api.RemoteState, failure api.RemoteState, f func() error) {
+func (r *Rangelet) runThenUpdateState(rID api.RangeID, old api.RemoteState, success api.RemoteState, failure api.RemoteState, f func() error) {
 	err := f()
 
 	var s api.RemoteState
@@ -154,7 +154,7 @@ func (r *Rangelet) give(rm api.Meta, parents []api.Parent) (api.RangeInfo, error
 	return *ri, nil
 }
 
-func (r *Rangelet) serve(rID api.Ident) (api.RangeInfo, error) {
+func (r *Rangelet) serve(rID api.RangeID) (api.RangeInfo, error) {
 	r.Lock()
 
 	ri, ok := r.info[rID]
@@ -197,7 +197,7 @@ func (r *Rangelet) serve(rID api.Ident) (api.RangeInfo, error) {
 	return *ri, nil
 }
 
-func (r *Rangelet) take(rID api.Ident) (api.RangeInfo, error) {
+func (r *Rangelet) take(rID api.RangeID) (api.RangeInfo, error) {
 	r.Lock()
 
 	ri, ok := r.info[rID]
@@ -239,7 +239,7 @@ func (r *Rangelet) take(rID api.Ident) (api.RangeInfo, error) {
 	return *ri, nil
 }
 
-func (r *Rangelet) drop(rID api.Ident) (api.RangeInfo, error) {
+func (r *Rangelet) drop(rID api.RangeID) (api.RangeInfo, error) {
 	r.Lock()
 
 	ri, ok := r.info[rID]
@@ -291,7 +291,7 @@ func (r *Rangelet) drop(rID api.Ident) (api.RangeInfo, error) {
 // TODO: This method should be able to return multiple ranges. Might be called
 //       during an operation where both src and dest are on this node. Currently
 //       just returns the first one it finds.
-func (r *Rangelet) Find(k api.Key) (api.Ident, bool) {
+func (r *Rangelet) Find(k api.Key) (api.RangeID, bool) {
 	for _, ri := range r.info {
 
 		// Play dumb in some cases: a range can be known to the rangelet but
@@ -321,7 +321,7 @@ func (r *Rangelet) Len() int {
 // the interface methods or performing any cleanup. It'll just vanish from probe
 // responses. This should only ever be called by the node when it has decided to
 // drop the range and wants to tell the controller that.
-func (r *Rangelet) ForceDrop(rID api.Ident) error {
+func (r *Rangelet) ForceDrop(rID api.RangeID) error {
 	r.Lock()
 	defer r.Unlock()
 
@@ -400,7 +400,7 @@ func (r *Rangelet) SetWantDrain(b bool) {
 // if the range doesn't exist. This should not be used for anything other than
 // sanity-checking and testing. Clients should react to changes via the Node
 // interface.
-func (rglt *Rangelet) State(rID api.Ident) api.RemoteState {
+func (rglt *Rangelet) State(rID api.RangeID) api.RemoteState {
 	rglt.Lock()
 	defer rglt.Unlock()
 
@@ -415,14 +415,14 @@ func (rglt *Rangelet) State(rID api.Ident) api.RemoteState {
 // OnLeaveState registers a callback function which will be called when the
 // given range transitions out of the given state. This is just for testing.
 // TODO: Maybe just make this OnChangeState so FakeNode can do what it likes?
-func (rglt *Rangelet) OnLeaveState(rID api.Ident, s api.RemoteState, f func()) {
+func (rglt *Rangelet) OnLeaveState(rID api.RangeID, s api.RemoteState, f func()) {
 	rglt.Lock()
 	defer rglt.Unlock()
 	rglt.callbacks[callback{rID: rID, state: s}] = f
 }
 
 // Caller must hold lock.
-func (rglt *Rangelet) runCallback(rID api.Ident, old, new api.RemoteState) {
+func (rglt *Rangelet) runCallback(rID api.RangeID, old, new api.RemoteState) {
 	cb := callback{rID: rID, state: old}
 
 	f, ok := rglt.callbacks[cb]
@@ -434,7 +434,7 @@ func (rglt *Rangelet) runCallback(rID api.Ident, old, new api.RemoteState) {
 	f()
 }
 
-func (r *Rangelet) rangeInfo(rID api.Ident) (api.RangeInfo, bool) {
+func (r *Rangelet) rangeInfo(rID api.RangeID) (api.RangeInfo, bool) {
 	r.Lock()
 	defer r.Unlock()
 
@@ -446,7 +446,7 @@ func (r *Rangelet) rangeInfo(rID api.Ident) (api.RangeInfo, bool) {
 	return api.RangeInfo{}, false
 }
 
-func notFound(rID api.Ident) api.RangeInfo {
+func notFound(rID api.RangeID) api.RangeInfo {
 	return api.RangeInfo{
 		Meta:  api.Meta{Ident: rID},
 		State: api.NsNotFound,

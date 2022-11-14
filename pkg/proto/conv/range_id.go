@@ -6,8 +6,8 @@ import (
 	"github.com/adammck/ranger/pkg/api"
 )
 
-func IdentFromProto(p uint64) (api.Ident, error) {
-	id := api.Ident(p)
+func RangeIDFromProto(p uint64) (api.RangeID, error) {
+	id := api.RangeID(p)
 
 	if id == api.ZeroRange {
 		return id, errors.New("missing: key")
@@ -16,6 +16,6 @@ func IdentFromProto(p uint64) (api.Ident, error) {
 	return id, nil
 }
 
-func IdentToProto(ident api.Ident) uint64 {
+func RangeIDToProto(ident api.RangeID) uint64 {
 	return uint64(ident)
 }

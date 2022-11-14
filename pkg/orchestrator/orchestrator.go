@@ -31,7 +31,7 @@ type Orchestrator struct {
 
 	// Same for splits.
 	// TODO: Why is this a map??
-	opSplits   map[api.Ident]OpSplit
+	opSplits   map[api.RangeID]OpSplit
 	opSplitsMu sync.RWMutex
 
 	// Same for joins.
@@ -46,7 +46,7 @@ func New(cfg config.Config, ks *keyspace.Keyspace, rost *roster.Roster, srv *grp
 		rost:     rost,
 		srv:      srv,
 		opMoves:  []OpMove{},
-		opSplits: map[api.Ident]OpSplit{},
+		opSplits: map[api.RangeID]OpSplit{},
 		opJoins:  []OpJoin{},
 	}
 
@@ -145,7 +145,7 @@ func (b *Orchestrator) Tick() {
 
 	// Keep track of which ranges we've already ticked, since we do those
 	// involved in ops first.
-	visited := map[api.Ident]struct{}{}
+	visited := map[api.RangeID]struct{}{}
 
 	ops, err := b.ks.Operations()
 	if err == nil {
@@ -356,7 +356,7 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 	}
 }
 
-func (b *Orchestrator) moveOp(rID api.Ident) (OpMove, bool) {
+func (b *Orchestrator) moveOp(rID api.RangeID) (OpMove, bool) {
 	b.opMovesMu.RLock()
 	defer b.opMovesMu.RUnlock()
 

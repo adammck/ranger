@@ -43,63 +43,63 @@ func TestOperations(t *testing.T) {
 
 	r1 := &ranje.Range{
 		State:      api.RsObsolete,
-		Children:   []api.Ident{2, 3},
+		Children:   []api.RangeID{2, 3},
 		Meta:       api.Meta{Ident: 1, Start: api.ZeroKey, End: api.ZeroKey},
 		Placements: []*ranje.Placement{},
 	}
 
 	r2 := &ranje.Range{
 		State:      api.RsObsolete,
-		Parents:    []api.Ident{1},
-		Children:   []api.Ident{4, 5},
+		Parents:    []api.RangeID{1},
+		Children:   []api.RangeID{4, 5},
 		Meta:       api.Meta{Ident: 2, End: api.Key("ccc")},
 		Placements: []*ranje.Placement{},
 	}
 
 	r3 := &ranje.Range{
 		State:      api.RsSubsuming,
-		Parents:    []api.Ident{1},
-		Children:   []api.Ident{6, 7},
+		Parents:    []api.RangeID{1},
+		Children:   []api.RangeID{6, 7},
 		Meta:       api.Meta{Ident: 3, Start: api.Key("ccc")},
 		Placements: []*ranje.Placement{},
 	}
 
 	r4 := &ranje.Range{
 		State:      api.RsSubsuming,
-		Parents:    []api.Ident{2},
-		Children:   []api.Ident{8},
+		Parents:    []api.RangeID{2},
+		Children:   []api.RangeID{8},
 		Meta:       api.Meta{Ident: 4, End: api.Key("bbb")},
 		Placements: []*ranje.Placement{},
 	}
 
 	r5 := &ranje.Range{
 		State:      api.RsSubsuming,
-		Parents:    []api.Ident{2},
-		Children:   []api.Ident{8},
+		Parents:    []api.RangeID{2},
+		Children:   []api.RangeID{8},
 		Meta:       api.Meta{Ident: 5, Start: api.Key("bbb")},
 		Placements: []*ranje.Placement{},
 	}
 
 	r6 := &ranje.Range{
 		State:      api.RsActive,
-		Parents:    []api.Ident{3},
-		Children:   []api.Ident{},
+		Parents:    []api.RangeID{3},
+		Children:   []api.RangeID{},
 		Meta:       api.Meta{Ident: 6, Start: api.Key("ccc"), End: api.Key("ddd")},
 		Placements: []*ranje.Placement{},
 	}
 
 	r7 := &ranje.Range{
 		State:      api.RsActive,
-		Parents:    []api.Ident{3},
-		Children:   []api.Ident{},
+		Parents:    []api.RangeID{3},
+		Children:   []api.RangeID{},
 		Meta:       api.Meta{Ident: 7, Start: api.Key("ddd")},
 		Placements: []*ranje.Placement{},
 	}
 
 	r8 := &ranje.Range{
 		State:      api.RsActive,
-		Parents:    []api.Ident{4, 5},
-		Children:   []api.Ident{},
+		Parents:    []api.RangeID{4, 5},
+		Children:   []api.RangeID{},
 		Meta:       api.Meta{Ident: 8, End: api.Key("ccc")},
 		Placements: []*ranje.Placement{},
 	}
@@ -116,18 +116,18 @@ func TestOperations(t *testing.T) {
 	require.Len(t, ops, 2)
 
 	require.Equal(t, ops[0], NewOperation([]*ranje.Range{r3}, []*ranje.Range{r6, r7}))
-	for rID, b := range map[api.Ident]bool{1: false, 2: false, 3: true, 4: false, 5: false, 6: false, 7: false, 8: false} {
+	for rID, b := range map[api.RangeID]bool{1: false, 2: false, 3: true, 4: false, 5: false, 6: false, 7: false, 8: false} {
 		require.Equal(t, b, ops[0].isDirection(Source, rID), "i=0, rID=%v", rID)
 	}
-	for rID, b := range map[api.Ident]bool{1: false, 2: false, 3: false, 4: false, 5: false, 6: true, 7: true, 8: false} {
+	for rID, b := range map[api.RangeID]bool{1: false, 2: false, 3: false, 4: false, 5: false, 6: true, 7: true, 8: false} {
 		require.Equal(t, b, ops[0].isDirection(Dest, rID), "i=0, rID=%v", rID)
 	}
 
 	require.Equal(t, ops[1], NewOperation([]*ranje.Range{r4, r5}, []*ranje.Range{r8}))
-	for rID, b := range map[api.Ident]bool{1: false, 2: false, 3: false, 4: true, 5: true, 6: false, 7: false, 8: false} {
+	for rID, b := range map[api.RangeID]bool{1: false, 2: false, 3: false, 4: true, 5: true, 6: false, 7: false, 8: false} {
 		require.Equal(t, b, ops[1].isDirection(Source, rID), "i=0, rID=%v", rID)
 	}
-	for rID, b := range map[api.Ident]bool{1: false, 2: false, 3: false, 4: false, 5: false, 6: false, 7: false, 8: true} {
+	for rID, b := range map[api.RangeID]bool{1: false, 2: false, 3: false, 4: false, 5: false, 6: false, 7: false, 8: true} {
 		require.Equal(t, b, ops[1].isDirection(Dest, rID), "i=0, rID=%v", rID)
 	}
 }
@@ -135,7 +135,7 @@ func TestOperations(t *testing.T) {
 func TestNoOperations(t *testing.T) {
 	r1 := &ranje.Range{
 		State:    api.RsActive,
-		Children: []api.Ident{},
+		Children: []api.RangeID{},
 		Meta:     api.Meta{Ident: 1, Start: api.ZeroKey, End: api.ZeroKey},
 	}
 
@@ -169,28 +169,28 @@ func TestSplitIntoThree(t *testing.T) {
 
 	r1 := &ranje.Range{
 		State:    api.RsSubsuming,
-		Children: []api.Ident{2, 3, 4},
+		Children: []api.RangeID{2, 3, 4},
 		Meta:     api.Meta{Ident: 1},
 	}
 
 	r2 := &ranje.Range{
 		State:    api.RsActive,
-		Parents:  []api.Ident{1},
-		Children: []api.Ident{},
+		Parents:  []api.RangeID{1},
+		Children: []api.RangeID{},
 		Meta:     api.Meta{Ident: 2, End: api.Key("bbb")},
 	}
 
 	r3 := &ranje.Range{
 		State:    api.RsActive,
-		Parents:  []api.Ident{1},
-		Children: []api.Ident{},
+		Parents:  []api.RangeID{1},
+		Children: []api.RangeID{},
 		Meta:     api.Meta{Ident: 3, Start: api.Key("bbb"), End: api.Key("ccc")},
 	}
 
 	r4 := &ranje.Range{
 		State:    api.RsActive,
-		Parents:  []api.Ident{1},
-		Children: []api.Ident{},
+		Parents:  []api.RangeID{1},
+		Children: []api.RangeID{},
 		Meta:     api.Meta{Ident: 4, Start: api.Key("ccc")},
 	}
 
@@ -227,35 +227,35 @@ func TestJoinFromThree(t *testing.T) {
 
 	r1 := &ranje.Range{
 		State:    api.RsObsolete,
-		Children: []api.Ident{2, 3, 4},
+		Children: []api.RangeID{2, 3, 4},
 		Meta:     api.Meta{Ident: 1},
 	}
 
 	r2 := &ranje.Range{
 		State:    api.RsSubsuming,
-		Parents:  []api.Ident{1},
-		Children: []api.Ident{5},
+		Parents:  []api.RangeID{1},
+		Children: []api.RangeID{5},
 		Meta:     api.Meta{Ident: 2, End: api.Key("bbb")},
 	}
 
 	r3 := &ranje.Range{
 		State:    api.RsSubsuming,
-		Parents:  []api.Ident{1},
-		Children: []api.Ident{5},
+		Parents:  []api.RangeID{1},
+		Children: []api.RangeID{5},
 		Meta:     api.Meta{Ident: 3, Start: api.Key("bbb"), End: api.Key("ccc")},
 	}
 
 	r4 := &ranje.Range{
 		State:    api.RsSubsuming,
-		Parents:  []api.Ident{1},
-		Children: []api.Ident{5},
+		Parents:  []api.RangeID{1},
+		Children: []api.RangeID{5},
 		Meta:     api.Meta{Ident: 4, Start: api.Key("ccc")},
 	}
 
 	r5 := &ranje.Range{
 		State:    api.RsActive,
-		Parents:  []api.Ident{2, 3, 4},
-		Children: []api.Ident{},
+		Parents:  []api.RangeID{2, 3, 4},
+		Children: []api.RangeID{},
 		Meta:     api.Meta{Ident: 5},
 	}
 
@@ -290,14 +290,14 @@ func TestSplitIntoOne(t *testing.T) {
 
 	r1 := &ranje.Range{
 		State:    api.RsSubsuming,
-		Children: []api.Ident{2},
+		Children: []api.RangeID{2},
 		Meta:     api.Meta{Ident: 1},
 	}
 
 	r2 := &ranje.Range{
 		State:    api.RsActive,
-		Parents:  []api.Ident{1},
-		Children: []api.Ident{},
+		Parents:  []api.RangeID{1},
+		Children: []api.RangeID{},
 		Meta:     api.Meta{Ident: 2},
 	}
 
@@ -330,14 +330,14 @@ func TestJoinFromOne(t *testing.T) {
 
 	r1 := &ranje.Range{
 		State:    api.RsSubsuming,
-		Children: []api.Ident{2},
+		Children: []api.RangeID{2},
 		Meta:     api.Meta{Ident: 1},
 	}
 
 	r2 := &ranje.Range{
 		State:    api.RsActive,
-		Parents:  []api.Ident{1},
-		Children: []api.Ident{},
+		Parents:  []api.RangeID{1},
+		Children: []api.RangeID{},
 		Meta:     api.Meta{Ident: 2},
 	}
 
@@ -394,19 +394,19 @@ func TestPlacementMayBecomeReady(t *testing.T) {
 			input: []*ranje.Range{
 				{
 					State:      api.RsSubsuming,
-					Children:   []api.Ident{3},
+					Children:   []api.RangeID{3},
 					Meta:       api.Meta{Ident: 1, Start: api.ZeroKey, End: api.Key("ggg")},
 					Placements: []*ranje.Placement{{NodeID: "n1", StateCurrent: api.PsInactive}},
 				},
 				{
 					State:      api.RsSubsuming,
-					Children:   []api.Ident{3},
+					Children:   []api.RangeID{3},
 					Meta:       api.Meta{Ident: 2, Start: api.Key("ggg"), End: api.ZeroKey},
 					Placements: []*ranje.Placement{{NodeID: "n2", StateCurrent: api.PsInactive}},
 				},
 				{
 					State:      api.RsActive,
-					Parents:    []api.Ident{1, 2},
+					Parents:    []api.RangeID{1, 2},
 					Meta:       api.Meta{Ident: 3, Start: api.ZeroKey},
 					Placements: []*ranje.Placement{{NodeID: "n3", StateCurrent: api.PsInactive}},
 				},
@@ -470,19 +470,19 @@ func TestPlacementMayBeTaken(t *testing.T) {
 			input: []*ranje.Range{
 				{
 					State:      api.RsSubsuming,
-					Children:   []api.Ident{3},
+					Children:   []api.RangeID{3},
 					Meta:       api.Meta{Ident: 1, Start: api.ZeroKey, End: api.Key("ggg")},
 					Placements: []*ranje.Placement{{NodeID: "n1", StateCurrent: api.PsActive}},
 				},
 				{
 					State:      api.RsSubsuming,
-					Children:   []api.Ident{3},
+					Children:   []api.RangeID{3},
 					Meta:       api.Meta{Ident: 2, Start: api.Key("ggg"), End: api.ZeroKey},
 					Placements: []*ranje.Placement{{NodeID: "n2", StateCurrent: api.PsActive}},
 				},
 				{
 					State:      api.RsActive,
-					Parents:    []api.Ident{1, 2},
+					Parents:    []api.RangeID{1, 2},
 					Meta:       api.Meta{Ident: 3, Start: api.ZeroKey},
 					Placements: []*ranje.Placement{{NodeID: "n3", StateCurrent: api.PsInactive}},
 				},

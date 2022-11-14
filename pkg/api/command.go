@@ -5,7 +5,7 @@ import (
 )
 
 type Command struct {
-	RangeIdent Ident
+	RangeIdent RangeID
 	NodeIdent  string
 	Action     Action
 }

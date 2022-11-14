@@ -101,7 +101,7 @@ func give(ctx context.Context, n *roster.Node, p *ranje.Placement, parents []*pb
 func serve(ctx context.Context, n *roster.Node, p *ranje.Placement) (pb.RangeNodeState, error) {
 	rID := p.Range().Meta.Ident
 	req := &pb.ServeRequest{
-		Range: conv.IdentToProto(rID),
+		Range: conv.RangeIDToProto(rID),
 	}
 
 	// TODO: Retry a few times before giving up.
@@ -116,7 +116,7 @@ func serve(ctx context.Context, n *roster.Node, p *ranje.Placement) (pb.RangeNod
 func take(ctx context.Context, n *roster.Node, p *ranje.Placement) (pb.RangeNodeState, error) {
 	rID := p.Range().Meta.Ident
 	req := &pb.TakeRequest{
-		Range: conv.IdentToProto(rID),
+		Range: conv.RangeIDToProto(rID),
 	}
 
 	// TODO: Retry a few times before giving up.
@@ -131,7 +131,7 @@ func take(ctx context.Context, n *roster.Node, p *ranje.Placement) (pb.RangeNode
 func drop(ctx context.Context, n *roster.Node, p *ranje.Placement) (pb.RangeNodeState, error) {
 	rID := p.Range().Meta.Ident
 	req := &pb.DropRequest{
-		Range: conv.IdentToProto(rID),
+		Range: conv.RangeIDToProto(rID),
 	}
 
 	// TODO: Retry a few times before giving up.

@@ -95,7 +95,7 @@ func (ts *RosterSuite) TestCandidateByNodeID() {
 		}},
 	}
 
-	aInfos := map[api.Ident]*api.RangeInfo{
+	aInfos := map[api.RangeID]*api.RangeInfo{
 		r.Meta.Ident: {
 			Meta:  r.Meta,
 			State: api.NsActive,
@@ -160,7 +160,7 @@ func (ts *RosterSuite) TestProbeOne() {
 		}},
 	}
 
-	fakeInfos := map[api.Ident]*api.RangeInfo{
+	fakeInfos := map[api.RangeID]*api.RangeInfo{
 		r.Meta.Ident: {
 			Meta:  r.Meta,
 			State: api.NsActive,

@@ -135,12 +135,12 @@ func (bs *orchestratorServer) Join(ctx context.Context, req *pb.JoinRequest) (*p
 
 // getRange examines the given range ident and returns the corresponding Range
 // or an error suitable for a gRPC response.
-func getRange(bs *orchestratorServer, pbid uint64, field string) (api.Ident, error) {
+func getRange(bs *orchestratorServer, pbid uint64, field string) (api.RangeID, error) {
 	if pbid == 0 {
 		return api.ZeroRange, status.Error(codes.InvalidArgument, fmt.Sprintf("missing: %s", field))
 	}
 
-	id, err := conv.IdentFromProto(pbid)
+	id, err := conv.RangeIDFromProto(pbid)
 	if err != nil {
 		return api.ZeroRange, status.Error(codes.InvalidArgument, fmt.Sprintf("invalid %s: %s", field, err.Error()))
 	}

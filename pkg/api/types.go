@@ -7,6 +7,6 @@ type Placement struct {
 
 type Parent struct {
 	Meta       Meta
-	Parents    []Ident
+	Parents    []RangeID
 	Placements []Placement
 }

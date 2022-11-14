@@ -8,7 +8,7 @@ import (
 // Should be immutable after construction.
 // TODO: Rename this to RangeMeta.
 type Meta struct {
-	Ident Ident
+	Ident RangeID
 	Start Key // inclusive
 	End   Key // exclusive
 }

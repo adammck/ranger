@@ -13,12 +13,12 @@ import (
 // TODO: Where does this belong? Probably not here!
 func GetParents(ks ranje.RangeGetter, ros roster.NodeGetter, rang *ranje.Range) []*pb.Parent {
 	parents := []*pb.Parent{}
-	seen := map[api.Ident]struct{}{}
+	seen := map[api.RangeID]struct{}{}
 	addParents(ks, ros, rang, &parents, seen)
 	return parents
 }
 
-func addParents(ks ranje.RangeGetter, ros roster.NodeGetter, rang *ranje.Range, parents *[]*pb.Parent, seen map[api.Ident]struct{}) {
+func addParents(ks ranje.RangeGetter, ros roster.NodeGetter, rang *ranje.Range, parents *[]*pb.Parent, seen map[api.RangeID]struct{}) {
 	_, ok := seen[rang.Meta.Ident]
 	if ok {
 		return

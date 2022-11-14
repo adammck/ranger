@@ -14,8 +14,8 @@ type Range struct {
 	Meta api.Meta
 
 	State    api.RangeState
-	Parents  []api.Ident
-	Children []api.Ident
+	Parents  []api.RangeID
+	Children []api.RangeID
 
 	// TODO: Docs
 	Placements []*Placement
@@ -34,7 +34,7 @@ type Range struct {
 	dirty bool
 }
 
-func NewRange(rID api.Ident) *Range {
+func NewRange(rID api.RangeID) *Range {
 	return &Range{
 		Meta: api.Meta{
 			Ident: rID,

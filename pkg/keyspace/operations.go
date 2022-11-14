@@ -18,7 +18,7 @@ func (ks *Keyspace) Operations() ([]*Operation, error) {
 	// Build a set of active ranges to consider. This is churning through the
 	// whole range history, but only really needs the leaf ranges. Keep an index
 	// of those in the keyspace.
-	ranges := map[api.Ident]*ranje.Range{}
+	ranges := map[api.RangeID]*ranje.Range{}
 	for _, r := range ks.ranges {
 		if r.State == api.RsActive {
 			ranges[r.Meta.Ident] = r
@@ -67,7 +67,7 @@ type Operation struct {
 }
 
 func NewOperation(parents, children []*ranje.Range) *Operation {
-	sort := api.Ident(math.MaxInt)
+	sort := api.RangeID(math.MaxInt)
 
 	// Sort by the lowest range ID in each operation.
 	for _, rs := range [][]*ranje.Range{parents, children} {
@@ -139,7 +139,7 @@ func (op *Operation) direction(d dir) []*ranje.Range {
 	}
 }
 
-func (op *Operation) isDirection(d dir, rID api.Ident) bool {
+func (op *Operation) isDirection(d dir, rID api.RangeID) bool {
 	for _, rr := range op.direction(d) {
 		if rID == rr.Meta.Ident {
 			return true
@@ -280,7 +280,7 @@ func opFromRange(ks *Keyspace, r *ranje.Range) (op *Operation, err error) {
 	// be one parent or one child, and more than one of the other. We might
 	// support more complex (n:m) cases one day.
 	children := []*ranje.Range{} // length unknown
-	seen := map[api.Ident]struct{}{}
+	seen := map[api.RangeID]struct{}{}
 	for i := range parents {
 		for _, cID := range parents[i].Children {
 			if _, ok := seen[cID]; ok {
@@ -461,7 +461,7 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 
 // isChild returns true if the given range ID is one of the child ranges in this
 // operation. This mostly shouldn't be used. Special case just for MayDrop.
-func (op *Operation) isChild(rID api.Ident) bool {
+func (op *Operation) isChild(rID api.RangeID) bool {
 	for _, rr := range op.children {
 		if rID == rr.Meta.Ident {
 			return true
