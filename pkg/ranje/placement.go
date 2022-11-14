@@ -10,7 +10,13 @@ import (
 
 // Placement represents a pair of range+node.
 type Placement struct {
-	rang   *Range // owned by Keyspace.
+	// owned by Keyspace.
+	// TODO: Make this a range Ident instead? Anyone who needs the range will
+	//       probably have a RangeGetter like keyspace.
+	rang *Range
+
+	// NodeID is the Ident of the node this placement is assigned to. Immutable
+	// after construction. (Create a new placement instead of changing it.)
 	NodeID string
 
 	// StateCurrent is the controller-side state of the placement. It reflects

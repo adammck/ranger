@@ -12,6 +12,8 @@ require (
 	google.golang.org/protobuf v1.28.0
 )
 
+require github.com/pkg/errors v0.8.1 // indirect
+
 require (
 	github.com/armon/go-metrics v0.4.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -33,4 +35,5 @@ require (
 	golang.org/x/text v0.3.7 // indirect
 	google.golang.org/genproto v0.0.0-20220527130721-00d5c0f3be58 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	gotest.tools v2.2.0+incompatible
 )

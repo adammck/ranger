@@ -4,28 +4,38 @@ import (
 	"fmt"
 
 	"github.com/adammck/ranger/pkg/api"
-	"github.com/adammck/ranger/pkg/keyspace"
 	"github.com/adammck/ranger/pkg/proto/conv"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
 )
 
+// TODO: Move this somewhere else. It's useful in various places.
+type RangeGetter interface {
+	Get(id api.Ident) (*ranje.Range, error)
+}
+
+// TODO: NodeByIdent should probably return an error, not nil.
+// TODO: Move this somewhere else. It's useful in various places.
+type NodeGetter interface {
+	NodeByIdent(nodeIdent string) *roster.Node
+}
+
 // TODO: Where does this belong? Probably not here!
-func GetParents(ks *keyspace.Keyspace, rost *roster.Roster, rang *ranje.Range) []*pb.Parent {
+func GetParents(ks RangeGetter, ros NodeGetter, rang *ranje.Range) []*pb.Parent {
 	parents := []*pb.Parent{}
 	seen := map[api.Ident]struct{}{}
-	addParents(ks, rost, rang, &parents, seen)
+	addParents(ks, ros, rang, &parents, seen)
 	return parents
 }
 
-func addParents(ks *keyspace.Keyspace, rost *roster.Roster, rang *ranje.Range, parents *[]*pb.Parent, seen map[api.Ident]struct{}) {
+func addParents(ks RangeGetter, ros NodeGetter, rang *ranje.Range, parents *[]*pb.Parent, seen map[api.Ident]struct{}) {
 	_, ok := seen[rang.Meta.Ident]
 	if ok {
 		return
 	}
 
-	*parents = append(*parents, pbPlacement(rost, rang))
+	*parents = append(*parents, pbPlacement(ros, rang))
 	seen[rang.Meta.Ident] = struct{}{}
 
 	for _, rID := range rang.Parents {
@@ -35,11 +45,11 @@ func addParents(ks *keyspace.Keyspace, rost *roster.Roster, rang *ranje.Range, p
 			panic(fmt.Sprintf("getting range with ident %v: %v", rID, err))
 		}
 
-		addParents(ks, rost, r, parents, seen)
+		addParents(ks, ros, r, parents, seen)
 	}
 }
 
-func pbPlacement(rost *roster.Roster, r *ranje.Range) *pb.Parent {
+func pbPlacement(ros NodeGetter, r *ranje.Range) *pb.Parent {
 
 	// TODO: The kv example doesn't care about range history, because it has no
 	//       external write log, so can only fetch from nodes. So we can skip
@@ -49,7 +59,7 @@ func pbPlacement(rost *roster.Roster, r *ranje.Range) *pb.Parent {
 	pbPlacements := make([]*pb.Placement, len(r.Placements))
 
 	for i, p := range r.Placements {
-		n := rost.NodeByIdent(p.NodeID)
+		n := ros.NodeByIdent(p.NodeID)
 
 		node := ""
 		if n != nil {

@@ -7,7 +7,6 @@ import (
 
 	"github.com/adammck/ranger/pkg/actuator/util"
 	"github.com/adammck/ranger/pkg/api"
-	"github.com/adammck/ranger/pkg/keyspace"
 	"github.com/adammck/ranger/pkg/proto/conv"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
@@ -15,20 +14,22 @@ import (
 )
 
 type Actuator struct {
-	ks  *keyspace.Keyspace
-	ros *roster.Roster
+	rg util.RangeGetter
+	ng util.NodeGetter
 }
 
 const rpcTimeout = 1 * time.Second
 
-func New(ks *keyspace.Keyspace, ros *roster.Roster) *Actuator {
+func New(rg util.RangeGetter, ng util.NodeGetter) *Actuator {
 	return &Actuator{
-		ks:  ks,
-		ros: ros,
+		rg: rg,
+		ng: ng,
 	}
 }
 
 // TODO: This is currently duplicated.
+// TODO: This interface should probably only take the command -- the placement
+//       and node can be fetched from the Getters if needed.
 func (a *Actuator) Command(cmd api.Command, p *ranje.Placement, n *roster.Node) error {
 	s, err := a.cmd(cmd.Action, p, n)
 	if err != nil {
@@ -59,7 +60,7 @@ func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (a
 
 	switch action {
 	case api.Give:
-		s, err = give(ctx, n, p, util.GetParents(a.ks, a.ros, p.Range()))
+		s, err = give(ctx, n, p, util.GetParents(a.rg, a.ng, p.Range()))
 
 	case api.Serve:
 		s, err = serve(ctx, n, p)
