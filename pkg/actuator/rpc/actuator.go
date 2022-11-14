@@ -14,13 +14,13 @@ import (
 )
 
 type Actuator struct {
-	rg util.RangeGetter
-	ng util.NodeGetter
+	rg ranje.RangeGetter
+	ng roster.NodeGetter
 }
 
 const rpcTimeout = 1 * time.Second
 
-func New(rg util.RangeGetter, ng util.NodeGetter) *Actuator {
+func New(rg ranje.RangeGetter, ng roster.NodeGetter) *Actuator {
 	return &Actuator{
 		rg: rg,
 		ng: ng,

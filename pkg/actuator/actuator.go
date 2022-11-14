@@ -21,7 +21,7 @@ type Impl interface {
 
 type Actuator struct {
 	ks   *keyspace.Keyspace
-	ros  *roster.Roster
+	ros  roster.NodeGetter
 	Impl Impl // TODO: Make private once orch tests fixed.
 
 	// TODO: Move this into the Tick method; just pass it along.
