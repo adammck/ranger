@@ -2,7 +2,6 @@ package roster
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"sort"
@@ -173,13 +172,11 @@ func (ros *Roster) Discover() {
 			// TODO: Propagate context from somewhere.
 			conn, err := ros.NodeConnFactory(context.Background(), r)
 			if err != nil {
-				log.Printf("error creating node connection: %v", err)
 				continue
 			}
 
 			n = NewNode(r, conn)
 			ros.Nodes[r.NodeID()] = n
-			log.Printf("added node: %v", n.Ident())
 
 			// TODO: Should we also send a blank NodeInfo to introduce the
 			//       node? We haven't probed yet, so don't know what's assigned.
@@ -200,11 +197,8 @@ func (ros *Roster) expire() {
 
 	for nID, n := range ros.Nodes {
 		if n.IsMissing(ros.NodeExpireDuration, now) {
-			// The node hasn't responded to probes in a while.
-			log.Printf("expired node: %v", n.Ident())
-
-			// Send a special loadinfo to the reconciler, to tell it that we've
-			// lost the node.
+			// The node hasn't responded to probes in a while. Send a special
+			// loadinfo to the reconciler, to tell it that we've lost the node.
 			if ros.info != nil {
 				ros.info <- NodeInfo{
 					Time:    time.Now(),
@@ -221,7 +215,6 @@ func (ros *Roster) expire() {
 			if n.IsGoneFromServiceDiscovery(now) {
 				// The node has also been missing from service discovery for a
 				// while, so we can forget about it and stop probing.
-				log.Printf("removing node: %v", n.Ident())
 				delete(ros.Nodes, nID)
 				continue
 			}
@@ -244,12 +237,7 @@ func (ros *Roster) probe() {
 		go func(n *Node) {
 			defer wg.Done()
 			err := ros.probeOne(ctx, n)
-
-			// TODO: Special case? Nodes finished draining can probably just go
-			//       away right away rather than logging errors like this.
-
 			if err != nil {
-				log.Printf("error probing %v: %v", n.Ident(), err)
 				return
 			}
 		}(node)
@@ -284,6 +272,7 @@ func (ros *Roster) probeOne(ctx context.Context, n *Node) error {
 
 		ri, err := conv.RangeInfoFromProto(r)
 		if err != nil {
+			// TODO: Do something other than log this?
 			log.Printf("malformed probe response from %v: %v", n.Remote.Ident, err)
 			continue
 		}
@@ -396,39 +385,32 @@ func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (api.NodeID, er
 	//
 	for i := range nodes {
 		if rID != api.ZeroRange && nodes[i].HasRange(rng.Meta.Ident) {
-			s := fmt.Sprintf("node already has range: %v", c.NodeID)
 			if c.NodeID != "" {
-				return "", errors.New(s)
+				return "", fmt.Errorf("node already has range: %v", c.NodeID)
 			}
 
-			log.Print(s)
 			continue
 		}
 
 		if nodes[i].WantDrain() {
-			s := fmt.Sprintf("node wants drain: %v", nodes[i].Ident())
 			if c.NodeID != "" {
-				return "", errors.New(s)
+				return "", fmt.Errorf("node wants drain: %v", nodes[i].Ident())
 			}
 
-			log.Print(s)
 			continue
 		}
 
 		if nodes[i].IsMissing(r.NodeExpireDuration, time.Now()) {
-			s := fmt.Sprintf("node is missing: %v", nodes[i].Ident())
 			if c.NodeID != "" {
-				return "", errors.New(s)
+				return "", fmt.Errorf("node is missing: %v", nodes[i].Ident())
 			}
 
-			log.Print(s)
 			continue
 		}
 
+		// node has recent failed placements
 		if nodes[i].PlacementFailures(rID, time.Now().Add(-1*time.Minute)) >= 1 {
 			if c.NodeID == "" {
-				s := fmt.Sprintf("node has recent failed placements: %v", nodes[i].Ident())
-				log.Print(s)
 				continue
 			}
 		}

@@ -68,8 +68,8 @@ func New(addrLis, addrPub string, logReqs bool) (*Proxy, error) {
 func (p *Proxy) Add(rem *discovery.Remote) {
 	conn, err := grpc.DialContext(context.Background(), rem.Addr(), grpc.WithInsecure())
 
-	// TODO: Not sure what to do here.
 	if err != nil {
+		// TODO: Not sure what else to do here.
 		log.Printf("error while dialing %s: %v", rem.Addr(), err)
 		return
 	}
@@ -82,16 +82,6 @@ func (p *Proxy) Add(rem *discovery.Remote) {
 func (p *Proxy) Remove(rem *discovery.Remote) {
 	p.clientsMu.Lock()
 	defer p.clientsMu.Unlock()
-
-	// Check first to make debugging easier.
-	// Could just call delete and ignore no-ops.
-
-	_, ok := p.clients[rem.NodeID()]
-	if !ok {
-		log.Printf("tried to remove non-existent client %s", rem.NodeID())
-		return
-	}
-
 	delete(p.clients, rem.NodeID())
 }
 

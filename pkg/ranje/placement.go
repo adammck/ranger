@@ -123,12 +123,12 @@ func (p *Placement) ToState(new api.PlacementState) error {
 		}
 	}
 
+	old := p.StateCurrent
 	p.StateCurrent = new
 	p.failures = nil
 	p.rang.dirty = true
 
-	// TODO: Make this less weird
-	log.Printf("R%d P %s -> %s", p.rang.Meta.Ident, p.StateCurrent, new)
+	log.Printf("R%sP%d: %s -> %s", p.rang.Meta.Ident, p.rang.PlacementIndex(p.NodeID), old, new)
 
 	return nil
 }

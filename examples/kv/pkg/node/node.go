@@ -120,7 +120,7 @@ func (n *Node) Run(ctx context.Context) error {
 	if n.DrainBeforeShutdown {
 		n.DrainRanges()
 	} else {
-		log.Printf("not draining ranges")
+		log.Print("not draining ranges")
 	}
 
 	// Let in-flight RPCs finish and then stop. errChan will contain the error
@@ -144,7 +144,7 @@ func (n *Node) Run(ctx context.Context) error {
 
 // TODO: Move this to rangelet?
 func (n *Node) DrainRanges() {
-	log.Printf("draining ranges...")
+	log.Print("draining ranges...")
 
 	// This is included in probe responses. The next time the controller probes
 	// this node, it will notice that the node wants to drain (probably because
@@ -183,5 +183,5 @@ func (n *Node) DrainRanges() {
 	tick.Stop()
 	done <- true
 
-	log.Printf("finished draining ranges.")
+	log.Print("finished draining ranges.")
 }

@@ -3,7 +3,6 @@ package node
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	pbkv "github.com/adammck/ranger/examples/kv/proto/gen"
@@ -40,15 +39,6 @@ func newFetcher(rm api.Meta, parents []api.Parent) *fetcher {
 
 	// TODO: Verify that the src ranges cover the entire dest range.
 
-	switch len(srcs) {
-	case 1:
-		log.Printf("looks like a range move: %s", rm.Ident)
-	case 2:
-		log.Printf("looks like a split or join: %s", rm.Ident)
-	default:
-		log.Printf("no idea what's going on: %s (n=%d)", rm.Ident, len(srcs))
-	}
-
 	return &fetcher{
 		meta: rm,
 		srcs: srcs,
@@ -81,8 +71,6 @@ func (f *fetcher) Fetch(dest *Range) error {
 }
 
 func fetch(ctx context.Context, dest *Range, meta api.Meta, addr string, src api.Meta) error {
-	log.Printf("fetch: %s from: %s", src.Ident, addr)
-
 	conn, err := grpc.DialContext(
 		ctx,
 		addr,
@@ -98,7 +86,6 @@ func fetch(ctx context.Context, dest *Range, meta api.Meta, addr string, src api
 
 	res, err := client.Dump(ctx, &pbkv.DumpRequest{RangeIdent: uint64(src.Ident)})
 	if err != nil {
-		log.Printf("fetch failed: Dump: %s (rID=%d, addr=%s)", err, src.Ident, addr)
 		return err
 	}
 
@@ -122,8 +109,6 @@ func fetch(ctx context.Context, dest *Range, meta api.Meta, addr string, src api
 			load += 1
 		}
 	}()
-
-	log.Printf("Inserted %d keys from range %s via node %s (skipped %d)", load, src.Ident, addr, skip)
 
 	return nil
 }

@@ -85,8 +85,8 @@ func (r *Rangelet) runThenUpdateState(rID api.RangeID, old api.RemoteState, succ
 	// succeeds; either way, the range is gone.
 	if s == api.NsNotFound {
 		delete(r.info, rID)
+		log.Printf("R%s: %s -> NsNotFound", rID, old)
 		r.runCallback(rID, old, s)
-		log.Printf("[rglt] range deleted: %v", rID)
 		return
 	}
 
@@ -96,8 +96,8 @@ func (r *Rangelet) runThenUpdateState(rID api.RangeID, old api.RemoteState, succ
 	}
 
 	ri.State = s
+	log.Printf("R%s: %s -> %s", rID, old, s)
 	r.runCallback(rID, old, s)
-	log.Printf("[rglt] state is now %v (rID=%v)", s, rID)
 }
 
 func (r *Rangelet) give(rm api.Meta, parents []api.Parent) (api.RangeInfo, error) {
@@ -109,7 +109,6 @@ func (r *Rangelet) give(rm api.Meta, parents []api.Parent) (api.RangeInfo, error
 		defer r.Unlock()
 
 		if ri.State == api.NsLoading || ri.State == api.NsInactive {
-			log.Printf("[rglt] got redundant Give")
 			return *ri, nil
 		}
 
@@ -164,7 +163,6 @@ func (r *Rangelet) serve(rID api.RangeID) (api.RangeInfo, error) {
 	}
 
 	if ri.State == api.NsActivating || ri.State == api.NsActive {
-		log.Printf("[rglt] got redundant Serve")
 		defer r.Unlock()
 		return *ri, nil
 	}
@@ -207,7 +205,6 @@ func (r *Rangelet) take(rID api.RangeID) (api.RangeInfo, error) {
 	}
 
 	if ri.State == api.NsDeactivating || ri.State == api.NsInactive {
-		log.Printf("[rglt] got redundant Take")
 		defer r.Unlock()
 		return *ri, nil
 	}
@@ -245,7 +242,6 @@ func (r *Rangelet) drop(rID api.RangeID) (api.RangeInfo, error) {
 	ri, ok := r.info[rID]
 	if !ok {
 		r.Unlock()
-		log.Printf("[rglt] got redundant Drop (no such range; maybe drop complete)")
 
 		// Return success! The caller wanted the range to be dropped, and we
 		// don't have the range. So (hopefully) we dropped it already.
@@ -253,7 +249,6 @@ func (r *Rangelet) drop(rID api.RangeID) (api.RangeInfo, error) {
 	}
 
 	if ri.State == api.NsDropping {
-		log.Printf("[rglt] got redundant Drop (drop in progress)")
 		defer r.Unlock()
 		return *ri, nil
 	}
@@ -348,15 +343,14 @@ func (r *Rangelet) gatherLoadInfo() error {
 		if err == api.ErrNotFound {
 			// No problem. The Rangelet knows about this range, but the client
 			// doesn't, for whatever reason. Probably racing PrepareAddRange.
-			log.Printf("[rglt] GetLoadInfo(%v): NotFound", rID)
 			continue
 
 		} else if err != nil {
-			log.Printf("[rglt] GetLoadInfo(%v): %v", rID, err)
+			// Also no problem?
+			// TODO: This seems like it should be a problem??
 			continue
 		}
 
-		//log.Printf("[rglt] GetLoadInfo(%v): %#v", rID, info)
 		updateLoadInfo(&ri.Info, info)
 	}
 

@@ -3,7 +3,6 @@ package keyspace
 import (
 	"errors"
 	"fmt"
-	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -33,8 +32,6 @@ func New(persister persister.Persister) (*Keyspace, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	log.Printf("got %d ranges from store\n", len(ranges))
 
 	// Special case: There are no ranges in the store. We are bootstrapping the
 	// keyspace from scratch, so start with a singe range that covers all keys.

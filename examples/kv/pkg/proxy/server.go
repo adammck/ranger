@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"errors"
 	"log"
 	"time"
 
@@ -116,9 +115,7 @@ func (ps *proxyServer) Put(ctx context.Context, req *pbkv.PutRequest) (*pbkv.Put
 	}
 
 	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			log.Printf("Error: %s (method=Put, key=%s, node=%s, state=%v)", err, req.Key, loc.Node, loc.Info.State)
-		}
+		log.Printf("Error: %s (method=Put, key=%s, node=%s, state=%v)", err, req.Key, loc.Node, loc.Info.State)
 	} else if ps.proxy.logReqs {
 		log.Printf("Put: %s -> %s", req.Key, loc.Node)
 	}

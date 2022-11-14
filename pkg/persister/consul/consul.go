@@ -46,13 +46,13 @@ func (cp *Persister) GetRanges() ([]*ranje.Range, error) {
 	for _, kv := range pairs {
 		s := strings.SplitN(kv.Key, "/", 2)
 		if len(s) != 2 {
-			log.Printf("WARN: invalid Consul key: %s", kv.Key)
+			log.Printf("warn: invalid Consul key: %s", kv.Key)
 			continue
 		}
 
 		key, err := strconv.ParseUint(s[1], 10, 64)
 		if err != nil {
-			log.Printf("WARN: invalid Consul key: %s", kv.Key)
+			log.Printf("warn: invalid Consul key: %s", kv.Key)
 			continue
 		}
 
@@ -61,7 +61,7 @@ func (cp *Persister) GetRanges() ([]*ranje.Range, error) {
 
 		rID := rapi.RangeID(key)
 		if rID != r.Meta.Ident {
-			log.Printf("mismatch between Consul KV key and encoded range: key=%v, r.meta.ident=%v", key, r.Meta.Ident)
+			log.Printf("warn: mismatch between Consul KV key and encoded range: key=%v, r.meta.ident=%v", key, r.Meta.Ident)
 			continue
 		}
 

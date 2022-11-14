@@ -3,7 +3,6 @@ package fake_node
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"sort"
 	"sync"
@@ -201,7 +200,6 @@ func (n *TestNode) testInterceptor(
 	}
 
 	err := invoker(ctx, method, req, res, cc, opts...)
-	log.Printf("RPC: method=%s; Error=%v", method, err)
 	return err
 }
 

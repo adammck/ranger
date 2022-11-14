@@ -3,7 +3,6 @@ package mock
 import (
 	"errors"
 	"fmt"
-	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -79,7 +78,6 @@ func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (a
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	log.Print(cmd.String())
 	a.commands = append(a.commands, cmd)
 	exp, ok := a.injects[cmd]
 

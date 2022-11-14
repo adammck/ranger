@@ -153,7 +153,7 @@ func (c *Controller) Run(ctx context.Context) error {
 	c.srv.GracefulStop()
 	err = <-errChan
 	if err != nil {
-		log.Printf("Error from srv.Serve: ")
+		log.Printf("Error from srv.Serve: %v", err)
 		return err
 	}
 

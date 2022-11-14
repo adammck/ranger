@@ -2,7 +2,6 @@ package node
 
 import (
 	"fmt"
-	"log"
 	"math"
 	"math/rand"
 	"sort"
@@ -68,7 +67,6 @@ func (n *Node) PrepareAddRange(rm api.Meta, parents []api.Parent) error {
 		writable: 0,
 	}
 
-	log.Printf("Prepared to add range: %s", rm)
 	return nil
 }
 
@@ -93,7 +91,6 @@ func (n *Node) AddRange(rID api.RangeID) error {
 	r.fetcher = nil
 	atomic.StoreUint32(&r.writable, 1)
 
-	log.Printf("Added range: %s", rID)
 	return nil
 }
 
@@ -116,7 +113,6 @@ func (n *Node) PrepareDropRange(rID api.RangeID) error {
 	// Prevent further writes to the range.
 	atomic.StoreUint32(&r.writable, 0)
 
-	log.Printf("Prepared to drop range: %s", rID)
 	return nil
 }
 
@@ -136,7 +132,6 @@ func (n *Node) DropRange(rID api.RangeID) error {
 
 	delete(n.ranges, rID)
 
-	log.Printf("Dropped range: %s", rID)
 	return nil
 }
 
@@ -151,13 +146,11 @@ func (n *Node) performChaos() error {
 
 	ms := int(3000 * math.Pow(rand.Float64(), 2))
 	d := time.Duration(ms) * time.Millisecond
-	log.Printf("Sleeping %v (chaos)", d)
 	time.Sleep(d)
 
 	// TODO: This causes actual problems really fast if raised significantly.
 	//       Looks like an orchestrator bug. Look into it.
 	if rand.Float32() < 0.05 {
-		log.Print("Failing (chaos)")
 		return fmt.Errorf("it's your unlucky day")
 	}
 

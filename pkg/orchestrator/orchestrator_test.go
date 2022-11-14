@@ -2,7 +2,6 @@ package orchestrator
 
 import (
 	"fmt"
-	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -1934,15 +1933,10 @@ func tickWait(t *testing.T, orch *Orchestrator, act *actuator.Actuator, waiters 
 	act.Wait()
 
 	if len(waiters) > 0 {
-		log.Printf("waiting for %d waiters", len(waiters))
 		for _, w := range waiters {
 			w.Wait()
 		}
 	}
-
-	log.Print("ks: ", orch.ks.LogString())
-	log.Print("ro: ", orch.rost.TestString())
-	log.Print("op: ", OpsString(orch.ks))
 
 	// If any unexpected commands were sent during this tick (which is only the
 	// case if strict actuations are enabled), fail.

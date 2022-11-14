@@ -77,7 +77,6 @@ func (b *Orchestrator) Tick() {
 		for _, opJoin := range b.opJoins {
 
 			fail := func(err error) {
-				log.Print(err.Error())
 				if opJoin.Err != nil {
 					opJoin.Err <- err
 					close(opJoin.Err)
@@ -113,8 +112,6 @@ func (b *Orchestrator) Tick() {
 				fail(fmt.Errorf("join failed: %v (left=%v, right=%v)", err, opJoin.Left, opJoin.Right))
 				continue
 			}
-
-			log.Printf("new range from join: %v", r3)
 
 			// If we made it this far, the join has happened and already been
 			// persisted. No turning back now.
@@ -202,7 +199,6 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 
 			nID, err := b.rost.Candidate(r, ranje.AnyNode)
 			if err != nil {
-				log.Printf("error finding candidate node for %v: %v", r, err)
 				return
 			}
 
@@ -214,8 +210,6 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 		if opMove, ok := b.moveOp(r.Meta.Ident); ok {
 			err := b.doMove(r, opMove)
 			if err != nil {
-				log.Printf("error initiating move: %v", err)
-
 				// If the move was initiated by an operator, also forward the
 				// error back to them.
 				if opMove.Err != nil {
@@ -257,7 +251,6 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 			}
 			nIDL, err := b.rost.Candidate(nil, c)
 			if err != nil {
-				log.Printf("error selecting split candidate left: %v", err)
 				if opSplit.Err != nil {
 					opSplit.Err <- err
 					close(opSplit.Err)
@@ -271,7 +264,6 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 			}
 			nIDR, err := b.rost.Candidate(nil, c)
 			if err != nil {
-				log.Printf("error selecting split candidate right: %v", err)
 				if opSplit.Err != nil {
 					opSplit.Err <- err
 					close(opSplit.Err)
@@ -285,7 +277,6 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 			rL, rR, err := b.ks.Split(r, opSplit.Key)
 
 			if err != nil {
-				log.Printf("error initiating split: %v", err)
 				if opSplit.Err != nil {
 					opSplit.Err <- err
 					close(opSplit.Err)
@@ -438,7 +429,6 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 	n, err := b.rost.NodeByIdent(p.NodeID)
 	if err != nil {
 		if p.StateCurrent != api.PsGiveUp && p.StateCurrent != api.PsDropped {
-			log.Printf("error getting node: %v", err)
 			b.ks.PlacementToState(p, api.PsGiveUp)
 			return
 		}
@@ -495,7 +485,6 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 		if ok {
 			switch ri.State {
 			case api.NsLoading:
-				log.Printf("node %s still loading %s", n.Ident(), p.Range().Meta.Ident)
 				p.Want(api.PsInactive)
 
 			case api.NsInactive:
@@ -507,7 +496,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 				doPlace = true
 
 			default:
-				log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.StateCurrent)
+				log.Printf("unexpected remote state: ris=%s, psc=%s", ri.State, p.StateCurrent)
 				b.ks.PlacementToState(p, api.PsGiveUp)
 			}
 		} else {
@@ -539,7 +528,6 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			}
 
 			// Otherwise, abort. It's been forgotten.
-			log.Printf("placement missing from node (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
 			b.ks.PlacementToState(p, api.PsGiveUp)
 			return
 		}
@@ -552,18 +540,13 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			// it first.
 			if err := op.MayActivate(p, r); err == nil {
 				p.Want(api.PsActive)
-
 				return
-			} else {
-				log.Printf("will not serve (rID=%s, n=%s, err=%s)", p.Range().Meta.Ident, n.Ident(), err)
 			}
 
 			// We are ready to move from Inactive to Dropped, but we have to wait
 			// for the placement(s) that are replacing this to become Ready.
 			if err := op.MayDrop(p, r); err == nil {
 				p.Want(api.PsDropped)
-			} else {
-				log.Printf("will not drop (rID=%s, n=%s, err=%s)", p.Range().Meta.Ident, n.Ident(), err)
 			}
 
 			return
@@ -573,19 +556,17 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			// working on it. Just keep waiting. But send another Serve RPC to
 			// check whether it's finished and is now Ready. (Or has changed to
 			// some other state through crash or bug.)
-			log.Printf("node %s still readying %s", n.Ident(), p.Range().Meta.Ident)
 			p.Want(api.PsActive)
 
 		case api.NsDropping:
 			// This placement failed to serve too many times. We've given up on it.
-			log.Printf("node %s still dropping %s", n.Ident(), p.Range().Meta.Ident)
 			p.Want(api.PsDropped)
 
 		case api.NsActive:
 			b.ks.PlacementToState(p, api.PsActive)
 
 		default:
-			log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.StateCurrent)
+			log.Printf("unexpected remote state: ris=%s, psc=%s", ri.State, p.StateCurrent)
 			b.ks.PlacementToState(p, api.PsGiveUp)
 			return
 		}
@@ -596,7 +577,6 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 		ri, ok := n.Get(p.Range().Meta.Ident)
 		if !ok {
 			// The node doesn't have the placement any more! Abort.
-			log.Printf("placement missing from node (rID=%s, n=%s)", p.Range().Meta.Ident, n.Ident())
 			b.ks.PlacementToState(p, api.PsGiveUp)
 			return
 		}
@@ -606,35 +586,29 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			doTake = true
 
 		case api.NsDeactivating:
-			log.Printf("node %s still deactivating %s", n.Ident(), p.Range().Meta.Ident)
 			p.Want(api.PsInactive)
 
 		case api.NsInactive:
 			b.ks.PlacementToState(p, api.PsInactive)
 
 		default:
-			log.Printf("very unexpected remote state: %s (placement state=%s)", ri.State, p.StateCurrent)
+			log.Printf("unexpected remote state: ris=%s, psc=%s", ri.State, p.StateCurrent)
 			b.ks.PlacementToState(p, api.PsGiveUp)
 		}
 
 		if doTake {
 			if err := op.MayDeactivate(p, r); err == nil {
 				p.Want(api.PsInactive)
-
-			} else {
-				log.Printf("will not deactivate (rID=%s, n=%s, err=%s)", p.Range().Meta.Ident, n.Ident(), err)
 			}
 		}
 
 	case api.PsGiveUp:
 		// This transition only exists to provide an error-handling path to
 		// PsDropped without sending any RPCs.
-		log.Printf("giving up on %s", p.LogString())
 		b.ks.PlacementToState(p, api.PsDropped)
 		return
 
 	case api.PsDropped:
-		log.Printf("will destroy %s", p.LogString())
 		destroy = true
 		return
 

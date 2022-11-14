@@ -142,6 +142,9 @@ func (s *kvServer) Dump(ctx context.Context, req *pbkv.DumpRequest) (*pbkv.DumpR
 		}
 	}()
 
-	log.Printf("Dumped: %s", ident)
+	if s.node.logReqs {
+		log.Printf("Dumped: %s", ident)
+	}
+
 	return res, nil
 }

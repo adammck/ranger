@@ -2,7 +2,6 @@ package actuator
 
 import (
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
@@ -84,36 +83,31 @@ var maxFailures = map[api.Action]int{
 }
 
 func (a *Actuator) consider(p *ranje.Placement) {
+
+	// nothing to do
 	if p.StateDesired == p.StateCurrent {
-		log.Printf("Actuator.Consider(%s:%s): nothing to do",
-			p.Range().Meta.Ident, p.NodeID)
 		return
 	}
 
+	// unknown desired state
 	if p.StateDesired == api.PsUnknown {
-		log.Printf("Actuator.Consider(%s:%s): unknown desired state",
-			p.Range().Meta.Ident, p.NodeID)
 		return
 	}
 
 	action, err := actuation(p)
 	if err != nil {
 		// TODO: Should we return an error instead? What could the caller do with it?
-		log.Printf("Actuator.Consider(%s:%s): %s",
-			p.Range().Meta.Ident, p.NodeID, err)
 		return
 	}
 
+	// error getting node (invalid?)
 	n, err := a.ros.NodeByIdent(p.NodeID)
 	if err != nil {
-		log.Printf("Actuator.Consider(%s:%s): %v",
-			p.Range().Meta.Ident, p.NodeID, err)
 		return
 	}
 
+	// command previously failed
 	if p.Failed(action) {
-		log.Printf("Actuator.Consider(%s:%s): command previously failed",
-			p.Range().Meta.Ident, p.NodeID)
 		return
 	}
 
@@ -123,11 +117,10 @@ func (a *Actuator) consider(p *ranje.Placement) {
 		Action:     action,
 	}
 
+	// backing off
 	// TODO: Use a proper increasing backoff and jitter.
 	// TODO: Also use clockwork to make this testable.
 	if a.backoff > 0 && a.LastFailure(cmd).After(time.Now().Add(-a.backoff)) {
-		log.Printf("Actuator.Consider(%s:%s): backing off",
-			p.Range().Meta.Ident, p.NodeID)
 		return
 	}
 
@@ -142,8 +135,8 @@ func (a *Actuator) Exec(cmd api.Command, p *ranje.Placement, n *roster.Node) {
 	}
 	a.inFlightMu.Unlock()
 
+	// Same command is currently in flight. This is a dupe, so drop it.
 	if ok {
-		log.Printf("dropping in-flight command: %s", cmd)
 		return
 	}
 

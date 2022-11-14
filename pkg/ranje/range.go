@@ -3,6 +3,7 @@ package ranje
 import (
 	"fmt"
 	"log"
+	"math"
 	"sync"
 
 	"github.com/adammck/ranger/pkg/api"
@@ -141,8 +142,7 @@ func (r *Range) ToState(new api.RangeState) error {
 	r.State = new
 	r.dirty = true
 
-	// TODO: What is this?
-	log.Printf("%s %s -> %s", r, old, new)
+	log.Printf("R%s: %s -> %s", r.Meta.Ident, old, new)
 
 	return nil
 }
@@ -175,4 +175,15 @@ func (r *Range) PlacementByNodeID(nodeID api.NodeID) *Placement {
 	}
 
 	return nil
+}
+
+// TODO: Remove this once replication arrives.
+func (r *Range) PlacementIndex(nodeID api.NodeID) int {
+	for i, p := range r.Placements {
+		if p.NodeID == nodeID {
+			return i
+		}
+	}
+
+	return math.MaxInt
 }
