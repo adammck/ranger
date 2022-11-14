@@ -1755,7 +1755,7 @@ func rosterFactory(t *testing.T, cfg config.Config, ctx context.Context, ks *key
 
 		for _, pStub := range stubs[i].placements {
 			rID := api.RangeID(pStub.rID)
-			r, err := ks.Get(rID)
+			r, err := ks.GetRange(rID)
 			if err != nil {
 				t.Fatalf("invalid node placement stub: %v", err)
 			}
@@ -2037,7 +2037,7 @@ func requireStable(t *testing.T, orch *Orchestrator, act *actuator.Actuator) {
 
 // mustGetRange returns a range from the given keyspace or fails the test.
 func mustGetRange(t *testing.T, ks *keyspace.Keyspace, rID int) *ranje.Range {
-	r, err := ks.Get(api.RangeID(rID))
+	r, err := ks.GetRange(api.RangeID(rID))
 	if err != nil {
 		t.Fatalf("ks.Get(%d): %v", rID, err)
 	}

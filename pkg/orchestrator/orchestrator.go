@@ -87,13 +87,13 @@ func (b *Orchestrator) Tick() {
 				}
 			}
 
-			r1, err := b.ks.Get(opJoin.Left)
+			r1, err := b.ks.GetRange(opJoin.Left)
 			if err != nil {
 				fail(fmt.Errorf("join with invalid left side: %v (rID=%v)", err, opJoin.Left))
 				continue
 			}
 
-			r2, err := b.ks.Get(opJoin.Right)
+			r2, err := b.ks.GetRange(opJoin.Right)
 			if err != nil {
 				fail(fmt.Errorf("join with invalid right side: %v (rID=%v)", err, opJoin.Right))
 				continue

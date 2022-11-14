@@ -174,7 +174,7 @@ func TestDrop(t *testing.T) {
 func TestInvalidAction(t *testing.T) {
 	h := setup(t)
 
-	r, err := h.rangeGetter.Get(1)
+	r, err := h.rangeGetter.GetRange(1)
 
 	assert.NilError(t, err)
 	p := r.Placements[0]
@@ -212,7 +212,7 @@ func NewFakeRangeGetter(ranges ...*ranje.Range) *FakeRangeGetter {
 	}
 }
 
-func (rg *FakeRangeGetter) Get(id api.RangeID) (*ranje.Range, error) {
+func (rg *FakeRangeGetter) GetRange(id api.RangeID) (*ranje.Range, error) {
 	r, ok := rg.r[id]
 	if !ok {
 		return nil, fmt.Errorf("no such range: %s", id)
@@ -437,7 +437,7 @@ func setup(t *testing.T) *Harness {
 }
 
 func getPlacement(t *testing.T, rg *FakeRangeGetter, rID api.RangeID, i int) *ranje.Placement {
-	r2, err := rg.Get(rID)
+	r2, err := rg.GetRange(rID)
 	assert.NilError(t, err)
 	assert.Assert(t, len(r2.Placements) >= i+1)
 	p := r2.Placements[i]

@@ -28,7 +28,7 @@ func addParents(ks ranje.RangeGetter, ros roster.NodeGetter, rang *ranje.Range, 
 	seen[rang.Meta.Ident] = struct{}{}
 
 	for _, rID := range rang.Parents {
-		r, err := ks.Get(rID)
+		r, err := ks.GetRange(rID)
 		if err != nil {
 			// TODO: Think about how to recover from this. It's bad.
 			panic(fmt.Sprintf("getting range with ident %v: %v", rID, err))

@@ -103,7 +103,7 @@ func (srv *debugServer) Range(ctx context.Context, req *pb.RangeRequest) (*pb.Ra
 		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("IdentFromProto failed: %v", err))
 	}
 
-	r, err := srv.orch.ks.Get(rID)
+	r, err := srv.orch.ks.GetRange(rID)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("GetByIdent failed: %v", err))
 	}

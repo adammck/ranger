@@ -257,7 +257,7 @@ func opFromRange(ks *Keyspace, r *ranje.Range) (op *Operation, err error) {
 	// Collect all of the parent ranges involved in this operation.
 	parents := make([]*ranje.Range, len(r.Parents))
 	for i, prID := range r.Parents {
-		rp, err := ks.Get(prID)
+		rp, err := ks.GetRange(prID)
 		if err != nil {
 			return nil, err
 		}
@@ -287,7 +287,7 @@ func opFromRange(ks *Keyspace, r *ranje.Range) (op *Operation, err error) {
 				continue
 			}
 			seen[cID] = struct{}{}
-			c, err := ks.Get(cID)
+			c, err := ks.GetRange(cID)
 			if err != nil {
 				return nil, err
 			}

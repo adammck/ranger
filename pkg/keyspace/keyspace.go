@@ -234,17 +234,23 @@ func (ks *Keyspace) Split(r *ranje.Range, k api.Key) (one *ranje.Range, two *ran
 	return
 }
 
-// Get returns a range by its ident, or an error if no such range exists.
-// TODO: Allow getting by other things.
-// TODO: Should this lock ranges? Or the caller do it?
-func (ks *Keyspace) Get(id api.RangeID) (*ranje.Range, error) {
+// GetRange returns a Range by its ID, or an error if no such range exists. The
+// range is not a copy, it's a real range from the keyspace, so don't mutate it.
+// Callers *must* hold the keyspace lock.
+//
+// TODO: Instead of calling this on an actual keyspace, provide a RangeGetter
+//       method on the keyspace to acquire the range lock, and return a
+//       RangeGetter with a Close method to unlock. The Ranges method is
+//       somewhat like this, but returns the ranges slice.
+//
+func (ks *Keyspace) GetRange(rID api.RangeID) (*ranje.Range, error) {
 	for _, r := range ks.ranges {
-		if r.Meta.Ident == id {
+		if r.Meta.Ident == rID {
 			return r, nil
 		}
 	}
 
-	return nil, fmt.Errorf("no such range: %s", id.String())
+	return nil, fmt.Errorf("no such range: %s", rID.String())
 }
 
 // Range returns a new range with the next available ident. This is the only
