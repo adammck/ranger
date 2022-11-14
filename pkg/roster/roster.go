@@ -27,9 +27,8 @@ const (
 type Roster struct {
 	cfg config.Config
 
-	// Public so Orchestrator can read the Nodes
-	// node ident (not api.Ident!!) -> Node
-	Nodes map[string]*Node
+	// TODO: Can this be private now?
+	Nodes map[api.NodeID]*Node
 	sync.RWMutex
 
 	disc discovery.Discoverable
@@ -49,7 +48,7 @@ type Roster struct {
 func New(cfg config.Config, disc discovery.Discoverable, add, remove func(rem *discovery.Remote), info chan NodeInfo) *Roster {
 	return &Roster{
 		cfg:    cfg,
-		Nodes:  make(map[string]*Node),
+		Nodes:  make(map[api.NodeID]*Node),
 		disc:   disc,
 		add:    add,
 		remove: remove,
@@ -66,15 +65,17 @@ func (ros *Roster) TestString() string {
 	ros.RLock()
 	defer ros.RUnlock()
 
-	keys := []string{}
+	nIDs := []api.NodeID{}
 	for nID := range ros.Nodes {
-		keys = append(keys, nID)
+		nIDs = append(nIDs, nID)
 	}
 
-	sort.Strings(keys)
+	sort.Slice(nIDs, func(i, j int) bool {
+		return nIDs[i].String() < nIDs[j].String()
+	})
 
 	s := make([]string, len(ros.Nodes))
-	for i, nID := range keys {
+	for i, nID := range nIDs {
 		s[i] = ros.Nodes[nID].TestString()
 	}
 
@@ -87,12 +88,12 @@ func nodeConnFactory(ctx context.Context, remote discovery.Remote) (*grpc.Client
 }
 
 // TODO: Return an error from this func, to avoid duplicating it in callers.
-func (ros *Roster) NodeByIdent(nodeIdent string) *Node {
+func (ros *Roster) NodeByIdent(nID api.NodeID) *Node {
 	ros.RLock()
 	defer ros.RUnlock()
 
 	for nid, n := range ros.Nodes {
-		if nid == nodeIdent {
+		if nid == nID {
 			return n
 		}
 	}
@@ -102,7 +103,7 @@ func (ros *Roster) NodeByIdent(nodeIdent string) *Node {
 
 // Location is returned by the Locate method. Don't use it for anything else.
 type Location struct {
-	Node string
+	Node api.NodeID
 	Info api.RangeInfo
 }
 
@@ -161,7 +162,7 @@ func (ros *Roster) Discover() {
 	}
 
 	for _, r := range res {
-		n, ok := ros.Nodes[r.Ident]
+		n, ok := ros.Nodes[r.NodeID()]
 
 		// New Node?
 		if !ok {
@@ -173,7 +174,7 @@ func (ros *Roster) Discover() {
 			}
 
 			n = NewNode(r, conn)
-			ros.Nodes[r.Ident] = n
+			ros.Nodes[r.NodeID()] = n
 			log.Printf("added node: %v", n.Ident())
 
 			// TODO: Should we also send a blank NodeInfo to introduce the
@@ -335,7 +336,7 @@ func (r *Roster) Run(t *time.Ticker) {
 //       node(s) will need, allowing us to find candidates before actually
 //       performing splits and joins.
 //
-func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (string, error) {
+func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (api.NodeID, error) {
 	r.RLock()
 	defer r.RUnlock()
 

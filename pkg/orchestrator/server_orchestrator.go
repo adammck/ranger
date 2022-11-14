@@ -23,9 +23,16 @@ func (bs *orchestratorServer) Move(ctx context.Context, req *pb.MoveRequest) (*p
 		return nil, err
 	}
 
+	// NodeID is optional for this endpoint.
+	// TODO: Verify that the NodeID is valid (at least right now), if given.
+	nID, err := conv.NodeIDFromProto(req.Node)
+	if err != nil && err != conv.ErrMissingNodeID {
+		return nil, err
+	}
+
 	op := OpMove{
 		Range: rID,
-		Dest:  req.Node, // TODO: Verify if given
+		Dest:  nID, // Might be ZeroNodeID
 		Err:   make(chan error),
 	}
 
@@ -63,11 +70,22 @@ func (bs *orchestratorServer) Split(ctx context.Context, req *pb.SplitRequest) (
 		return nil, status.Error(codes.InvalidArgument, "missing: boundary")
 	}
 
+	// NodeID (on both sides) is optional for this endpoint.
+	// TODO: Verify that the NodeIDs are valid if given.
+	nID1, err := conv.NodeIDFromProto(req.NodeLeft)
+	if err != nil && err != conv.ErrMissingNodeID {
+		return nil, err
+	}
+	nID2, err := conv.NodeIDFromProto(req.NodeLeft)
+	if err != nil && err != conv.ErrMissingNodeID {
+		return nil, err
+	}
+
 	op := OpSplit{
 		Range: rID,
 		Key:   boundary,
-		Left:  req.NodeLeft,
-		Right: req.NodeRight,
+		Left:  nID1,
+		Right: nID2,
 		Err:   make(chan error),
 	}
 
@@ -104,10 +122,17 @@ func (bs *orchestratorServer) Join(ctx context.Context, req *pb.JoinRequest) (*p
 		return nil, err
 	}
 
+	// NodeID is optional for this endpoint.
+	// TODO: Verify that the NodeID is valid if given.
+	nID, err := conv.NodeIDFromProto(req.Node)
+	if err != nil && err != conv.ErrMissingNodeID {
+		return nil, err
+	}
+
 	op := OpJoin{
 		Left:  left,
 		Right: right,
-		Dest:  req.Node,
+		Dest:  nID,
 		Err:   make(chan error),
 	}
 

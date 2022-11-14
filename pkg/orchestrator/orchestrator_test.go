@@ -1710,7 +1710,7 @@ func keyspaceFactory(t *testing.T, cfg config.Config, stubs []rangeStub) *keyspa
 			pstub := stubs[i].placements[ii]
 			ps := placementStateFromString(t, pstub.pState)
 			r.Placements[ii] = &ranje.Placement{
-				NodeID:       pstub.nodeID,
+				NodeID:       api.NodeID(pstub.nodeID),
 				StateCurrent: ps,
 				StateDesired: ps,
 			}
@@ -1750,7 +1750,7 @@ func rosterFactory(t *testing.T, cfg config.Config, ctx context.Context, ks *key
 	rost.Discover()
 
 	for i := range stubs {
-		nID := stubs[i].nodeID
+		nID := api.NodeID(stubs[i].nodeID)
 		nod := rost.Nodes[nID]
 
 		for _, pStub := range stubs[i].placements {
@@ -1845,7 +1845,7 @@ func moveOp(orch *Orchestrator, rID int, dest string) chan error {
 
 	op := OpMove{
 		Range: api.RangeID(rID),
-		Dest:  dest,
+		Dest:  api.NodeID(dest),
 	}
 
 	orch.opMovesMu.Lock()
@@ -1885,7 +1885,7 @@ func joinOp(orch *Orchestrator, r1ID, r2ID int, dest string) chan error {
 	op := OpJoin{
 		Left:  api.RangeID(r1ID),
 		Right: api.RangeID(r2ID),
-		Dest:  dest,
+		Dest:  api.NodeID(dest),
 		Err:   ch,
 	}
 
@@ -2046,7 +2046,7 @@ func mustGetRange(t *testing.T, ks *keyspace.Keyspace, rID int) *ranje.Range {
 
 func mustGetPlacement(t *testing.T, ks *keyspace.Keyspace, rID int, nodeID string) *ranje.Placement {
 	r := mustGetRange(t, ks, rID)
-	p := r.PlacementByNodeID(nodeID)
+	p := r.PlacementByNodeID(api.NodeID(nodeID))
 	if p == nil {
 		t.Fatalf("r(%d).PlacementByNodeID(%s): no such placement", rID, nodeID)
 	}
@@ -2076,7 +2076,7 @@ func commands(t *testing.T, a *actuator.Actuator) string {
 	return ma.Commands()
 }
 
-func inject(t *testing.T, a *actuator.Actuator, nID string, rID api.RangeID, act api.Action) *mock_actuator.Inject {
+func inject(t *testing.T, a *actuator.Actuator, nID api.NodeID, rID api.RangeID, act api.Action) *mock_actuator.Inject {
 	ma, ok := a.Impl.(*mock_actuator.Actuator)
 	if !ok {
 		t.Fatalf("expected mock actuator, got: %T", a.Impl)

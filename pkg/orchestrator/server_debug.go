@@ -39,7 +39,7 @@ func rangeResponse(r *ranje.Range, rost *roster.Roster) *pb.RangeResponse {
 	for _, p := range r.Placements {
 		plc := &pb.PlacementWithRangeInfo{
 			Placement: &pb.Placement{
-				Node:  p.NodeID,
+				Node:  conv.NodeIDToProto(p.NodeID),
 				State: conv.PlacementStateToProto(p.StateCurrent),
 			},
 		}
@@ -62,7 +62,7 @@ func rangeResponse(r *ranje.Range, rost *roster.Roster) *pb.RangeResponse {
 func nodeResponse(ks *keyspace.Keyspace, n *roster.Node) *pb.NodeResponse {
 	res := &pb.NodeResponse{
 		Node: &pb.NodeMeta{
-			Ident:     n.Ident(),
+			Ident:     conv.NodeIDToProto(n.Ident()),
 			Address:   n.Addr(),
 			WantDrain: n.WantDrain(),
 		},
@@ -116,9 +116,9 @@ func (srv *debugServer) Range(ctx context.Context, req *pb.RangeRequest) (*pb.Ra
 }
 
 func (srv *debugServer) Node(ctx context.Context, req *pb.NodeRequest) (*pb.NodeResponse, error) {
-	nID := req.Node
-	if nID == "" {
-		return nil, status.Error(codes.InvalidArgument, "missing: node")
+	nID, err := conv.NodeIDFromProto(req.Node)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("NodeIDFromProto failed: %v", err))
 	}
 
 	node := srv.orch.rost.NodeByIdent(nID)

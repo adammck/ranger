@@ -265,7 +265,9 @@ func cmdNode(printReq bool, client pb.DebugClient, ctx context.Context, nID stri
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	req := &pb.NodeRequest{Node: nID}
+	req := &pb.NodeRequest{
+		Node: nID,
+	}
 
 	if printReq {
 		output(req)

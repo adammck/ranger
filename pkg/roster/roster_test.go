@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
+// TODO: Remove this suite, just use funcs.
 type RosterSuite struct {
 	suite.Suite
 	ctx   context.Context
@@ -61,7 +62,7 @@ func (ts *RosterSuite) TestNoCandidates() {
 	if ts.Error(err) {
 		ts.Equal(fmt.Errorf("no candidates available (rID=1, c=any)"), err)
 	}
-	ts.Equal(nID, "")
+	ts.Equal(nID, api.ZeroNodeID)
 }
 
 func (ts *RosterSuite) TestCandidateByNodeID() {
@@ -90,7 +91,7 @@ func (ts *RosterSuite) TestCandidateByNodeID() {
 		},
 		State: api.RsActive,
 		Placements: []*ranje.Placement{{
-			NodeID:       aRem.Ident,
+			NodeID:       aRem.NodeID(),
 			StateCurrent: api.PsActive,
 		}},
 	}
@@ -114,7 +115,7 @@ func (ts *RosterSuite) TestCandidateByNodeID() {
 
 	nID, err := ts.rost.Candidate(ts.r, ranje.Constraint{NodeID: "test-bbb"})
 	if ts.NoError(err) {
-		ts.Equal("test-bbb", nID)
+		ts.Equal(api.NodeID("test-bbb"), nID)
 	}
 
 	// This one doesn't exist
@@ -155,7 +156,7 @@ func (ts *RosterSuite) TestProbeOne() {
 		},
 		State: api.RsActive,
 		Placements: []*ranje.Placement{{
-			NodeID:       rem.Ident,
+			NodeID:       rem.NodeID(),
 			StateCurrent: api.PsActive,
 		}},
 	}

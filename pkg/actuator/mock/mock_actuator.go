@@ -145,7 +145,7 @@ func (ij *Inject) Response(ns api.RemoteState) *Inject {
 	return ij
 }
 
-func (a *Actuator) Inject(nID string, rID api.RangeID, act api.Action) *Inject {
+func (a *Actuator) Inject(nID api.NodeID, rID api.RangeID, act api.Action) *Inject {
 	cmd := api.Command{
 		RangeIdent: rID,
 		NodeIdent:  nID,

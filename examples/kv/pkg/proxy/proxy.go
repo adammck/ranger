@@ -8,6 +8,7 @@ import (
 	"time"
 
 	pbkv "github.com/adammck/ranger/examples/kv/proto/gen"
+	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/config"
 	"github.com/adammck/ranger/pkg/discovery"
 	consuldisc "github.com/adammck/ranger/pkg/discovery/consul"
@@ -25,7 +26,7 @@ type Proxy struct {
 	disc    discovery.Discoverable
 	rost    *roster.Roster
 
-	clients   map[string]pbkv.KVClient
+	clients   map[api.NodeID]pbkv.KVClient
 	clientsMu sync.RWMutex
 
 	// Options
@@ -52,7 +53,7 @@ func New(cfg config.Config, addrLis, addrPub string, logReqs bool) (*Proxy, erro
 		srv:     srv,
 		disc:    disc,
 		rost:    nil,
-		clients: make(map[string]pbkv.KVClient),
+		clients: make(map[api.NodeID]pbkv.KVClient),
 		logReqs: logReqs,
 	}
 
@@ -76,7 +77,7 @@ func (p *Proxy) Add(rem *discovery.Remote) {
 
 	p.clientsMu.Lock()
 	defer p.clientsMu.Unlock()
-	p.clients[rem.Ident] = pbkv.NewKVClient(conn)
+	p.clients[rem.NodeID()] = pbkv.NewKVClient(conn)
 }
 
 func (p *Proxy) Remove(rem *discovery.Remote) {
@@ -86,13 +87,13 @@ func (p *Proxy) Remove(rem *discovery.Remote) {
 	// Check first to make debugging easier.
 	// Could just call delete and ignore no-ops.
 
-	_, ok := p.clients[rem.Ident]
+	_, ok := p.clients[rem.NodeID()]
 	if !ok {
-		log.Printf("tried to remove non-existent client %s", rem.Ident)
+		log.Printf("tried to remove non-existent client %s", rem.NodeID())
 		return
 	}
 
-	delete(p.clients, rem.Ident)
+	delete(p.clients, rem.NodeID())
 }
 
 func (p *Proxy) Run(ctx context.Context) error {

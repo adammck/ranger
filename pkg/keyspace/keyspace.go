@@ -287,7 +287,7 @@ type PBNID struct {
 //
 // Note that the placements are pointers, so may mutate after returning! Don't
 // fuck around with them.
-func (ks *Keyspace) PlacementsByNodeID(nID string) []PBNID {
+func (ks *Keyspace) PlacementsByNodeID(nID api.NodeID) []PBNID {
 	out := []PBNID{}
 
 	ks.mu.Lock()

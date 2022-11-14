@@ -10,7 +10,7 @@ import (
 
 type NodeInfo struct {
 	Time   time.Time
-	NodeID string
+	NodeID api.NodeID
 	Ranges []api.RangeInfo
 
 	// Expired is true when the node was automatically expired because we

@@ -17,7 +17,7 @@ type Placement struct {
 
 	// NodeID is the Ident of the node this placement is assigned to. Immutable
 	// after construction. (Create a new placement instead of changing it.)
-	NodeID string
+	NodeID api.NodeID
 
 	// StateCurrent is the controller-side state of the placement. It reflects
 	// the actual remote state, as reported by the Rangelet via the Roster.
@@ -35,7 +35,7 @@ type Placement struct {
 	// replace the placement of the same range on some other node. Should be
 	// cleared once the placement becomes ready.
 	// TODO: Change this to some kind of uuid.
-	IsReplacing string `json:",omitempty"` // NodeID
+	IsReplacing api.NodeID `json:",omitempty"`
 
 	// failures is updated by the actuator when an action is attempted a few
 	// times but fails. This generally causes the placement to become wedged
@@ -53,7 +53,7 @@ type Placement struct {
 	sync.Mutex
 }
 
-func NewPlacement(r *Range, nodeID string) *Placement {
+func NewPlacement(r *Range, nodeID api.NodeID) *Placement {
 	return &Placement{
 		rang:         r,
 		NodeID:       nodeID,
@@ -63,7 +63,7 @@ func NewPlacement(r *Range, nodeID string) *Placement {
 }
 
 // Special constructor for placements replacing some other placement.
-func NewReplacement(r *Range, destNodeID, srcNodeID string, done func()) *Placement {
+func NewReplacement(r *Range, destNodeID, srcNodeID api.NodeID, done func()) *Placement {
 	return &Placement{
 		rang:         r,
 		NodeID:       destNodeID,

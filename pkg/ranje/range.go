@@ -151,7 +151,7 @@ func (r *Range) OnObsolete(f func()) {
 // PlacementByNodeID returns the placement of this range with the given NodeID,
 // or nil if no such range exists. This was added just for testing, and it
 // should not be used elsewhere.
-func (r *Range) PlacementByNodeID(nodeID string) *Placement {
+func (r *Range) PlacementByNodeID(nodeID api.NodeID) *Placement {
 	for _, p := range r.Placements {
 		if p.NodeID == nodeID {
 			return p

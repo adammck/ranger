@@ -1,9 +1,13 @@
 package ranje
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/adammck/ranger/pkg/api"
+)
 
 type Constraint struct {
-	NodeID string
+	NodeID api.NodeID
 }
 
 func (c Constraint) String() string {

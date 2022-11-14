@@ -14,14 +14,14 @@ import (
 
 type TestNodes struct {
 	disc    *mockdisc.MockDiscovery
-	nodes   map[string]*fake_node.TestNode // nID
+	nodes   map[api.NodeID]*fake_node.TestNode
 	closers []func()
 }
 
 func NewTestNodes() *TestNodes {
 	tn := &TestNodes{
 		disc:  mockdisc.New(),
-		nodes: map[string]*fake_node.TestNode{},
+		nodes: map[api.NodeID]*fake_node.TestNode{},
 	}
 
 	return tn
@@ -36,12 +36,12 @@ func (tn *TestNodes) Close() {
 func (tn *TestNodes) Add(ctx context.Context, remote discovery.Remote, rangeInfos map[api.RangeID]*api.RangeInfo) {
 	n, closer := fake_node.NewTestNode(ctx, remote.Addr(), rangeInfos)
 	tn.closers = append(tn.closers, closer)
-	tn.nodes[remote.Ident] = n
+	tn.nodes[remote.NodeID()] = n
 	tn.disc.Add("node", remote)
 }
 
 func (tn *TestNodes) Get(nID string) *fake_node.TestNode {
-	n, ok := tn.nodes[nID]
+	n, ok := tn.nodes[api.NodeID(nID)]
 	if !ok {
 		panic(fmt.Sprintf("no such node: %s", nID))
 	}
@@ -53,20 +53,6 @@ func (tn *TestNodes) SetStrictTransitions(b bool) {
 	for _, n := range tn.nodes {
 		n.SetStrictTransitions(b)
 	}
-}
-
-// RPCs returns a map of NodeID to the (protos) requests which have been
-// received by any node since the last time this method was called.
-func (tn *TestNodes) RPCs() map[string][]interface{} {
-	ret := map[string][]interface{}{}
-
-	for nID, n := range tn.nodes {
-		if rpcs := n.RPCs(); len(rpcs) > 0 {
-			ret[nID] = rpcs
-		}
-	}
-
-	return ret
 }
 
 // Use this to stub out the Roster.

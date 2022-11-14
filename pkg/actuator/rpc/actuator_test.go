@@ -223,10 +223,10 @@ func (rg *FakeRangeGetter) GetRange(id api.RangeID) (*ranje.Range, error) {
 // --------------------------------------------------------------- NodeGetter --
 
 type FakeNodeGetter struct {
-	n map[string]*roster.Node
+	n map[api.NodeID]*roster.Node
 }
 
-func (rg *FakeNodeGetter) NodeByIdent(nID string) *roster.Node {
+func (rg *FakeNodeGetter) NodeByIdent(nID api.NodeID) *roster.Node {
 	return rg.n[nID]
 }
 
@@ -419,8 +419,8 @@ func setup(t *testing.T) *Harness {
 	d, da := setupDiscovery()
 
 	ng := &FakeNodeGetter{
-		n: map[string]*roster.Node{
-			da.Ident: roster.NewNode(da, conn),
+		n: map[api.NodeID]*roster.Node{
+			da.NodeID(): roster.NewNode(da, conn),
 		},
 	}
 

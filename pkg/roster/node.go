@@ -87,8 +87,8 @@ func (n *Node) UpdateRangeState(rID api.RangeID, s api.RemoteState) error {
 	}
 
 	return fmt.Errorf(
-		"missing from range cache: n=%v, rID=%v",
-		n.Remote.Ident, rID)
+		"missing from range cache: nID=%v, rID=%v",
+		n.Ident(), rID)
 }
 
 // TODO: This is only used by tests. Maybe move it there?
@@ -113,7 +113,7 @@ func (n *Node) TestString() string {
 		s[i] = fmt.Sprintf("%s:%s", ri.Meta.Ident, ri.State)
 	}
 
-	return fmt.Sprintf("{%s [%s]}", n.Remote.Ident, strings.Join(s, " "))
+	return fmt.Sprintf("{%s [%s]}", n.Ident(), strings.Join(s, " "))
 }
 
 func (n *Node) Get(rangeID api.RangeID) (api.RangeInfo, bool) {
@@ -128,8 +128,8 @@ func (n *Node) Get(rangeID api.RangeID) (api.RangeInfo, bool) {
 	return *ri, true
 }
 
-func (n *Node) Ident() string {
-	return n.Remote.Ident
+func (n *Node) Ident() api.NodeID {
+	return n.Remote.NodeID()
 }
 
 func (n *Node) Addr() string {
@@ -137,7 +137,7 @@ func (n *Node) Addr() string {
 }
 
 func (n *Node) String() string {
-	return fmt.Sprintf("N{%s}", n.Remote.Ident)
+	return fmt.Sprintf("N{%s}", n.Ident())
 }
 
 func (n *Node) IsGoneFromServiceDiscovery(cfg config.Config, now time.Time) bool {

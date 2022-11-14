@@ -120,7 +120,7 @@ func (a *Actuator) consider(p *ranje.Placement) {
 
 	cmd := api.Command{
 		RangeIdent: p.Range().Meta.Ident,
-		NodeIdent:  n.Remote.Ident,
+		NodeIdent:  n.Remote.NodeID(),
 		Action:     action,
 	}
 
