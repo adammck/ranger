@@ -319,9 +319,8 @@ func (ns *NodeServer) Info(ctx context.Context, req *pb.InfoRequest) (*pb.InfoRe
 	return nil, fmt.Errorf("not implemented")
 }
 
-// TODO: Has this been subsumed by Info? Nobody seems to call it.
-func (ns *NodeServer) Ranges(ctx context.Context, req *pb.RangesRequest) (*pb.RangesResponse, error) {
-	return nil, fmt.Errorf("not implemented")
+func (ns *NodeServer) Ranges(req *pb.RangesRequest, stream pb.Node_RangesServer) error {
+	return fmt.Errorf("not implemented")
 }
 
 // From: https://harrigan.xyz/blog/testing-go-grpc-server-using-an-in-memory-buffer-with-bufconn/

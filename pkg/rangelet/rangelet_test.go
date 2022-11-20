@@ -26,7 +26,7 @@ func Setup() (*MockNode, *Rangelet) {
 	}
 
 	stor := fake_storage.NewFakeStorage(nil)
-	rglt := NewRangelet(n, nil, stor)
+	rglt := newRangelet(n, stor)
 	rglt.gracePeriod = 10 * time.Millisecond
 	return n, rglt
 }

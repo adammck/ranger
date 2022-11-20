@@ -83,7 +83,7 @@ func NewTestNode(ctx context.Context, addr string, rangeInfos map[api.RangeID]*a
 
 	srv := grpc.NewServer()
 	stor := fake_storage.NewFakeStorage(rangeInfos)
-	n.rglt = rangelet.NewRangelet(n, srv, stor)
+	n.rglt = rangelet.New(n, srv, stor)
 
 	// Just for tests.
 	n.rglt.SetGracePeriod(10 * time.Millisecond)

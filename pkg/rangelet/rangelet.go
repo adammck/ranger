@@ -14,9 +14,15 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+type watcher struct {
+	changed func(*api.RangeInfo) bool
+	removed func()
+}
+
 type Rangelet struct {
 	info         map[api.RangeID]*api.RangeInfo
-	sync.RWMutex // guards info (keys *and* values) and callbacks
+	watchers     []*watcher
+	sync.RWMutex // guards info (keys *and* values), watchers, and callbacks
 
 	n api.Node
 	s api.Storage
@@ -28,8 +34,6 @@ type Rangelet struct {
 
 	gracePeriod time.Duration
 
-	srv *NodeServer
-
 	// Holds functions to be called when a specific range leaves a state. This
 	// is just for testing. Register callbacks via the OnLeaveState method.
 	callbacks map[callback]func()
@@ -40,24 +44,36 @@ type callback struct {
 	state api.RemoteState
 }
 
-func NewRangelet(n api.Node, sr grpc.ServiceRegistrar, s api.Storage) *Rangelet {
+func New(n api.Node, sr grpc.ServiceRegistrar, s api.Storage) *Rangelet {
+	r := newRangelet(n, s)
+
+	// Can't think of any reason this would be useful outside of a test.
+	if sr != nil {
+		server := newNodeServer(r)
+		server.Register(sr)
+	}
+
+	return r
+}
+
+// newRangelet constructs a new Rangelet without a NodeServer. This is only
+// really useful during testing. I cannot think of any reason a client would
+// want a rangelet with no gRPC interface to receive range assignments through.
+func newRangelet(n api.Node, s api.Storage) *Rangelet {
 	r := &Rangelet{
-		info: map[api.RangeID]*api.RangeInfo{},
-		n:    n,
-		s:    s,
+		info:     map[api.RangeID]*api.RangeInfo{},
+		watchers: []*watcher{},
+
+		n: n,
+		s: s,
 
 		gracePeriod: 1 * time.Second,
 		callbacks:   map[callback]func(){},
 	}
 
 	for _, ri := range s.Read() {
+		// Can't be any watchers yet.
 		r.info[ri.Meta.Ident] = ri
-	}
-
-	// Can't think of any reason this would be useful outside of a test.
-	if sr != nil {
-		r.srv = NewNodeServer(r)
-		r.srv.Register(sr)
 	}
 
 	return r
@@ -80,24 +96,23 @@ func (r *Rangelet) runThenUpdateState(rID api.RangeID, old api.RemoteState, succ
 	r.Lock()
 	defer r.Unlock()
 
-	// Special case: Ranges are never actually in NotFound; it's a signal to
-	// delete them. This happens when a PrepareAddRange fails, or a DropRange
-	// succeeds; either way, the range is gone.
-	if s == api.NsNotFound {
-		delete(r.info, rID)
-		log.Printf("R%s: %s -> NsNotFound", rID, old)
-		r.runCallback(rID, old, s)
-		return
-	}
-
 	ri, ok := r.info[rID]
 	if !ok {
 		panic(fmt.Sprintf("range vanished in runThenUpdateState! (rID=%v, s=%s)", rID, s))
 	}
 
 	ri.State = s
-	log.Printf("R%s: %s -> %s", rID, old, s)
+
+	// Special case: Ranges are never actually in NotFound; it's a signal to
+	// delete them. This happens when a PrepareAddRange fails, or a DropRange
+	// succeeds; either way, the range is gone.
+	if ri.State == api.NsNotFound {
+		delete(r.info, rID)
+	}
+
 	r.runCallback(rID, old, s)
+	log.Printf("R%s: %s -> %s", rID, old, s)
+	r.notifyWatchers(ri)
 }
 
 func (r *Rangelet) give(rm api.Meta, parents []api.Parent) (api.RangeInfo, error) {
@@ -117,11 +132,13 @@ func (r *Rangelet) give(rm api.Meta, parents []api.Parent) (api.RangeInfo, error
 
 	// Range is not currently known, so can be added.
 
+	log.Printf("R%s: nil -> %s", rID, api.NsLoading)
 	ri = &api.RangeInfo{
 		Meta:  rm,
 		State: api.NsLoading,
 	}
 	r.info[rID] = ri
+	r.notifyWatchers(ri)
 	r.Unlock()
 
 	withTimeout(r.gracePeriod, func() {
@@ -163,18 +180,20 @@ func (r *Rangelet) serve(rID api.RangeID) (api.RangeInfo, error) {
 	}
 
 	if ri.State == api.NsActivating || ri.State == api.NsActive {
-		defer r.Unlock()
+		r.Unlock()
 		return *ri, nil
 	}
 
 	if ri.State != api.NsInactive {
-		defer r.Unlock()
+		r.Unlock()
 		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Serve: %v", ri.State)
 	}
 
 	// State is NsInactive
 
+	log.Printf("R%s: %s -> %s", rID, ri.State, api.NsActivating)
 	ri.State = api.NsActivating
+	r.notifyWatchers(ri)
 	r.Unlock()
 
 	withTimeout(r.gracePeriod, func() {
@@ -205,18 +224,20 @@ func (r *Rangelet) take(rID api.RangeID) (api.RangeInfo, error) {
 	}
 
 	if ri.State == api.NsDeactivating || ri.State == api.NsInactive {
-		defer r.Unlock()
+		r.Unlock()
 		return *ri, nil
 	}
 
 	if ri.State != api.NsActive {
-		defer r.Unlock()
+		r.Unlock()
 		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Take: %v", ri.State)
 	}
 
 	// State is NsActive
 
+	log.Printf("R%s: %s -> %s", rID, ri.State, api.NsDeactivating)
 	ri.State = api.NsDeactivating
+	r.notifyWatchers(ri)
 	r.Unlock()
 
 	withTimeout(r.gracePeriod, func() {
@@ -260,7 +281,9 @@ func (r *Rangelet) drop(rID api.RangeID) (api.RangeInfo, error) {
 
 	// State is NsInactive
 
+	log.Printf("R%s: %s -> %s", rID, ri.State, api.NsDropping)
 	ri.State = api.NsDropping
+	r.notifyWatchers(ri)
 	r.Unlock()
 
 	withTimeout(r.gracePeriod, func() {
@@ -320,12 +343,18 @@ func (r *Rangelet) ForceDrop(rID api.RangeID) error {
 	r.Lock()
 	defer r.Unlock()
 
-	_, ok := r.info[rID]
+	ri, ok := r.info[rID]
 	if !ok {
 		return fmt.Errorf("no such range: %d", rID)
 	}
 
 	delete(r.info, rID)
+
+	// Only need to update state for log and watchers.
+	log.Printf("R%s: %s -> %s", rID, ri.State, api.NsNotFound)
+	ri.State = api.NsNotFound
+	r.notifyWatchers(ri)
+
 	return nil
 }
 
@@ -367,13 +396,77 @@ func updateLoadInfo(rostLI *api.LoadInfo, rgltLI api.LoadInfo) {
 	copy(rostLI.Splits, rgltLI.Splits)
 }
 
-func (r *Rangelet) walk(f func(*api.RangeInfo)) {
+func (r *Rangelet) walk(f func(*api.RangeInfo) bool) {
 	r.RLock()
 	defer r.RUnlock()
 
 	for _, ri := range r.info {
-		f(ri)
+		ok := f(ri)
+
+		// stop walking if func returns false.
+		if !ok {
+			break
+		}
 	}
+}
+
+func (r *Rangelet) watch(f func(*api.RangeInfo) bool) {
+	r.Lock()
+
+	// First call func for each of the ranges and their current state. We're
+	// inside the rangelet lock, so these will not change under us.
+	for _, ri := range r.info {
+		ok := f(ri)
+
+		// If the callback returns false (i.e. something went wrong, don't call
+		// me again), unlock and bail out without even creating the watcher.
+		if !ok {
+			r.Unlock()
+			return
+		}
+	}
+
+	// Register a watcher, which will be called any time a range changes state.
+	// We're still under the rangelet lock, so no ranges will have changed state
+	// during this method. That's important, because missing a transition would
+	// cause a client to be out of sync indefinitely.
+
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+
+	r.watchers = append(r.watchers,
+		&watcher{
+			changed: f,
+			removed: wg.Done,
+		})
+
+	// Now that watcher is registered, we can unlock, allowing any pending and
+	// future changes to be applied.
+	r.Unlock()
+
+	// Block until the watcher is removed, which will only happen when the func
+	// returns false.
+	wg.Wait()
+}
+
+// Caller must hold rangelet write lock.
+func (r *Rangelet) notifyWatchers(ri *api.RangeInfo) {
+	for i, w := range r.watchers {
+		ok := w.changed(ri)
+		if !ok {
+			r.removeWatcher(i)
+			w.removed()
+		}
+	}
+}
+
+// Caller must hold rangelet write lock.
+func (r *Rangelet) removeWatcher(i int) {
+	// lol, golang
+	// https://github.com/golang/go/wiki/SliceTricks#delete-without-preserving-order
+	r.watchers[i] = r.watchers[len(r.watchers)-1]
+	r.watchers[len(r.watchers)-1] = nil
+	r.watchers = r.watchers[:len(r.watchers)-1]
 }
 
 func (r *Rangelet) wantDrain() bool {
