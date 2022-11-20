@@ -75,7 +75,7 @@ func New(addrLis, addrPub string, drainBeforeShutdown bool, logReqs bool, chaos 
 		chaos:   chaos,
 	}
 
-	rglt := rangelet.NewRangelet(n, srv, &null.NullStorage{})
+	rglt := rangelet.New(n, srv, &null.NullStorage{})
 	n.rglt = rglt
 
 	kv := kvServer{node: n}
