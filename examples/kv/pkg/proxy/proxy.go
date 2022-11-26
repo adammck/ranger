@@ -4,17 +4,18 @@ import (
 	"context"
 	"log"
 	"net"
-	"sync"
-	"time"
 
 	pbkv "github.com/adammck/ranger/examples/kv/proto/gen"
 	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/discovery"
 	consuldisc "github.com/adammck/ranger/pkg/discovery/consul"
-	"github.com/adammck/ranger/pkg/roster"
+	"github.com/adammck/ranger/pkg/rangelet/mirror"
 	consulapi "github.com/hashicorp/consul/api"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/reflection"
+	"google.golang.org/grpc/status"
 )
 
 type Proxy struct {
@@ -22,11 +23,8 @@ type Proxy struct {
 	addrLis string
 	addrPub string // do we actually need this? maybe only discovery does.
 	srv     *grpc.Server
-	disc    discovery.Discoverable
-	rost    *roster.Roster
-
-	clients   map[api.NodeID]pbkv.KVClient
-	clientsMu sync.RWMutex
+	disc    discovery.Discoverer
+	mirror  *mirror.Mirror
 
 	// Options
 	logReqs bool
@@ -40,10 +38,14 @@ func New(addrLis, addrPub string, logReqs bool) (*Proxy, error) {
 	// TODO: Make this optional.
 	reflection.Register(srv)
 
-	disc, err := consuldisc.New("proxy", addrPub, consulapi.DefaultConfig(), srv)
+	disc, err := consuldisc.NewDiscoverer(consulapi.DefaultConfig(), srv)
 	if err != nil {
 		return nil, err
 	}
+
+	mir := mirror.New(disc).WithDialler(func(ctx context.Context, rem api.Remote) (*grpc.ClientConn, error) {
+		return grpc.DialContext(ctx, rem.Addr(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	})
 
 	p := &Proxy{
 		name:    "proxy",
@@ -51,38 +53,16 @@ func New(addrLis, addrPub string, logReqs bool) (*Proxy, error) {
 		addrPub: addrPub,
 		srv:     srv,
 		disc:    disc,
-		rost:    nil,
-		clients: make(map[api.NodeID]pbkv.KVClient),
+		mirror:  mir,
 		logReqs: logReqs,
 	}
 
-	// TODO: Should use the NodeInfo channel here instead.
-	p.rost = roster.New(disc, p.Add, p.Remove, nil)
-
-	ps := proxyServer{proxy: p}
+	ps := proxyServer{
+		proxy: p,
+	}
 	pbkv.RegisterKVServer(srv, &ps)
 
 	return p, nil
-}
-
-func (p *Proxy) Add(rem *api.Remote) {
-	conn, err := grpc.DialContext(context.Background(), rem.Addr(), grpc.WithInsecure())
-
-	if err != nil {
-		// TODO: Not sure what else to do here.
-		log.Printf("error while dialing %s: %v", rem.Addr(), err)
-		return
-	}
-
-	p.clientsMu.Lock()
-	defer p.clientsMu.Unlock()
-	p.clients[rem.NodeID()] = pbkv.NewKVClient(conn)
-}
-
-func (p *Proxy) Remove(rem *api.Remote) {
-	p.clientsMu.Lock()
-	defer p.clientsMu.Unlock()
-	delete(p.clients, rem.NodeID())
 }
 
 func (p *Proxy) Run(ctx context.Context) error {
@@ -105,24 +85,17 @@ func (p *Proxy) Run(ctx context.Context) error {
 		close(errChan)
 	}()
 
-	// Make the proxy discoverable.
-	// TODO: Do we actually need this? Clients can just call any proxy.
-	err = p.disc.Start()
+	// Block until context is cancelled, indicating that caller wants shutdown.
+	<-ctx.Done()
+
+	// Stop mirroring ranges. This isn't necessary, just cleanup.
+	err = p.mirror.Stop()
 	if err != nil {
 		return err
 	}
 
-	// Start roster. Periodically asks all nodes for their ranges. Beware that
-	// during range moves, our range map will lag by at least this much, which
-	// will cause queries to block while they retry.
-	ticker := time.NewTicker(1000 * time.Millisecond)
-	go p.rost.Run(ticker)
-
-	// Block until context is cancelled, indicating that caller wants shutdown.
-	<-ctx.Done()
-
-	// Let in-flight RPCs finish and then stop. errChan will contain the error
-	// returned by srv.Serve (above) or be closed with no error.
+	// Let in-flight RPCs finish and then stop serving. errChan will contain the
+	// error returned by srv.Serve (see above) or be closed with no error.
 	p.srv.GracefulStop()
 	err = <-errChan
 	if err != nil {
@@ -130,11 +103,31 @@ func (p *Proxy) Run(ctx context.Context) error {
 		return err
 	}
 
-	// Remove ourselves from service discovery.
-	err = p.disc.Stop()
-	if err != nil {
-		return err
+	return nil
+}
+
+func (p *Proxy) getClient(k string) (pbkv.KVClient, mirror.Result, error) {
+	results := p.mirror.Find(api.Key(k), api.NsActive)
+	res := mirror.Result{}
+
+	if len(results) == 0 {
+		return nil, res, status.Errorf(
+			codes.FailedPrecondition,
+			"no nodes have key")
 	}
 
-	return nil
+	// Just pick the first one for now.
+	// TODO: Pick a random one? Should the server-side shuffle them?
+	res = results[0]
+
+	conn, ok := p.mirror.Conn(res.NodeID)
+	if !ok {
+		// This should not happen.
+		return nil, res, status.Errorf(
+			codes.FailedPrecondition,
+			"no client connection for node id %s", res.NodeID)
+	}
+
+	// We could cache it, but constructing clients is cheap.
+	return pbkv.NewKVClient(conn), res, nil
 }

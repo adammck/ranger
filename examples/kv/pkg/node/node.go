@@ -123,19 +123,25 @@ func (n *Node) Run(ctx context.Context) error {
 		log.Print("not draining ranges")
 	}
 
-	// Let in-flight RPCs finish and then stop. errChan will contain the error
-	// returned by srv.Serve (above) or be closed with no error.
-	n.srv.GracefulStop()
-	err = <-errChan
+	// Remove ourselves from service discovery, to minimize the number of new
+	// requests coming in.
+	err = n.disc.Stop()
 	if err != nil {
-		log.Printf("error from srv.Serve: %v", err)
 		return err
 	}
 
-	// Remove ourselves from service discovery. Not strictly necessary, but lets
-	// the other nodes respond quicker.
-	err = n.disc.Stop()
+	// Interrupt any in-flight RPCs and stop serving. Hopefully by this time
+	// (after draining ranges) the only RPCs remaining are streaming range
+	// watches or other control-plane stuff, not client requests. In production
+	// we'd probably have two separate servers, and call GracefulStop on the
+	// data-plane first.
+	//
+	// errChan will contain the error returned by srv.Serve (see above), or be
+	// closed with no error.
+	n.srv.Stop()
+	err = <-errChan
 	if err != nil {
+		log.Printf("error from srv.Serve: %v", err)
 		return err
 	}
 
