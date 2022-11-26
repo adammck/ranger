@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/adammck/ranger/pkg/api"
 	consulapi "github.com/hashicorp/consul/api"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
@@ -18,7 +17,6 @@ type Discovery struct {
 	host    string
 	port    int
 	consul  *consulapi.Client
-	srv     *grpc.Server
 	hs      *health.Server
 }
 
@@ -54,12 +52,11 @@ func New(serviceName, addr string, cfg *consulapi.Config, srv *grpc.Server) (*Di
 		port:    nPort,
 
 		consul: client,
-		srv:    srv,
 		hs:     health.NewServer(),
 	}
 
 	d.hs.SetServingStatus("", hv1.HealthCheckResponse_SERVING)
-	hv1.RegisterHealthServer(d.srv, d.hs)
+	hv1.RegisterHealthServer(srv, d.hs)
 
 	return d, nil
 }
@@ -106,22 +103,4 @@ func (d *Discovery) Stop() error {
 	}
 
 	return nil
-}
-
-func (d *Discovery) Get(name string) ([]api.Remote, error) {
-	res, _, err := d.consul.Catalog().Service(name, "", &consulapi.QueryOptions{})
-	if err != nil {
-		return []api.Remote{}, err
-	}
-
-	output := make([]api.Remote, len(res))
-	for i, r := range res {
-		output[i] = api.Remote{
-			Ident: r.ServiceID,
-			Host:  r.Address, // https://github.com/hashicorp/consul/issues/2076
-			Port:  r.ServicePort,
-		}
-	}
-
-	return output, nil
 }

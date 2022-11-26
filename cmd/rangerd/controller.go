@@ -8,7 +8,6 @@ import (
 
 	"github.com/adammck/ranger/pkg/actuator"
 	rpc_actuator "github.com/adammck/ranger/pkg/actuator/rpc"
-	"github.com/adammck/ranger/pkg/discovery"
 	"github.com/adammck/ranger/pkg/keyspace"
 	"github.com/adammck/ranger/pkg/orchestrator"
 	"github.com/adammck/ranger/pkg/roster"
@@ -27,7 +26,6 @@ type Controller struct {
 	once     bool // run one rebalance cycle and exit
 
 	srv  *grpc.Server
-	disc discovery.Discoverable
 	ks   *keyspace.Keyspace
 	rost *roster.Roster
 	act  *actuator.Actuator
@@ -43,7 +41,7 @@ func New(addrLis, addrPub string, interval time.Duration, once bool) (*Controlle
 	reflection.Register(srv)
 
 	// TODO: Pass in the Consul client here.
-	disc, err := consuldisc.New("controller", addrPub, consulapi.DefaultConfig(), srv)
+	disc, err := consuldisc.NewDiscoverer(consulapi.DefaultConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +74,6 @@ func New(addrLis, addrPub string, interval time.Duration, once bool) (*Controlle
 		interval: interval,
 		once:     once,
 		srv:      srv,
-		disc:     disc,
 		ks:       ks,
 		rost:     rost,
 		act:      act,
@@ -103,13 +100,6 @@ func (c *Controller) Run(ctx context.Context) error {
 		}
 		close(errChan)
 	}()
-
-	// Make the controller discoverable.
-	// TODO: Do we actually need this? Can move disc into Roster if not.
-	err = c.disc.Start()
-	if err != nil {
-		return err
-	}
 
 	// Wait a bit for other services to come up before starting. This makes
 	// development easier my minimizing log spam, and is no big deal in prod.
@@ -154,13 +144,6 @@ func (c *Controller) Run(ctx context.Context) error {
 	err = <-errChan
 	if err != nil {
 		log.Printf("Error from srv.Serve: %v", err)
-		return err
-	}
-
-	// Remove ourselves from service discovery. Not strictly necessary, but lets
-	// the other nodes respond quicker.
-	err = c.disc.Stop()
-	if err != nil {
 		return err
 	}
 

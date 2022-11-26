@@ -38,7 +38,7 @@ func New(addrLis, addrPub string, logReqs bool) (*Proxy, error) {
 	// TODO: Make this optional.
 	reflection.Register(srv)
 
-	disc, err := consuldisc.NewDiscoverer(consulapi.DefaultConfig(), srv)
+	disc, err := consuldisc.NewDiscoverer(consulapi.DefaultConfig())
 	if err != nil {
 		return nil, err
 	}

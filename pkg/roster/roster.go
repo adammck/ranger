@@ -34,7 +34,7 @@ type Roster struct {
 	Nodes map[api.NodeID]*Node
 	sync.RWMutex
 
-	disc discovery.Discoverable
+	disc discovery.Getter
 
 	// Callbacks
 	add    func(rem *api.Remote)
@@ -48,10 +48,10 @@ type Roster struct {
 	NodeConnFactory func(ctx context.Context, remote api.Remote) (*grpc.ClientConn, error)
 }
 
-func New(disc discovery.Discoverable, add, remove func(rem *api.Remote), info chan NodeInfo) *Roster {
+func New(disc discovery.Discoverer, add, remove func(rem *api.Remote), info chan NodeInfo) *Roster {
 	return &Roster{
 		Nodes:  make(map[api.NodeID]*Node),
-		disc:   disc,
+		disc:   disc.Discover("node", nil, nil),
 		add:    add,
 		remove: remove,
 		info:   info, // currently never closed
@@ -159,7 +159,7 @@ func (ros *Roster) LocateInState(k api.Key, states []api.RemoteState) []Location
 
 // Caller must hold ros.RWMutex
 func (ros *Roster) Discover() {
-	res, err := ros.disc.Get("node")
+	res, err := ros.disc.Get()
 	if err != nil {
 		panic(err)
 	}

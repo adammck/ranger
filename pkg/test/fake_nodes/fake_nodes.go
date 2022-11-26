@@ -12,14 +12,14 @@ import (
 )
 
 type TestNodes struct {
-	disc    *mockdisc.MockDiscovery
+	disc    *mockdisc.Discoverer
 	nodes   map[api.NodeID]*fake_node.TestNode
 	closers []func()
 }
 
 func NewTestNodes() *TestNodes {
 	tn := &TestNodes{
-		disc:  mockdisc.New(),
+		disc:  mockdisc.NewDiscoverer(),
 		nodes: map[api.NodeID]*fake_node.TestNode{},
 	}
 
@@ -71,6 +71,6 @@ func (tn *TestNodes) NodeConnFactory(ctx context.Context, remote api.Remote) (*g
 	return nil, fmt.Errorf("no such connection: %v", remote.Addr())
 }
 
-func (tn *TestNodes) Discovery() *mockdisc.MockDiscovery {
+func (tn *TestNodes) Discovery() *mockdisc.Discoverer {
 	return tn.disc
 }

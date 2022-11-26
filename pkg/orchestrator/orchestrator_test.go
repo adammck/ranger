@@ -1719,7 +1719,7 @@ func keyspaceFactory(t *testing.T, stubs []rangeStub) *keyspace.Keyspace {
 }
 
 func rosterFactory(t *testing.T, ctx context.Context, ks *keyspace.Keyspace, stubs []nodeStub) *roster.Roster {
-	disc := mock_disc.New()
+	disc := mock_disc.NewDiscoverer()
 
 	for i := range stubs {
 		nID := stubs[i].nodeID

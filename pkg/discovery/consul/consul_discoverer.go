@@ -5,18 +5,16 @@ import (
 	"time"
 
 	"github.com/adammck/ranger/pkg/api"
-	"github.com/adammck/ranger/pkg/discovery"
+	discovery "github.com/adammck/ranger/pkg/discovery"
 	consulapi "github.com/hashicorp/consul/api"
-	"google.golang.org/grpc"
 )
 
 type Discoverer struct {
 	consul *consulapi.Client
-	srv    *grpc.Server
 }
 
 // TODO: Take a consul API client here, not a cfg.
-func NewDiscoverer(cfg *consulapi.Config, srv *grpc.Server) (*Discoverer, error) {
+func NewDiscoverer(cfg *consulapi.Config) (*Discoverer, error) {
 	client, err := consulapi.NewClient(cfg)
 	if err != nil {
 		return nil, err
@@ -24,7 +22,6 @@ func NewDiscoverer(cfg *consulapi.Config, srv *grpc.Server) (*Discoverer, error)
 
 	d := &Discoverer{
 		consul: client,
-		srv:    srv,
 	}
 
 	return d, nil
