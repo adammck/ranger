@@ -23,8 +23,9 @@ func main() {
 
 	// Replace default logger.
 	// TODO: Switch to a better logging package.
-	logger := log.New(os.Stdout, "", 0)
-	*log.Default() = *logger
+	log.Default().SetOutput(os.Stdout)
+	log.Default().SetPrefix("")
+	log.Default().SetFlags(0)
 
 	cmd, err := New(*addrLis, *addrPub, *interval, *once)
 	if err != nil {

@@ -88,8 +88,9 @@ func main() {
 	flag.Parse()
 
 	// Replace default logger.
-	logger := log.New(os.Stdout, "", 0)
-	*log.Default() = *logger
+	log.Default().SetOutput(os.Stdout)
+	log.Default().SetPrefix("")
+	log.Default().SetFlags(0)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
