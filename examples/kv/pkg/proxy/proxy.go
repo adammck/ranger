@@ -120,12 +120,12 @@ func (p *Proxy) getClient(k string) (pbkv.KVClient, mirror.Result, error) {
 	// TODO: Pick a random one? Should the server-side shuffle them?
 	res = results[0]
 
-	conn, ok := p.mirror.Conn(res.NodeID)
+	conn, ok := p.mirror.Conn(res.NodeID())
 	if !ok {
 		// This should not happen.
 		return nil, res, status.Errorf(
 			codes.FailedPrecondition,
-			"no client connection for node id %s", res.NodeID)
+			"no client connection for node id %s", res.NodeID())
 	}
 
 	// We could cache it, but constructing clients is cheap.

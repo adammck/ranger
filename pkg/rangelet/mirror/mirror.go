@@ -26,9 +26,13 @@ import (
 
 // Result is returned by the Find method. Don't use it for anything else.
 type Result struct {
-	NodeID  api.NodeID
 	RangeID api.RangeID
+	Remote  api.Remote
 	State   api.RemoteState
+}
+
+func (r *Result) NodeID() api.NodeID {
+	return r.Remote.NodeID()
 }
 
 type Dialler func(context.Context, api.Remote) (*grpc.ClientConn, error)
@@ -48,12 +52,13 @@ type Mirror struct {
 type node struct {
 	closer   chan bool
 	conn     *grpc.ClientConn
+	remote   api.Remote
 	ranges   []api.RangeInfo
 	rangesMu sync.RWMutex
 }
 
 func (n *node) stop() {
-	//close(n.closer)
+	close(n.closer)
 	n.conn.Close()
 }
 
@@ -83,6 +88,7 @@ func (m *Mirror) add(rem api.Remote) {
 	n := &node{
 		closer: make(chan bool, 1),
 		conn:   conn,
+		remote: rem,
 	}
 
 	m.nodesMu.Lock()
@@ -164,7 +170,7 @@ func (m *Mirror) Find(key api.Key, states ...api.RemoteState) []Result {
 	defer m.nodesMu.RUnlock()
 
 	// look i'm in a hurry here okay
-	for nID, n := range m.nodes {
+	for _, n := range m.nodes {
 		n.rangesMu.RLock()
 		defer n.rangesMu.RUnlock()
 
@@ -186,8 +192,8 @@ func (m *Mirror) Find(key api.Key, states ...api.RemoteState) []Result {
 				}
 
 				results = append(results, Result{
-					NodeID:  nID,
 					RangeID: ri.Meta.Ident,
+					Remote:  n.remote,
 					State:   ri.State,
 				})
 			}

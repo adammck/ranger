@@ -22,9 +22,9 @@ func (ps *proxyServer) Get(ctx context.Context, req *pbkv.GetRequest) (*pbkv.Get
 
 	res, err := client.Get(ctx, req)
 	if err != nil {
-		log.Printf("Error: %s (method=Get, key=%s, nID=%s, state=%v)", err, req.Key, mres.NodeID, mres.State)
+		log.Printf("Error: %s (method=Get, key=%s, nID=%s, state=%v)", err, req.Key, mres.NodeID(), mres.State)
 	} else if ps.proxy.logReqs {
-		log.Printf("Get: %s -> %s", req.Key, mres.NodeID)
+		log.Printf("Get: %s -> %s", req.Key, mres.NodeID())
 	}
 
 	return res, err
@@ -72,9 +72,9 @@ func (ps *proxyServer) Put(ctx context.Context, req *pbkv.PutRequest) (*pbkv.Put
 	}
 
 	if err != nil {
-		log.Printf("Error: %s (method=Put, key=%s, node=%s, state=%v)", err, req.Key, mres.NodeID, mres.State)
+		log.Printf("Error: %s (method=Put, key=%s, node=%s, state=%v)", err, req.Key, mres.NodeID(), mres.State)
 	} else if ps.proxy.logReqs {
-		log.Printf("Put: %s -> %s", req.Key, mres.NodeID)
+		log.Printf("Put: %s -> %s", req.Key, mres.NodeID())
 	}
 
 	return res, err

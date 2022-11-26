@@ -32,6 +32,7 @@ func TestStatic(t *testing.T) {
 	h.add(t, api.Remote{
 		Ident: "aaa",
 		Host:  "host-aaa",
+		Port:  1,
 	}, []api.RangeInfo{
 		{
 			Meta:  api.Meta{Ident: 1, End: api.Key("ggg")},
@@ -45,6 +46,7 @@ func TestStatic(t *testing.T) {
 	h.add(t, api.Remote{
 		Ident: "bbb",
 		Host:  "host-bbb",
+		Port:  2,
 	}, []api.RangeInfo{
 		{
 			Meta:  api.Meta{Ident: 3, Start: api.Key("sss")},
@@ -58,23 +60,35 @@ func TestStatic(t *testing.T) {
 
 	res := h.mirror.Find(api.Key("ccc"))
 	assert.DeepEqual(t, []Result{{
-		NodeID:  "aaa",
 		RangeID: 1,
-		State:   api.NsActive,
+		Remote: api.Remote{
+			Ident: "aaa",
+			Host:  "host-aaa",
+			Port:  1,
+		},
+		State: api.NsActive,
 	}}, res)
 
 	res = h.mirror.Find(api.Key("hhh"))
 	assert.DeepEqual(t, []Result{{
-		NodeID:  "aaa",
 		RangeID: 2,
-		State:   api.NsActive,
+		Remote: api.Remote{
+			Ident: "aaa",
+			Host:  "host-aaa",
+			Port:  1,
+		},
+		State: api.NsActive,
 	}}, res)
 
 	res = h.mirror.Find(api.Key("zzz"))
 	assert.DeepEqual(t, []Result{{
-		NodeID:  "bbb",
 		RangeID: 3,
-		State:   api.NsActive,
+		Remote: api.Remote{
+			Ident: "bbb",
+			Host:  "host-bbb",
+			Port:  2,
+		},
+		State: api.NsActive,
 	}}, res)
 }
 
