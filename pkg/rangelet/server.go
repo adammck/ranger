@@ -2,6 +2,7 @@ package rangelet
 
 import (
 	"context"
+	"io"
 
 	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/proto/conv"
@@ -16,8 +17,8 @@ type NodeServer struct {
 	r *Rangelet
 }
 
-func NewNodeServer(rangelet *Rangelet) *NodeServer {
-	ns := &NodeServer{r: rangelet}
+func newNodeServer(rglt *Rangelet) *NodeServer {
+	ns := &NodeServer{r: rglt}
 	return ns
 }
 
@@ -145,14 +146,32 @@ func (ns *NodeServer) Info(ctx context.Context, req *pb.InfoRequest) (*pb.InfoRe
 		WantDrain: ns.r.wantDrain(),
 	}
 
-	ns.r.walk(func(ri *api.RangeInfo) {
+	ns.r.walk(func(ri *api.RangeInfo) bool {
 		res.Ranges = append(res.Ranges, conv.RangeInfoToProto(*ri))
+		return true
 	})
 
 	return res, nil
 }
 
-// TODO: Has this been subsumed by Info? Nobody seems to call it.
-func (ns *NodeServer) Ranges(ctx context.Context, req *pb.RangesRequest) (*pb.RangesResponse, error) {
-	panic("not imlemented!")
+func (ns *NodeServer) Ranges(req *pb.RangesRequest, stream pb.Node_RangesServer) error {
+	conv := func(ri *api.RangeInfo) *pb.RangesResponse {
+		return &pb.RangesResponse{
+			Meta:  conv.MetaToProto(ri.Meta),
+			State: conv.RemoteStateToProto(ri.State),
+		}
+	}
+
+	var err error
+
+	ns.r.watch(func(ri *api.RangeInfo) bool {
+		err = stream.Send(conv(ri))
+		return (err == nil)
+	})
+
+	if err != nil {
+		return err
+	}
+
+	return io.EOF
 }
