@@ -12,7 +12,6 @@ import (
 	"github.com/adammck/ranger/pkg/actuator"
 	mock_actuator "github.com/adammck/ranger/pkg/actuator/mock"
 	"github.com/adammck/ranger/pkg/api"
-	"github.com/adammck/ranger/pkg/discovery"
 	mock_disc "github.com/adammck/ranger/pkg/discovery/mock"
 	"github.com/adammck/ranger/pkg/keyspace"
 	"github.com/adammck/ranger/pkg/ranje"
@@ -1724,7 +1723,7 @@ func rosterFactory(t *testing.T, ctx context.Context, ks *keyspace.Keyspace, stu
 
 	for i := range stubs {
 		nID := stubs[i].nodeID
-		disc.Add("node", discovery.Remote{
+		disc.Add("node", api.Remote{
 			Ident: nID,
 			Host:  fmt.Sprintf("host-%s", nID),
 			Port:  1,

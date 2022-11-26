@@ -37,18 +37,18 @@ type Roster struct {
 	disc discovery.Discoverable
 
 	// Callbacks
-	add    func(rem *discovery.Remote)
-	remove func(rem *discovery.Remote)
+	add    func(rem *api.Remote)
+	remove func(rem *api.Remote)
 
 	// info receives NodeInfo updated whenever we receive a probe response from
 	// a node, or when we expire a node.
 	info chan NodeInfo
 
 	// To be stubbed when testing.
-	NodeConnFactory func(ctx context.Context, remote discovery.Remote) (*grpc.ClientConn, error)
+	NodeConnFactory func(ctx context.Context, remote api.Remote) (*grpc.ClientConn, error)
 }
 
-func New(disc discovery.Discoverable, add, remove func(rem *discovery.Remote), info chan NodeInfo) *Roster {
+func New(disc discovery.Discoverable, add, remove func(rem *api.Remote), info chan NodeInfo) *Roster {
 	return &Roster{
 		Nodes:  make(map[api.NodeID]*Node),
 		disc:   disc,
@@ -87,7 +87,7 @@ func (ros *Roster) TestString() string {
 }
 
 // nodeFactory returns a new node connected via a real gRPC connection.
-func nodeConnFactory(ctx context.Context, remote discovery.Remote) (*grpc.ClientConn, error) {
+func nodeConnFactory(ctx context.Context, remote api.Remote) (*grpc.ClientConn, error) {
 	return grpc.DialContext(ctx, remote.Addr(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 }
 

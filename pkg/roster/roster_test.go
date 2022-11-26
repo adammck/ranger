@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/adammck/ranger/pkg/api"
-	"github.com/adammck/ranger/pkg/discovery"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/test/fake_nodes"
 	"github.com/stretchr/testify/suite"
@@ -57,19 +56,19 @@ func (ts *RosterSuite) TestNoCandidates() {
 
 func (ts *RosterSuite) TestCandidateByNodeID() {
 
-	aRem := discovery.Remote{
+	aRem := api.Remote{
 		Ident: "test-aaa",
 		Host:  "host-aaa",
 		Port:  1,
 	}
 
-	bRem := discovery.Remote{
+	bRem := api.Remote{
 		Ident: "test-bbb",
 		Host:  "host-bbb",
 		Port:  1,
 	}
 
-	cRem := discovery.Remote{
+	cRem := api.Remote{
 		Ident: "test-ccc",
 		Host:  "host-ccc",
 		Port:  1,
@@ -132,7 +131,7 @@ func (ts *RosterSuite) TestCandidateByNodeID() {
 
 func (ts *RosterSuite) TestProbeOne() {
 
-	rem := discovery.Remote{
+	rem := api.Remote{
 		Ident: "test-aaa",
 		Host:  "host-aaa",
 		Port:  1,

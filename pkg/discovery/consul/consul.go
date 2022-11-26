@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	discovery "github.com/adammck/ranger/pkg/discovery"
-	"github.com/hashicorp/consul/api"
+	"github.com/adammck/ranger/pkg/api"
+	consulapi "github.com/hashicorp/consul/api"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	hv1 "google.golang.org/grpc/health/grpc_health_v1"
@@ -17,7 +17,7 @@ type Discovery struct {
 	svcName string
 	host    string
 	port    int
-	consul  *api.Client
+	consul  *consulapi.Client
 	srv     *grpc.Server
 	hs      *health.Server
 }
@@ -31,8 +31,8 @@ func (d *Discovery) getIdent() string {
 }
 
 // TODO: Take a consul API here, not a cfg.
-func New(serviceName, addr string, cfg *api.Config, srv *grpc.Server) (*Discovery, error) {
-	client, err := api.NewClient(cfg)
+func New(serviceName, addr string, cfg *consulapi.Config, srv *grpc.Server) (*Discovery, error) {
+	client, err := consulapi.NewClient(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +65,7 @@ func New(serviceName, addr string, cfg *api.Config, srv *grpc.Server) (*Discover
 }
 
 func (d *Discovery) Start() error {
-	def := &api.AgentServiceRegistration{
+	def := &consulapi.AgentServiceRegistration{
 		Name: d.svcName,
 		ID:   d.getIdent(),
 
@@ -73,7 +73,7 @@ func (d *Discovery) Start() error {
 		Address: d.host,
 		Port:    d.port,
 
-		Check: &api.AgentServiceCheck{
+		Check: &consulapi.AgentServiceCheck{
 			GRPC: fmt.Sprintf("%s:%d", d.host, d.port),
 
 			// How long to wait between checks.
@@ -108,15 +108,15 @@ func (d *Discovery) Stop() error {
 	return nil
 }
 
-func (d *Discovery) Get(name string) ([]discovery.Remote, error) {
-	res, _, err := d.consul.Catalog().Service(name, "", &api.QueryOptions{})
+func (d *Discovery) Get(name string) ([]api.Remote, error) {
+	res, _, err := d.consul.Catalog().Service(name, "", &consulapi.QueryOptions{})
 	if err != nil {
-		return []discovery.Remote{}, err
+		return []api.Remote{}, err
 	}
 
-	output := make([]discovery.Remote, len(res))
+	output := make([]api.Remote, len(res))
 	for i, r := range res {
-		output[i] = discovery.Remote{
+		output[i] = api.Remote{
 			Ident: r.ServiceID,
 			Host:  r.Address, // https://github.com/hashicorp/consul/issues/2076
 			Port:  r.ServicePort,
