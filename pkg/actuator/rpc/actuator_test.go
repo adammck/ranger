@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/adammck/ranger/pkg/api"
-	"github.com/adammck/ranger/pkg/discovery"
 	mockdisc "github.com/adammck/ranger/pkg/discovery/mock"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
@@ -352,10 +351,10 @@ type Harness struct {
 	actuator    *Actuator
 }
 
-func setupDiscovery() (*mockdisc.MockDiscovery, discovery.Remote) {
+func setupDiscovery() (*mockdisc.MockDiscovery, api.Remote) {
 	d := mockdisc.New()
 
-	da := discovery.Remote{
+	da := api.Remote{
 		Ident: "node-aaa",
 		Host:  "host-aaa",
 		Port:  8001,

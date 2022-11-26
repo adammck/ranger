@@ -1,5 +1,7 @@
 package discovery
 
+import "github.com/adammck/ranger/pkg/api"
+
 // Discoverable is an interface to make oneself discoverable (by name), and
 // discovering other services by name.
 //
@@ -9,5 +11,5 @@ package discovery
 type Discoverable interface {
 	Start() error
 	Stop() error
-	Get(string) ([]Remote, error)
+	Get(string) ([]api.Remote, error)
 }

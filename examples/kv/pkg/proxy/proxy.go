@@ -65,7 +65,7 @@ func New(addrLis, addrPub string, logReqs bool) (*Proxy, error) {
 	return p, nil
 }
 
-func (p *Proxy) Add(rem *discovery.Remote) {
+func (p *Proxy) Add(rem *api.Remote) {
 	conn, err := grpc.DialContext(context.Background(), rem.Addr(), grpc.WithInsecure())
 
 	if err != nil {
@@ -79,7 +79,7 @@ func (p *Proxy) Add(rem *discovery.Remote) {
 	p.clients[rem.NodeID()] = pbkv.NewKVClient(conn)
 }
 
-func (p *Proxy) Remove(rem *discovery.Remote) {
+func (p *Proxy) Remove(rem *api.Remote) {
 	p.clientsMu.Lock()
 	defer p.clientsMu.Unlock()
 	delete(p.clients, rem.NodeID())

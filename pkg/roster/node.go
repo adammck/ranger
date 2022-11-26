@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/adammck/ranger/pkg/api"
-	"github.com/adammck/ranger/pkg/discovery"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"google.golang.org/grpc"
 )
@@ -19,7 +18,7 @@ type PlacementFailure struct {
 }
 
 type Node struct {
-	Remote discovery.Remote
+	Remote api.Remote
 
 	// when was this created? needed to drop nodes which never connect.
 	init time.Time
@@ -48,7 +47,7 @@ type Node struct {
 	muRanges  sync.RWMutex
 }
 
-func NewNode(remote discovery.Remote, conn *grpc.ClientConn) *Node {
+func NewNode(remote api.Remote, conn *grpc.ClientConn) *Node {
 	return &Node{
 		Remote:            remote,
 		init:              time.Now(),
