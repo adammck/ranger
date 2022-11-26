@@ -18,7 +18,7 @@ func RangeInfoFromProto(r *pb.RangeInfo) (api.RangeInfo, error) {
 	}
 
 	return api.RangeInfo{
-		Meta:  *m,
+		Meta:  m,
 		State: RemoteStateFromProto(r.State),
 		Info:  LoadInfoFromProto(r.Info),
 	}, nil

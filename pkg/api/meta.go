@@ -32,7 +32,7 @@ func (m Meta) String() string {
 	return fmt.Sprintf("%s %s, %s", m.Ident.String(), s, e)
 }
 
-func (m *Meta) Contains(k Key) bool {
+func (m Meta) Contains(k Key) bool {
 	if m.Start != ZeroKey {
 		if k < m.Start {
 			return false

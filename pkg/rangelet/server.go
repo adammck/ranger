@@ -48,7 +48,7 @@ func parentsFromProto(prot []*pb.Parent) ([]api.Parent, error) {
 		}
 
 		p = append(p, api.Parent{
-			Meta:       *m,
+			Meta:       m,
 			Parents:    parentIds,
 			Placements: placements,
 		})
@@ -68,7 +68,7 @@ func (ns *NodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveRe
 		return nil, status.Errorf(codes.InvalidArgument, "error parsing parents: %v", err)
 	}
 
-	ri, err := ns.r.give(*meta, parents)
+	ri, err := ns.r.give(meta, parents)
 	if err != nil {
 		return nil, err
 	}
