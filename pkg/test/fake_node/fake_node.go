@@ -14,6 +14,7 @@ import (
 	"github.com/adammck/ranger/pkg/rangelet"
 	"github.com/adammck/ranger/pkg/test/fake_storage"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 )
 
@@ -175,7 +176,7 @@ func (n *TestNode) nodeServer(ctx context.Context, s *grpc.Server) (*grpc.Client
 
 	conn, _ := grpc.DialContext(ctx, "", grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 		return listener.Dial()
-	}), grpc.WithInsecure(), grpc.WithBlock(), n.withTestInterceptor())
+	}), grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock(), n.withTestInterceptor())
 
 	return conn, s.Stop
 }

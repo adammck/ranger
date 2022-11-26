@@ -19,6 +19,7 @@ import (
 	"github.com/lthibault/jitterbug"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
 
@@ -143,7 +144,7 @@ func main() {
 }
 
 func newClient(ctx context.Context, addr string) pbkv.KVClient {
-	conn, err := grpc.DialContext(ctx, addr, grpc.WithInsecure())
+	conn, err := grpc.DialContext(ctx, addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		exit(err)
 	}

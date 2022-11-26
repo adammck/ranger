@@ -9,6 +9,7 @@ import (
 	"github.com/adammck/ranger/pkg/api"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 type src struct {
@@ -74,7 +75,7 @@ func fetch(ctx context.Context, dest *Range, meta api.Meta, addr string, src api
 	conn, err := grpc.DialContext(
 		ctx,
 		addr,
-		grpc.WithInsecure(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock())
 	if err != nil {
 		// TODO: Probably a bit excessive

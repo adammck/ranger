@@ -14,6 +14,7 @@ import (
 
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -52,7 +53,7 @@ func main() {
 	ctxDial, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
 
-	conn, err := grpc.DialContext(ctxDial, *addr, grpc.WithInsecure(), grpc.WithBlock())
+	conn, err := grpc.DialContext(ctxDial, *addr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
 	if err != nil {
 		fmt.Fprintf(w, "Error dialing controller: %v\n", err)
 		os.Exit(1)
