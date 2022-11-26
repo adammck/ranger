@@ -5,26 +5,25 @@ import (
 	"log"
 	"net"
 	"sync"
-	"time"
 
 	pbkv "github.com/adammck/ranger/examples/kv/proto/gen"
 	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/discovery"
 	consuldisc "github.com/adammck/ranger/pkg/discovery/consul"
-	"github.com/adammck/ranger/pkg/roster"
+	"github.com/adammck/ranger/pkg/rangelet/mirror"
 	consulapi "github.com/hashicorp/consul/api"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/reflection"
 )
 
 type Proxy struct {
-	name    string
-	addrLis string
-	addrPub string // do we actually need this? maybe only discovery does.
-	srv     *grpc.Server
-	disc    discovery.Discoverable
-	rost    *roster.Roster
-
+	name      string
+	addrLis   string
+	addrPub   string // do we actually need this? maybe only discovery does.
+	srv       *grpc.Server
+	disc      discovery.Discoverer
+	mirror    *mirror.Mirror
 	clients   map[api.NodeID]pbkv.KVClient
 	clientsMu sync.RWMutex
 
@@ -40,10 +39,14 @@ func New(addrLis, addrPub string, logReqs bool) (*Proxy, error) {
 	// TODO: Make this optional.
 	reflection.Register(srv)
 
-	disc, err := consuldisc.New("proxy", addrPub, consulapi.DefaultConfig(), srv)
+	disc, err := consuldisc.NewDiscoverer(consulapi.DefaultConfig(), srv)
 	if err != nil {
 		return nil, err
 	}
+
+	mir := mirror.New(disc, func(ctx context.Context, rem discovery.Remote) (*grpc.ClientConn, error) {
+		return grpc.DialContext(ctx, rem.Addr(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	})
 
 	p := &Proxy{
 		name:    "proxy",
@@ -51,38 +54,15 @@ func New(addrLis, addrPub string, logReqs bool) (*Proxy, error) {
 		addrPub: addrPub,
 		srv:     srv,
 		disc:    disc,
-		rost:    nil,
+		mirror:  mir,
 		clients: make(map[api.NodeID]pbkv.KVClient),
 		logReqs: logReqs,
 	}
-
-	// TODO: Should use the NodeInfo channel here instead.
-	p.rost = roster.New(disc, p.Add, p.Remove, nil)
 
 	ps := proxyServer{proxy: p}
 	pbkv.RegisterKVServer(srv, &ps)
 
 	return p, nil
-}
-
-func (p *Proxy) Add(rem *discovery.Remote) {
-	conn, err := grpc.DialContext(context.Background(), rem.Addr(), grpc.WithInsecure())
-
-	if err != nil {
-		// TODO: Not sure what else to do here.
-		log.Printf("error while dialing %s: %v", rem.Addr(), err)
-		return
-	}
-
-	p.clientsMu.Lock()
-	defer p.clientsMu.Unlock()
-	p.clients[rem.NodeID()] = pbkv.NewKVClient(conn)
-}
-
-func (p *Proxy) Remove(rem *discovery.Remote) {
-	p.clientsMu.Lock()
-	defer p.clientsMu.Unlock()
-	delete(p.clients, rem.NodeID())
 }
 
 func (p *Proxy) Run(ctx context.Context) error {
@@ -107,16 +87,10 @@ func (p *Proxy) Run(ctx context.Context) error {
 
 	// Make the proxy discoverable.
 	// TODO: Do we actually need this? Clients can just call any proxy.
-	err = p.disc.Start()
-	if err != nil {
-		return err
-	}
-
-	// Start roster. Periodically asks all nodes for their ranges. Beware that
-	// during range moves, our range map will lag by at least this much, which
-	// will cause queries to block while they retry.
-	ticker := time.NewTicker(1000 * time.Millisecond)
-	go p.rost.Run(ticker)
+	// dget, err := p.disc.Discover("node")
+	// if err != nil {
+	// 	return err
+	// }
 
 	// Block until context is cancelled, indicating that caller wants shutdown.
 	<-ctx.Done()
@@ -130,8 +104,8 @@ func (p *Proxy) Run(ctx context.Context) error {
 		return err
 	}
 
-	// Remove ourselves from service discovery.
-	err = p.disc.Stop()
+	// Stop mirroring ranges.
+	err = p.mirror.Stop()
 	if err != nil {
 		return err
 	}

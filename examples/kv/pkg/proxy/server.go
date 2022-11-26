@@ -7,7 +7,7 @@ import (
 
 	pbkv "github.com/adammck/ranger/examples/kv/proto/gen"
 	"github.com/adammck/ranger/pkg/api"
-	"github.com/adammck/ranger/pkg/roster"
+	"github.com/adammck/ranger/pkg/rangelet/mirror"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -17,44 +17,28 @@ type proxyServer struct {
 	proxy *Proxy
 }
 
-func (ps *proxyServer) getClient(k string) (pbkv.KVClient, roster.Location, error) {
-	loc := roster.Location{}
+func (ps *proxyServer) getClient(k string) (pbkv.KVClient, mirror.Result, error) {
+	results := ps.proxy.mirror.Find(api.Key(k), api.NsActive)
+	res := mirror.Result{}
 
-	states := []api.RemoteState{
-		api.NsActive,
+	if len(results) == 0 {
+		return nil, res, status.Errorf(codes.FailedPrecondition, "no nodes have key")
 	}
 
-	locations := ps.proxy.rost.LocateInState(api.Key(k), states)
+	// Just pick the first one for now.
+	// TODO: Pick a random one? Should the server-side shuffle them?
+	res = results[0]
 
-	if len(locations) == 0 {
-		return nil, loc, status.Errorf(codes.FailedPrecondition, "no nodes have key")
-	}
-
-	// Prefer the ready node.
-	found := false
-	for i := range locations {
-		if locations[i].Info.State == api.NsActive {
-			loc = locations[i]
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		// No node was ready, so just pick the first.
-		loc = locations[0]
-	}
-
-	client, ok := ps.proxy.clients[loc.Node]
+	client, ok := ps.proxy.mirror.Conn(res.NodeID)
 	if !ok {
-		return nil, loc, status.Errorf(codes.FailedPrecondition, "no client for node id %s?", loc.Node)
+		return nil, res, status.Errorf(codes.FailedPrecondition, "no client for node id %s?", res.NodeID)
 	}
 
-	return client, loc, nil
+	return client, res, nil
 }
 
 func (ps *proxyServer) Get(ctx context.Context, req *pbkv.GetRequest) (*pbkv.GetResponse, error) {
-	client, loc, err := ps.getClient(req.Key)
+	client, mres, err := ps.getClient(req.Key)
 	if err != nil {
 		return nil, err
 	}
@@ -65,9 +49,9 @@ func (ps *proxyServer) Get(ctx context.Context, req *pbkv.GetRequest) (*pbkv.Get
 	}
 
 	if err != nil {
-		log.Printf("Error: %s (method=Get, key=%s, node=%s, state=%v)", err, req.Key, loc.Node, loc.Info.State)
+		log.Printf("Error: %s (method=Get, key=%s, nID=%s, state=%v)", err, req.Key, mres.NodeID, mres.State)
 	} else if ps.proxy.logReqs {
-		log.Printf("Get: %s -> %s", req.Key, loc.Node)
+		log.Printf("Get: %s -> %s", req.Key, mres.NodeID)
 	}
 
 	return res, err
@@ -76,7 +60,7 @@ func (ps *proxyServer) Get(ctx context.Context, req *pbkv.GetRequest) (*pbkv.Get
 func (ps *proxyServer) Put(ctx context.Context, req *pbkv.PutRequest) (*pbkv.PutResponse, error) {
 	var client pbkv.KVClient
 	var res *pbkv.PutResponse
-	var loc roster.Location
+	var mres mirror.Result
 	var err error
 
 	retries := 0
@@ -84,7 +68,7 @@ func (ps *proxyServer) Put(ctx context.Context, req *pbkv.PutRequest) (*pbkv.Put
 
 	for {
 
-		client, loc, err = ps.getClient(req.Key)
+		client, mres, err = ps.getClient(req.Key)
 		if err == nil {
 			res, err = client.Put(ctx, req)
 			if err == nil {
@@ -115,9 +99,9 @@ func (ps *proxyServer) Put(ctx context.Context, req *pbkv.PutRequest) (*pbkv.Put
 	}
 
 	if err != nil {
-		log.Printf("Error: %s (method=Put, key=%s, node=%s, state=%v)", err, req.Key, loc.Node, loc.Info.State)
+		log.Printf("Error: %s (method=Put, key=%s, node=%s, state=%v)", err, req.Key, mres.NodeID, mres.State)
 	} else if ps.proxy.logReqs {
-		log.Printf("Put: %s -> %s", req.Key, loc.Node)
+		log.Printf("Put: %s -> %s", req.Key, mres.NodeID)
 	}
 
 	return res, err
