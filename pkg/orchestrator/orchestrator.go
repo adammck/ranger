@@ -480,7 +480,8 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 		// If the node already has the range (i.e. this is not the first tick
 		// where the placement is PsPending, so the RPC may already have been
 		// sent), check its remote state, which may have been updated by a
-		// response to a Give or by a periodic probe. We may be able to advance.
+		// response to a Prepare or by a periodic probe. We may be able to
+		// advance.
 		ri, ok := n.Get(p.Range().Meta.Ident)
 		if ok {
 			switch ri.State {
@@ -491,8 +492,8 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 				b.ks.PlacementToState(p, api.PsInactive)
 
 			case api.NsNotFound:
-				// Special case: Give has already been attempted, but it failed.
-				// We can try again, same as if the placement was missing.
+				// Special case: Prepare has already been attempted, but it
+				// failed. We can try again, as if the placement was missing.
 				doPlace = true
 
 			default:
@@ -505,7 +506,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 
 		if doPlace {
 			p.Want(api.PsInactive)
-			if p.Failed(api.Give) {
+			if p.Failed(api.Prepare) {
 				destroy = true
 			}
 		}

@@ -59,11 +59,11 @@ func TestPlace(t *testing.T) {
 	rosStr := "{test-aaa []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 
-	// First tick: Placement created, Give RPC sent to node and returned
+	// First tick: Placement created, Prepare RPC sent to node and returned
 	// successfully. Remote state is updated in roster, but not keyspace.
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Give(R1, test-aaa)", commands(t, act))
+	require.Equal(t, "Prepare(R1, test-aaa)", commands(t, act))
 	require.Equal(t, "{test-aaa [1:NsInactive]}", orch.rost.TestString())
 	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
 
@@ -109,19 +109,19 @@ func TestPlace_Slow(t *testing.T) {
 	rosStr := "{test-aaa []}"
 	orch, act := orchFactory(t, ksStr, rosStr, strictTransactions)
 
-	i1g := inject(t, act, "test-aaa", 1, api.Give).Response(api.NsLoading)
+	i1g := inject(t, act, "test-aaa", 1, api.Prepare).Response(api.NsLoading)
 
 	//
-	// ---- Give
+	// ---- Prepare
 	//
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Give(R1, test-aaa)", commands(t, act))
+	require.Equal(t, "Prepare(R1, test-aaa)", commands(t, act))
 	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsLoading]}", orch.rost.TestString())
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Give(R1, test-aaa)", commands(t, act))
+	require.Equal(t, "Prepare(R1, test-aaa)", commands(t, act))
 	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsLoading]}", orch.rost.TestString())
 
@@ -129,13 +129,13 @@ func TestPlace_Slow(t *testing.T) {
 	i1g.Response(api.NsInactive)
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Give(R1, test-aaa)", commands(t, act))
+	require.Equal(t, "Prepare(R1, test-aaa)", commands(t, act))
 	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsInactive]}", orch.rost.TestString())
 
 	// This tick notices that the remote state (which was updated at the end of
-	// the previous tick, after the (redundant) Give RPC returned) now indicates
-	// that the node has finished preparing.
+	// the previous tick, after the (redundant) Prepare RPC returned) now
+	// indicates that the node has finished preparing.
 	tickWait(t, orch, act)
 	require.Empty(t, commands(t, act))
 	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
@@ -173,7 +173,7 @@ func TestPlaceFailure_Prepare_Short(t *testing.T) {
 	rosStr := "{test-aaa []} {test-bbb []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 
-	inject(t, act, "test-aaa", 1, api.Give).Failure()
+	inject(t, act, "test-aaa", 1, api.Prepare).Failure()
 
 	tickUntilStable(t, orch, act)
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
@@ -187,7 +187,7 @@ func TestPlaceFailure_AddRange_Short(t *testing.T) {
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 
 	// Serving R1 will always fail on node aaa.
-	// (But Give will succeed, as is the default)
+	// (But Prepare will succeed, as is the default)
 	inject(t, act, "test-aaa", 1, api.Serve).Failure()
 
 	tickUntilStable(t, orch, act)
@@ -201,13 +201,13 @@ func TestPlaceFailure_AddRange(t *testing.T) {
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 
 	// Serving R1 will always fail on node aaa.
-	// (But Give will succeed, as is the default)
+	// (But Prepare will succeed, as is the default)
 	inject(t, act, "test-aaa", 1, api.Serve).Failure()
 
 	// 1. Prepare(1, aaa)
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Give(R1, test-aaa)", commands(t, act))
+	require.Equal(t, "Prepare(R1, test-aaa)", commands(t, act))
 	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb []}", orch.rost.TestString())
 
@@ -258,7 +258,7 @@ func TestMove(t *testing.T) {
 	moveOp(orch, 1, "test-bbb")
 
 	tickWait(t, orch, act)
-	assert.Equal(t, "Give(R1, test-bbb)", commands(t, act))
+	assert.Equal(t, "Prepare(R1, test-bbb)", commands(t, act))
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsPending:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
 
@@ -330,25 +330,25 @@ func TestMove_Slow(t *testing.T) {
 	moveOp(orch, 1, "test-bbb")
 
 	//
-	// ---- Give
+	// ---- Prepare
 	//
 
-	// Next Give will return NsLoading because it's "slow".
-	inject(t, act, "test-bbb", 1, api.Give).Response(api.NsLoading)
+	// Next Prepare will return NsLoading because it's "slow".
+	inject(t, act, "test-bbb", 1, api.Prepare).Response(api.NsLoading)
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Give(R1, test-bbb)", commands(t, act))
+	require.Equal(t, "Prepare(R1, test-bbb)", commands(t, act))
 	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsPending:replacing(test-aaa)}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsLoading]}", orch.rost.TestString())
 
 	// We can do this all day.
 	requireStable(t, orch, act)
 
-	// Loading finished. The next Give will return Inactive.
-	inject(t, act, "test-bbb", 1, api.Give).Response(api.NsInactive)
+	// Loading finished. The next Prepare will return Inactive.
+	inject(t, act, "test-bbb", 1, api.Prepare).Response(api.NsInactive)
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Give(R1, test-bbb)", commands(t, act)) // retry
+	require.Equal(t, "Prepare(R1, test-bbb)", commands(t, act)) // retry
 	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsPending:replacing(test-aaa)}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
 
@@ -465,20 +465,20 @@ func TestMoveFailure_Prepare(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
-	inject(t, act, "test-bbb", 1, api.Give).Failure()
+	inject(t, act, "test-bbb", 1, api.Prepare).Failure()
 	moveOp(orch, 1, "test-bbb")
 
 	// Make three attempts at giving R1 to bbb, which all fail.
 
 	for attempt := 1; attempt <= 3; attempt++ {
 		tickWait(t, orch, act)
-		require.Equal(t, "Give(R1, test-bbb)", commands(t, act))
+		require.Equal(t, "Prepare(R1, test-bbb)", commands(t, act))
 		require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsPending:replacing(test-aaa)}", orch.ks.LogString())
 		require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb []}", orch.rost.TestString())
 	}
 
 	p := mustGetPlacement(t, orch.ks, 1, "test-bbb")
-	require.True(t, p.Failed(api.Give))
+	require.True(t, p.Failed(api.Prepare))
 
 	// Failed placement is destroyed.
 
@@ -503,7 +503,7 @@ func TestMoveFailure_PrepareDropRange(t *testing.T) {
 	//    succeeds (because nothing has failed yet).
 
 	tickWait(t, orch, act)
-	assert.Equal(t, "Give(R1, test-bbb)", commands(t, act))
+	assert.Equal(t, "Prepare(R1, test-bbb)", commands(t, act))
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsPending:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
 
@@ -560,7 +560,7 @@ func TestMoveFailure_AddRange(t *testing.T) {
 	moveOp(orch, 1, "test-bbb")
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Give(R1, test-bbb)", commands(t, act))
+	require.Equal(t, "Prepare(R1, test-bbb)", commands(t, act))
 	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsPending:replacing(test-aaa)}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
 
@@ -679,7 +679,7 @@ func TestSplit(t *testing.T) {
 	assert.Equal(t, "{Split 1 -> 2,3}", OpsString(orch.ks))
 
 	tickWait(t, orch, act)
-	assert.Equal(t, "Give(R2, test-aaa), Give(R3, test-aaa)", commands(t, act))
+	assert.Equal(t, "Prepare(R2, test-aaa), Prepare(R3, test-aaa)", commands(t, act))
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsPending} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive 2:NsInactive 3:NsInactive]}", orch.rost.TestString())
 
@@ -768,15 +768,15 @@ func TestSplit_Slow(t *testing.T) {
 	require.Equal(t, "{Split 1 -> 2,3}", OpsString(orch.ks))
 
 	//
-	// ---- Give
+	// ---- Prepare
 	// Controller places new ranges on nodes.
 	//
 
-	i2g := inject(t, act, "test-aaa", 2, api.Give).Response(api.NsLoading)
-	i3g := inject(t, act, "test-aaa", 3, api.Give).Response(api.NsLoading)
+	i2g := inject(t, act, "test-aaa", 2, api.Prepare).Response(api.NsLoading)
+	i3g := inject(t, act, "test-aaa", 3, api.Prepare).Response(api.NsLoading)
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Give(R2, test-aaa), Give(R3, test-aaa)", commands(t, act))
+	require.Equal(t, "Prepare(R2, test-aaa), Prepare(R3, test-aaa)", commands(t, act))
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsPending} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive 2:NsLoading 3:NsLoading]}", orch.rost.TestString())
 	require.Equal(t, "{Split 1 -> 2,3}", OpsString(orch.ks))
@@ -785,14 +785,14 @@ func TestSplit_Slow(t *testing.T) {
 	i2g.Response(api.NsInactive) // R2 finished loading (but R3 is ongoing).
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Give(R2, test-aaa), Give(R3, test-aaa)", commands(t, act)) // retry
+	require.Equal(t, "Prepare(R2, test-aaa), Prepare(R3, test-aaa)", commands(t, act)) // retry
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsPending} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive 2:NsInactive 3:NsLoading]}", orch.rost.TestString())
 	require.Equal(t, "{Split 1 -> 2,3}", OpsString(orch.ks))
 
 	// Updates placement from roster.
 	tickWait(t, orch, act)
-	require.Equal(t, "Give(R3, test-aaa)", commands(t, act)) // retry
+	require.Equal(t, "Prepare(R3, test-aaa)", commands(t, act)) // retry
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive 2:NsInactive 3:NsLoading]}", orch.rost.TestString())
 
@@ -800,7 +800,7 @@ func TestSplit_Slow(t *testing.T) {
 	i3g.Response(api.NsInactive) // R3 finished loading.
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Give(R3, test-aaa)", commands(t, act)) // retry
+	require.Equal(t, "Prepare(R3, test-aaa)", commands(t, act)) // retry
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive 2:NsInactive 3:NsInactive]}", orch.rost.TestString())
 
@@ -921,7 +921,7 @@ func TestSplitFailure_Prepare(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
-	inject(t, act, "test-bbb", 2, api.Give).Failure()
+	inject(t, act, "test-bbb", 2, api.Prepare).Failure()
 	splitOp(orch, 1)
 
 	// 1. Prepare
@@ -933,20 +933,20 @@ func TestSplitFailure_Prepare(t *testing.T) {
 
 	tickWait(t, orch, act)
 	require.Equal(t, "{Split 1 -> 2,3}", OpsString(orch.ks))
-	require.Equal(t, "Give(R2, test-bbb), Give(R3, test-bbb)", commands(t, act))
+	require.Equal(t, "Prepare(R2, test-bbb), Prepare(R3, test-bbb)", commands(t, act))
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsPending} {3 (ccc, +inf] RsActive p0=test-bbb:PsPending}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [3:NsInactive]} {test-ccc []}", orch.rost.TestString())
 
 	for attempt := 2; attempt <= 3; attempt++ {
 		tickWait(t, orch, act)
 		// Only the failing placement (rID=2) will be retried.
-		require.Equal(t, "Give(R2, test-bbb)", commands(t, act))
+		require.Equal(t, "Prepare(R2, test-bbb)", commands(t, act))
 		assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsPending} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
 		assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [3:NsInactive]} {test-ccc []}", orch.rost.TestString())
 	}
 
 	p := mustGetPlacement(t, orch.ks, 2, "test-bbb")
-	assert.True(t, p.Failed(api.Give))
+	assert.True(t, p.Failed(api.Prepare))
 
 	tickWait(t, orch, act)
 	// Failed placement is destroyed.
@@ -958,7 +958,7 @@ func TestSplitFailure_Prepare(t *testing.T) {
 
 	tickWait(t, orch, act)
 	require.Equal(t, "{Split 1 -> 2,3}", OpsString(orch.ks))
-	require.Equal(t, "Give(R2, test-ccc)", commands(t, act))
+	require.Equal(t, "Prepare(R2, test-ccc)", commands(t, act))
 
 	tickWait(t, orch, act)
 	assert.Empty(t, commands(t, act))
@@ -1022,7 +1022,7 @@ func TestSplitFailure_AddRange(t *testing.T) {
 	// 1. Prepare
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Give(R2, test-bbb), Give(R3, test-bbb)", commands(t, act))
+	require.Equal(t, "Prepare(R2, test-bbb), Prepare(R3, test-bbb)", commands(t, act))
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsPending} {3 (ccc, +inf] RsActive p0=test-bbb:PsPending}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
 
@@ -1062,8 +1062,8 @@ func TestSplitFailure_AddRange(t *testing.T) {
 	// 4. PrepareDropRange
 	//
 	// Undo the Serve that succeeded, so we can reactivate the predecessor while
-	// a new placement is found for the Serve that failed. Give can be slow, but
-	// Take and Serve should be fast.
+	// a new placement is found for the Serve that failed. Prepare can be slow,
+	// but Take and Serve should be fast.
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Take(R3, test-bbb)", commands(t, act))
@@ -1109,7 +1109,7 @@ func TestSplitFailure_AddRange(t *testing.T) {
 	// 7. Prepare (retry)
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Give(R2, test-ccc)", commands(t, act))
+	require.Equal(t, "Prepare(R2, test-ccc)", commands(t, act))
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-ccc:PsPending} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [3:NsInactive]} {test-ccc [2:NsInactive]}", orch.rost.TestString())
 
@@ -1171,14 +1171,14 @@ func TestJoin_Slow(t *testing.T) {
 	//
 
 	//
-	// ---- Give
+	// ---- Prepare
 	// Controller places new range on node.
 	//
 
-	i3g := inject(t, act, "test-ccc", 3, api.Give).Response(api.NsLoading)
+	i3g := inject(t, act, "test-ccc", 3, api.Prepare).Response(api.NsLoading)
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Give(R3, test-ccc)", commands(t, act))
+	require.Equal(t, "Prepare(R3, test-ccc)", commands(t, act))
 	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsPending}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc [3:NsLoading]}", orch.rost.TestString())
 	require.Equal(t, "{Join 1,2 -> 3}", OpsString(orch.ks))
@@ -1187,7 +1187,7 @@ func TestJoin_Slow(t *testing.T) {
 	i3g.Response(api.NsInactive) // R3 finished loading.
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Give(R3, test-ccc)", commands(t, act))
+	require.Equal(t, "Prepare(R3, test-ccc)", commands(t, act))
 	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsPending}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc [3:NsInactive]}", orch.rost.TestString())
 	require.Equal(t, "{Join 1,2 -> 3}", OpsString(orch.ks))
@@ -1305,7 +1305,7 @@ func TestJoinFailure_Prepare(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []} {test-ddd []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
-	inject(t, act, "test-ccc", 3, api.Give).Failure()
+	inject(t, act, "test-ccc", 3, api.Prepare).Failure()
 
 	// 0. Initiate
 
@@ -1316,14 +1316,14 @@ func TestJoinFailure_Prepare(t *testing.T) {
 
 	for attempt := 1; attempt <= 3; attempt++ {
 		tickWait(t, orch, act)
-		assert.Equal(t, "Give(R3, test-ccc)", commands(t, act))
+		assert.Equal(t, "Prepare(R3, test-ccc)", commands(t, act))
 		require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsPending}", orch.ks.LogString())
 		require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []} {test-ddd []}", orch.rost.TestString())
 	}
 
 	// Gave up on test-ccc...
 	p := mustGetPlacement(t, orch.ks, 3, "test-ccc")
-	require.True(t, p.Failed(api.Give))
+	require.True(t, p.Failed(api.Prepare))
 
 	// But for better or worse, R3 now exists, and the orchestrator will try to
 	// place it rather than giving up altogether and abandonning the range. I'm
@@ -1345,11 +1345,11 @@ func TestJoinFailure_PrepareDropRange(t *testing.T) {
 	i1t := inject(t, act, "test-aaa", 1, api.Take).Failure()
 
 	//
-	// ---- Give
+	// ---- Prepare
 	//
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Give(R3, test-ccc)", commands(t, act))
+	require.Equal(t, "Prepare(R3, test-ccc)", commands(t, act))
 	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsPending}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc [3:NsInactive]} {test-ddd []}", orch.rost.TestString())
 	require.Equal(t, "{Join 1,2 -> 3}", OpsString(orch.ks))
@@ -1553,7 +1553,7 @@ func TestMissingPlacement(t *testing.T) {
 	// From here we continue as usual. No need to repeat TestPlace.
 
 	tickWait(t, orch, act)
-	assert.Equal(t, "Give(R1, test-aaa)", commands(t, act))
+	assert.Equal(t, "Prepare(R1, test-aaa)", commands(t, act))
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive]}", orch.rost.TestString())
 }

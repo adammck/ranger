@@ -7,7 +7,7 @@ import "ranje.proto";
 package ranger;
 
 service Node {
-  rpc Give (GiveRequest) returns (GiveResponse) {}
+  rpc Prepare (PrepareRequest) returns (PrepareResponse) {}
   rpc Serve (ServeRequest) returns (ServeResponse) {}
   rpc Take (TakeRequest) returns (TakeResponse) {}
   rpc Drop (DropRequest) returns (DropResponse) {}
@@ -24,7 +24,7 @@ service Node {
 message Parent {
   RangeMeta range = 1;
 
-  // Range IDs in here may not appear in the GiveRequest, because at some point
+  // Range IDs in here may not appear in the PrepareRequest, because at some point
   // the history is pruned.
   repeated uint64 parent = 2;
 
@@ -32,7 +32,7 @@ message Parent {
   repeated Placement placements = 3;
 }
 
-message GiveRequest {
+message PrepareRequest {
   RangeMeta range = 1;
 
   // The range(s) which this range was created from, and the nodes where they
@@ -42,7 +42,7 @@ message GiveRequest {
   repeated Parent parents = 3;
 }
 
-message GiveResponse {
+message PrepareResponse {
   // TODO: Return just the state instead, like ServeResponse.
   RangeInfo range_info = 1;
 }

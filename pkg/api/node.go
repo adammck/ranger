@@ -6,9 +6,6 @@ import (
 
 var ErrNotFound = errors.New("not found")
 
-// These don't match the Prepare/Give/Take/Drop terminology used internally by
-// Ranger, but Shard Manager uses roughly (s/Shard/Range/g) these terms. Better
-// to follow those than invent our own.
 type Node interface {
 
 	// GetLoadInfo returns the LoadInfo for the given range.

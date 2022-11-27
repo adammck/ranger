@@ -16,7 +16,7 @@ var PlacementStateTransitions []PlacementStateTransition
 func init() {
 	PlacementStateTransitions = []PlacementStateTransition{
 		// Happy Path
-		{api.PsPending, api.PsInactive}, // Give
+		{api.PsPending, api.PsInactive}, // Prepare
 		{api.PsInactive, api.PsActive},  // Serve
 		{api.PsActive, api.PsInactive},  // Take
 		{api.PsInactive, api.PsDropped}, // Drop

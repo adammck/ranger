@@ -40,7 +40,7 @@ teardown() {
     start_node 8001
 
     # Assign the range [a,b) to node 1.
-    run bin/client.sh 8001 ranger.Node.Give '{"range": {"ident": {"key": 1}, "start": "'$a'", "end": "'$b'"}}'
+    run bin/client.sh 8001 ranger.Node.Prepare '{"range": {"ident": {"key": 1}, "start": "'$a'", "end": "'$b'"}}'
     assert_success
 
     # Try to read again. Different error.
@@ -74,7 +74,7 @@ teardown() {
     assert_line -n 2 '  Message: range not found'
 
     # Assign the range [a,b) to node 1.
-    run bin/client.sh 8001 ranger.Node.Give '{"range": {"ident": {"key": 1}, "start": "'$a'", "end": "'$b'"}}'
+    run bin/client.sh 8001 ranger.Node.Prepare '{"range": {"ident": {"key": 1}, "start": "'$a'", "end": "'$b'"}}'
     assert_success
 
     # Try to dump the contents of range 1 from node 1.
@@ -102,9 +102,9 @@ teardown() {
 
     # ---- setup
 
-    # Give the range [a,b) to node 1, Put some keys, and Take it.
+    # Prepare the range [a,b) on node 1, Put some keys, and Take it.
     r1='{"ident": {"key": 1}, "start": "'$a'", "end": "'$b'"}'
-    bin/client.sh 8001 ranger.Node.Give '{"range": '"$r1"'}'
+    bin/client.sh 8001 ranger.Node.Prepare '{"range": '"$r1"'}'
     bin/client.sh 8001 kv.KV.Put '{"key": "'$a'", "value": "'$zzz'"}'
     bin/client.sh 8001 ranger.Node.Take '{"range": {"key": 1}}'
 
@@ -114,7 +114,7 @@ teardown() {
     # TODO: This succeeds even if node 1 refuses to dump it, because the
     #       transfer starts asynchronously after this rpc has returned. That
     #       doesn't seem ideal.
-    run bin/client.sh 8002 ranger.Node.Give '{"range": {"ident": {"key": 1}, "start": "'$a'", "end": "'$b'"}, "parents": [{"range": '"$r1"', "node": "localhost:8001"}]}'
+    run bin/client.sh 8002 ranger.Node.Prepare '{"range": {"ident": {"key": 1}, "start": "'$a'", "end": "'$b'"}, "parents": [{"range": '"$r1"', "node": "localhost:8001"}]}'
     assert_success
 
     # Read the key from node 1. This still works!
@@ -195,14 +195,14 @@ teardown() {
 
     # Node 1: range [a,b)
     r1='{"ident": {"key": 1}, "start": "'$a'", "end": "'$b'"}'
-    bin/client.sh 8001 ranger.Node.Give '{"range": '"$r1"'}'
+    bin/client.sh 8001 ranger.Node.Prepare '{"range": '"$r1"'}'
     bin/client.sh 8001 kv.KV.Put '{"key": "'$a1'", "value": "'$zzz'"}'
     bin/client.sh 8001 kv.KV.Put '{"key": "'$a2'", "value": "'$yyy'"}'
     bin/client.sh 8001 ranger.Node.Take '{"range": {"key": 1}}'
 
     # Node 2: range [b,c)
     r2='{"ident": {"key": 2}, "start": "'$b'", "end": "'$c'"}'
-    bin/client.sh 8002 ranger.Node.Give '{"range": '"$r2"'}'
+    bin/client.sh 8002 ranger.Node.Prepare '{"range": '"$r2"'}'
     bin/client.sh 8002 kv.KV.Put '{"key": "'$b1'", "value": "'$xxx'"}'
     bin/client.sh 8002 kv.KV.Put '{"key": "'$b2'", "value": "'$www'"}'
     bin/client.sh 8002 ranger.Node.Take '{"range": {"key": 2}}'
@@ -214,10 +214,10 @@ teardown() {
     #       weird when serving reads during the transition.
 
     # Move both ranges to a single new range on node 3
-    run bin/client.sh 8003 ranger.Node.Give '{"range": {"ident": {"key": 3}, "start": "'$a'", "end": "'$c'"}, "parents": [{"range": '"$r1"', "node": "localhost:8001"}, {"range": '"$r2"', "node": "localhost:8002"}]}'
+    run bin/client.sh 8003 ranger.Node.Prepare '{"range": {"ident": {"key": 3}, "start": "'$a'", "end": "'$c'"}, "parents": [{"range": '"$r1"', "node": "localhost:8001"}, {"range": '"$r2"', "node": "localhost:8002"}]}'
     assert_success
 
-    # TODO: Can be arbitrary delay here because Give returns before range
+    # TODO: Can be arbitrary delay here because Prepare returns before range
     #       recovery is finished (or even started). Need some rpc to wait for
     #       the recovery to succeed or fail. Probably just for testing.
     sleep 0.5
@@ -247,7 +247,7 @@ teardown() {
     # Assign a range and write some keys.                                                                                                                                                                                                                                                                             
     # Node 1: range [a,c)
     r1='{"ident": {"key": 1}, "start": "'$a'", "end": "'$c'"}'
-    bin/client.sh 8001 ranger.Node.Give '{"range": '"$r1"'}'
+    bin/client.sh 8001 ranger.Node.Prepare '{"range": '"$r1"'}'
     bin/client.sh 8001 kv.KV.Put '{"key": "'$a1'", "value": "'$zzz'"}'
     bin/client.sh 8001 kv.KV.Put '{"key": "'$a2'", "value": "'$yyy'"}'
     bin/client.sh 8001 kv.KV.Put '{"key": "'$b1'", "value": "'$xxx'"}'
@@ -257,14 +257,14 @@ teardown() {
     # ---- test
 
     # Move half of the range to n2
-    run bin/client.sh 8002 ranger.Node.Give '{"range": {"ident": {"key": 2}, "start": "'$a'", "end": "'$b'"}, "parents": [{"range": '"$r1"', "node": "localhost:8001"}]}'
+    run bin/client.sh 8002 ranger.Node.Prepare '{"range": {"ident": {"key": 2}, "start": "'$a'", "end": "'$b'"}, "parents": [{"range": '"$r1"', "node": "localhost:8001"}]}'
     assert_success
 
     # Move the other half to n3
-    run bin/client.sh 8003 ranger.Node.Give '{"range": {"ident": {"key": 3}, "start": "'$b'", "end": "'$c'"}, "parents": [{"range": '"$r1"', "node": "localhost:8001"}]}'
+    run bin/client.sh 8003 ranger.Node.Prepare '{"range": {"ident": {"key": 3}, "start": "'$b'", "end": "'$c'"}, "parents": [{"range": '"$r1"', "node": "localhost:8001"}]}'
     assert_success
 
-    # TODO: Can be arbitrary delay here because Give returns before range
+    # TODO: Can be arbitrary delay here because Prepare returns before range
     #       recovery is finished (or even started). Need some rpc to wait for
     #       the recovery to succeed or fail. Probably just for testing.
     sleep 0.5

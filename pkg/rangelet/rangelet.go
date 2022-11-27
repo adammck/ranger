@@ -115,7 +115,7 @@ func (r *Rangelet) runThenUpdateState(rID api.RangeID, old api.RemoteState, succ
 	r.notifyWatchers(ri)
 }
 
-func (r *Rangelet) give(rm api.Meta, parents []api.Parent) (api.RangeInfo, error) {
+func (r *Rangelet) prepare(rm api.Meta, parents []api.Parent) (api.RangeInfo, error) {
 	rID := rm.Ident
 	r.Lock()
 
@@ -127,7 +127,7 @@ func (r *Rangelet) give(rm api.Meta, parents []api.Parent) (api.RangeInfo, error
 			return *ri, nil
 		}
 
-		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Give: %v", ri.State)
+		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Prepare: %v", ri.State)
 	}
 
 	// Range is not currently known, so can be added.

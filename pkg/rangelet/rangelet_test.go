@@ -31,13 +31,13 @@ func Setup() (*MockNode, *Rangelet) {
 	return n, rglt
 }
 
-func TestGiveFast(t *testing.T) {
+func TestPrepareFast(t *testing.T) {
 	_, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
 	p := []api.Parent{}
 
-	ri, err := rglt.give(m, p)
+	ri, err := rglt.prepare(m, p)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
 	assert.Equal(t, api.NsInactive, ri.State)
@@ -48,13 +48,13 @@ func TestGiveFast(t *testing.T) {
 	assert.Equal(t, api.NsInactive, ri.State)
 
 	// Check idempotency.
-	ri, err = rglt.give(m, p)
+	ri, err = rglt.prepare(m, p)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
 	assert.Equal(t, api.NsInactive, ri.State)
 }
 
-func TestGiveSlow(t *testing.T) {
+func TestPrepareSlow(t *testing.T) {
 	n, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
@@ -64,7 +64,7 @@ func TestGiveSlow(t *testing.T) {
 	n.wgPrepare.Add(1)
 
 	for i := 0; i < 2; i++ {
-		ri, err := rglt.give(m, p)
+		ri, err := rglt.prepare(m, p)
 		require.NoError(t, err)
 		assert.Equal(t, ri.Meta, m)
 		assert.Equal(t, api.NsLoading, ri.State)
@@ -91,21 +91,21 @@ func TestGiveSlow(t *testing.T) {
 	assert.Equal(t, api.NsInactive, ri.State)
 
 	for i := 0; i < 2; i++ {
-		ri, err := rglt.give(m, p)
+		ri, err := rglt.prepare(m, p)
 		require.NoError(t, err)
 		assert.Equal(t, ri.Meta, m)
 		assert.Equal(t, api.NsInactive, ri.State)
 	}
 }
 
-func TestGiveErrorFast(t *testing.T) {
+func TestPrepareErrorFast(t *testing.T) {
 	n, rglt := Setup()
 	n.erPrepare = errors.New("error from Prepare")
 
 	m := api.Meta{Ident: 1}
 	p := []api.Parent{}
 
-	ri, err := rglt.give(m, p)
+	ri, err := rglt.prepare(m, p)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
 	assert.Equal(t, api.NsNotFound, ri.State)
@@ -116,7 +116,7 @@ func TestGiveErrorFast(t *testing.T) {
 	assert.Equal(t, api.RangeInfo{}, ri)
 }
 
-func TestGiveErrorSlow(t *testing.T) {
+func TestPrepareErrorSlow(t *testing.T) {
 	n, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
@@ -126,11 +126,11 @@ func TestGiveErrorSlow(t *testing.T) {
 	n.erPrepare = errors.New("error from Prepare")
 	n.wgPrepare.Add(1)
 
-	// Give the range. Even though the client will eventually return error from
-	// Prepare, the outer call (give succeeds because it will exceed the
+	// Prepare the range. Even though the client will eventually return error
+	// from Prepare, the outer call (give succeeds because it will exceed the
 	// grace period and respond with Loading.
 	for i := 0; i < 2; i++ {
-		ri, err := rglt.give(m, p)
+		ri, err := rglt.prepare(m, p)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
 		assert.Equal(t, api.NsLoading, ri.State)

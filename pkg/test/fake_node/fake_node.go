@@ -270,7 +270,7 @@ func (n *TestNode) RPCs() []interface{} {
 	val := func(i int) int {
 
 		switch v := ret[i].(type) {
-		case *pb.GiveRequest:
+		case *pb.PrepareRequest:
 			return 100 + int(v.Range.Ident)
 
 		case *pb.ServeRequest:
