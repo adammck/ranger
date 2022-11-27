@@ -14,6 +14,7 @@ in collaborating.
 
 ## Examples
 
+- [cache](examples/cache)
 - [key-value store](examples/kv)
 
 ## Interface

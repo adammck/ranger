@@ -1,0 +1,2 @@
+controller: ./rangerd -addr "127.0.0.1:$PORT"
+node: ./cache -grpc "127.0.0.1:1$PORT" -http "127.0.0.1:2$PORT"
