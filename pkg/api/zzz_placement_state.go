@@ -12,7 +12,7 @@ func _() {
 	_ = x[PsPending-1]
 	_ = x[PsInactive-2]
 	_ = x[PsActive-3]
-	_ = x[PsGiveUp-4]
+	_ = x[PsMissing-4]
 	_ = x[PsDropped-5]
 }
 

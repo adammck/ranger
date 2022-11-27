@@ -425,11 +425,11 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 	destroy = false
 
 	// Get the node that this placement is on. If the node couldn't be fetched,
-	// it's probably crashed, so move the placement to GiveUp so it's replaced.
+	// it's probably crashed, so move the placement to Missing so it's replaced.
 	n, err := b.rost.NodeByIdent(p.NodeID)
 	if err != nil {
-		if p.StateCurrent != api.PsGiveUp && p.StateCurrent != api.PsDropped {
-			b.ks.PlacementToState(p, api.PsGiveUp)
+		if p.StateCurrent != api.PsMissing && p.StateCurrent != api.PsDropped {
+			b.ks.PlacementToState(p, api.PsMissing)
 			return
 		}
 	}
@@ -498,7 +498,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 
 			default:
 				log.Printf("unexpected remote state: ris=%s, psc=%s", ri.State, p.StateCurrent)
-				b.ks.PlacementToState(p, api.PsGiveUp)
+				b.ks.PlacementToState(p, api.PsMissing)
 			}
 		} else {
 			doPlace = true
@@ -529,7 +529,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			}
 
 			// Otherwise, abort. It's been forgotten.
-			b.ks.PlacementToState(p, api.PsGiveUp)
+			b.ks.PlacementToState(p, api.PsMissing)
 			return
 		}
 
@@ -568,7 +568,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 
 		default:
 			log.Printf("unexpected remote state: ris=%s, psc=%s", ri.State, p.StateCurrent)
-			b.ks.PlacementToState(p, api.PsGiveUp)
+			b.ks.PlacementToState(p, api.PsMissing)
 			return
 		}
 
@@ -578,7 +578,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 		ri, ok := n.Get(p.Range().Meta.Ident)
 		if !ok {
 			// The node doesn't have the placement any more! Abort.
-			b.ks.PlacementToState(p, api.PsGiveUp)
+			b.ks.PlacementToState(p, api.PsMissing)
 			return
 		}
 
@@ -594,7 +594,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 
 		default:
 			log.Printf("unexpected remote state: ris=%s, psc=%s", ri.State, p.StateCurrent)
-			b.ks.PlacementToState(p, api.PsGiveUp)
+			b.ks.PlacementToState(p, api.PsMissing)
 		}
 
 		if doDeactivate {
@@ -603,7 +603,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			}
 		}
 
-	case api.PsGiveUp:
+	case api.PsMissing:
 		// This transition only exists to provide an error-handling path to
 		// PsDropped without sending any RPCs.
 		b.ks.PlacementToState(p, api.PsDropped)

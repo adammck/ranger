@@ -1429,7 +1429,7 @@ func TestJoinFailure_Deactivate(t *testing.T) {
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Activate(R3, test-ccc)", commands(t, act))
-	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsGiveUp} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsInactive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsMissing} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsInactive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa []} {test-bbb [2:NsInactive]} {test-ccc [3:NsActive]} {test-ddd []}", orch.rost.TestString())
 
 	tickWait(t, orch, act)
@@ -1531,7 +1531,7 @@ func TestMissingPlacement(t *testing.T) {
 
 	tickWait(t, orch, act)
 	assert.Empty(t, commands(t, act))
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsGiveUp}", orch.ks.LogString())
+	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsMissing}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []}", orch.rost.TestString())
 
 	// Orchestrator advances to drop the placement, but (unlike when moving)
@@ -1793,8 +1793,8 @@ func placementStateFromString(t *testing.T, s string) api.PlacementState {
 	case api.PsActive.String():
 		return api.PsActive
 
-	case api.PsGiveUp.String():
-		return api.PsGiveUp
+	case api.PsMissing.String():
+		return api.PsMissing
 
 	case api.PsDropped.String():
 		return api.PsDropped

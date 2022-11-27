@@ -22,12 +22,12 @@ func init() {
 		{api.PsInactive, api.PsDropped}, // Drop
 
 		// Node crashed (or placement mysteriously vanished)
-		{api.PsPending, api.PsGiveUp},
-		{api.PsInactive, api.PsGiveUp},
-		{api.PsActive, api.PsGiveUp},
+		{api.PsPending, api.PsMissing},
+		{api.PsInactive, api.PsMissing},
+		{api.PsActive, api.PsMissing},
 
 		// Recovery?
-		{api.PsGiveUp, api.PsDropped},
+		{api.PsMissing, api.PsDropped},
 	}
 }
 

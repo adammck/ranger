@@ -9,7 +9,7 @@ const (
 	PsPending
 	PsInactive
 	PsActive
-	PsGiveUp
+	PsMissing
 	PsDropped
 )
 

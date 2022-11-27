@@ -18,8 +18,8 @@ func PlacementStateFromProto(ps pb.PlacementState) api.PlacementState {
 		return api.PsInactive
 	case pb.PlacementState_PS_ACTIVE:
 		return api.PsActive
-	case pb.PlacementState_PS_GIVE_UP:
-		return api.PsGiveUp
+	case pb.PlacementState_PS_MISSING:
+		return api.PsMissing
 	case pb.PlacementState_PS_DROPPED:
 		return api.PsDropped
 	}
@@ -38,8 +38,8 @@ func PlacementStateToProto(ps api.PlacementState) pb.PlacementState {
 		return pb.PlacementState_PS_INACTIVE
 	case api.PsActive:
 		return pb.PlacementState_PS_ACTIVE
-	case api.PsGiveUp:
-		return pb.PlacementState_PS_GIVE_UP
+	case api.PsMissing:
+		return pb.PlacementState_PS_MISSING
 	case api.PsDropped:
 		return pb.PlacementState_PS_DROPPED
 	}

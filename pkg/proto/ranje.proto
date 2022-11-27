@@ -89,6 +89,6 @@ enum PlacementState {
   PS_PENDING = 1;
   PS_INACTIVE = 2;
   PS_ACTIVE = 3;
-  PS_GIVE_UP = 5;
+  PS_MISSING = 5;
   PS_DROPPED = 6;
 }
