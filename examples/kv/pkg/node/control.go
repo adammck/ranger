@@ -116,8 +116,8 @@ func (n *Node) Deactivate(rID api.RangeID) error {
 	return nil
 }
 
-// DropRange: Discard the range.
-func (n *Node) DropRange(rID api.RangeID) error {
+// Drop: Discard the range.
+func (n *Node) Drop(rID api.RangeID) error {
 	if err := n.performChaos(); err != nil {
 		return err
 	}
@@ -127,7 +127,7 @@ func (n *Node) DropRange(rID api.RangeID) error {
 
 	_, ok := n.ranges[rID]
 	if !ok {
-		panic("rangelet called DropRange with unknown range!")
+		panic("rangelet called Drop with unknown range!")
 	}
 
 	delete(n.ranges, rID)

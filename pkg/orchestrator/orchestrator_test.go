@@ -229,7 +229,7 @@ func TestPlaceFailure_AddRange(t *testing.T) {
 	p := mustGetPlacement(t, orch.ks, 1, "test-aaa")
 	require.True(t, p.Failed(api.Serve))
 
-	// 3. DropRange(1, aaa)
+	// 3. Drop(1, aaa)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Drop(R1, test-aaa)", commands(t, act))
@@ -527,8 +527,8 @@ func TestMoveFailure_Deactivate(t *testing.T) {
 	p := mustGetPlacement(t, orch.ks, 1, "test-aaa")
 	require.True(t, p.Failed(api.Deactivate))
 
-	// 3. Node B gets DropRange, to abandon the placement it prepared. It will
-	//    never become ready.
+	// 3. Node B gets Drop, to abandon the placement it prepared. It will never
+	//    become ready.
 
 	tickWait(t, orch, act)
 	assert.Equal(t, "Drop(R1, test-bbb)", commands(t, act))
@@ -610,7 +610,7 @@ func TestMoveFailure_AddRange(t *testing.T) {
 	// require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsInactive:replacing(test-aaa)}", orch.ks.LogString())
 	// require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
 
-	// 5. DropRange(1, bbb)
+	// 5. Drop(1, bbb)
 	tickWait(t, orch, act)
 	require.Equal(t, "Drop(R1, test-bbb)", commands(t, act))
 	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsInactive:replacing(test-aaa)}", orch.ks.LogString())
@@ -624,7 +624,7 @@ func TestMoveFailure_AddRange(t *testing.T) {
 	requireStable(t, orch, act)
 }
 
-func TestMoveFailure_DropRange(t *testing.T) {
+func TestMoveFailure_Drop(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
@@ -632,7 +632,7 @@ func TestMoveFailure_DropRange(t *testing.T) {
 
 	i1d := inject(t, act, "test-aaa", 1, api.Drop).Failure()
 
-	// Fast-forward to the part where we send DropRange to aaa.
+	// Fast-forward to the part where we send Drop to aaa.
 	tickUntil(t, orch, act, func(ks, ro string) bool {
 		return (true &&
 			ks == "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive p1=test-bbb:PsActive:replacing(test-aaa)}" &&
@@ -707,7 +707,7 @@ func TestSplit(t *testing.T) {
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive 2:NsActive 3:NsActive]}", orch.rost.TestString())
 
-	// 4. DropRange
+	// 4. Drop
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Drop(R1, test-aaa)", commands(t, act))
@@ -1089,7 +1089,7 @@ func TestSplitFailure_AddRange(t *testing.T) {
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
 	require.Equal(t, "{Split 1 <- 2,3}", OpsString(orch.ks))
 
-	// 6. DropRange
+	// 6. Drop
 	// The failed child is dropped.
 
 	tickWait(t, orch, act)
@@ -1120,11 +1120,11 @@ func TestSplitFailure_AddRange(t *testing.T) {
 	require.Equal(t, "{test-aaa []} {test-bbb [3:NsActive]} {test-ccc [2:NsActive]}", orch.rost.TestString())
 }
 
-func TestSplitFailure_DropRange(t *testing.T) {
+func TestSplitFailure_Drop(t *testing.T) {
 	t.Skip("not implemented")
 }
 
-func TestSplitFailure_DropRange_Short(t *testing.T) {
+func TestSplitFailure_Drop_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
@@ -1503,7 +1503,7 @@ func TestJoinFailure_AddRange_Short(t *testing.T) {
 
 }
 
-func TestJoinFailure_DropRange_Short(t *testing.T) {
+func TestJoinFailure_Drop_Short(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)

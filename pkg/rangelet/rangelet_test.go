@@ -22,7 +22,7 @@ func Setup() (*MockNode, *Rangelet) {
 		wgPrepare:    &sync.WaitGroup{},
 		wgAddRange:   &sync.WaitGroup{},
 		wgDeactivate: &sync.WaitGroup{},
-		wgDropRange:  &sync.WaitGroup{},
+		wgDrop:       &sync.WaitGroup{},
 	}
 
 	stor := fake_storage.NewFakeStorage(nil)
@@ -433,8 +433,8 @@ func TestDropSlow(t *testing.T) {
 	m := api.Meta{Ident: 1}
 	setupDrop(rglt.info, m)
 
-	// DropRange will block.
-	n.wgDropRange.Add(1)
+	// Drop will block.
+	n.wgDrop.Add(1)
 
 	for i := 0; i < 2; i++ {
 		ri, err := rglt.drop(m.Ident)
@@ -443,11 +443,11 @@ func TestDropSlow(t *testing.T) {
 		assert.Equal(t, api.NsDropping, ri.State)
 	}
 
-	called := atomic.LoadUint32(&n.nDropRange)
+	called := atomic.LoadUint32(&n.nDrop)
 	assert.Equal(t, uint32(1), called)
 
-	// Unblock DropRange.
-	n.wgDropRange.Done()
+	// Unblock Drop.
+	n.wgDrop.Done()
 
 	// Wait until range vanishes.
 	require.Eventually(t, func() bool {
@@ -481,7 +481,7 @@ func TestDropErrorFast(t *testing.T) {
 	m := api.Meta{Ident: 1}
 	setupDrop(rglt.info, m)
 
-	n.erDropRange = errors.New("error from DropRange")
+	n.erDrop = errors.New("error from Drop")
 
 	ri, err := rglt.drop(m.Ident)
 	require.NoError(t, err)
@@ -500,9 +500,9 @@ func TestDropErrorSlow(t *testing.T) {
 	m := api.Meta{Ident: 1}
 	setupDrop(rglt.info, m)
 
-	// DropRange will block, then return an error.
-	n.erDropRange = errors.New("error from DropRange")
-	n.wgDropRange.Add(1)
+	// Drop will block, then return an error.
+	n.erDrop = errors.New("error from Drop")
+	n.wgDrop.Add(1)
 
 	for i := 0; i < 2; i++ {
 		ri, err := rglt.drop(m.Ident)
@@ -511,13 +511,13 @@ func TestDropErrorSlow(t *testing.T) {
 		assert.Equal(t, api.NsDropping, ri.State)
 	}
 
-	called := atomic.LoadUint32(&n.nDropRange)
+	called := atomic.LoadUint32(&n.nDrop)
 	assert.Equal(t, uint32(1), called)
 
-	// Unblock DropRange.
-	n.wgDropRange.Done()
+	// Unblock Drop.
+	n.wgDrop.Done()
 
-	// Wait until state returns to Deactivated (because DropRange returned error).
+	// Wait until state returns to Deactivated (because Drop returned error).
 	require.Eventually(t, func() bool {
 		ri, ok := rglt.rangeInfo(m.Ident)
 		return ok && ri.State == api.NsInactive
@@ -539,9 +539,9 @@ type MockNode struct {
 	wgDeactivate *sync.WaitGroup
 	nDeactivate  uint32
 
-	erDropRange error
-	wgDropRange *sync.WaitGroup
-	nDropRange  uint32
+	erDrop error
+	wgDrop *sync.WaitGroup
+	nDrop  uint32
 }
 
 func (n *MockNode) Prepare(m api.Meta, p []api.Parent) error {
@@ -562,10 +562,10 @@ func (n *MockNode) Deactivate(rID api.RangeID) error {
 	return n.erDeactivate
 }
 
-func (n *MockNode) DropRange(rID api.RangeID) error {
-	atomic.AddUint32(&n.nDropRange, 1)
-	n.wgDropRange.Wait()
-	return n.erDropRange
+func (n *MockNode) Drop(rID api.RangeID) error {
+	atomic.AddUint32(&n.nDrop, 1)
+	n.wgDrop.Wait()
+	return n.erDrop
 }
 
 func (n *MockNode) GetLoadInfo(rID api.RangeID) (api.LoadInfo, error) {

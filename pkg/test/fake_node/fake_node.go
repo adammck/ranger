@@ -24,7 +24,7 @@ const (
 	Prepare Action = iota
 	AddRange
 	Deactivate
-	DropRange
+	Drop
 )
 
 type stateTransition struct {
@@ -159,9 +159,9 @@ func (n *TestNode) Deactivate(rID api.RangeID) error {
 	return n.transition(rID, Deactivate)
 }
 
-func (n *TestNode) DropRange(rID api.RangeID) error {
+func (n *TestNode) Drop(rID api.RangeID) error {
 	// TODO: Remove placement from loadinfos if transition succeeds?
-	return n.transition(rID, DropRange)
+	return n.transition(rID, Drop)
 }
 
 // From: https://harrigan.xyz/blog/testing-go-grpc-server-using-an-in-memory-buffer-with-bufconn/

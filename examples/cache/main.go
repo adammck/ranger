@@ -227,7 +227,7 @@ func (n *Node) Deactivate(rID api.RangeID) error {
 	return nil
 }
 
-func (n *Node) DropRange(rID api.RangeID) error {
+func (n *Node) Drop(rID api.RangeID) error {
 	return nil
 }
 
