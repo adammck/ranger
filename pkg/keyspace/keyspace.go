@@ -17,9 +17,20 @@ import (
 // range in the steady-state, where nothing is being moved around, and two
 // ranges while rebalancing is in progress.
 type Keyspace struct {
-	pers     persister.Persister
-	ranges   []*ranje.Range // TODO: don't be dumb, use an interval tree
-	mu       sync.RWMutex
+	pers persister.Persister
+
+	// Every known range for all of history, including those which have been
+	// obsoleted. (We don't currently garbage collect them, because when it's
+	// safe to do that is up to the service. For some it's safe as soon as the
+	// range is obsolete, others need the range start/end keys indefinitely to
+	// recover state from cold storage.)
+	//
+	// TODO: Use a better data structure (like an interval tree) for this.
+	ranges   []*ranje.Range
+	rangesMu sync.RWMutex
+
+	// The highest RangeID of any known range. Increment this before creating a
+	// new range.
 	maxIdent api.RangeID
 }
 
@@ -36,7 +47,7 @@ func New(persister persister.Persister) (*Keyspace, error) {
 	// Special case: There are no ranges in the store. We are bootstrapping the
 	// keyspace from scratch, so start with a singe range that covers all keys.
 	if len(ranges) == 0 {
-		r := ks.Range()
+		r := ks.newRange()
 		ks.ranges = []*ranje.Range{r}
 		ks.pers.PutRanges(ks.ranges)
 		return ks, nil
@@ -60,7 +71,7 @@ func New(persister persister.Persister) (*Keyspace, error) {
 	}
 
 	// Sanity-check the ranges for no gaps and no overlaps.
-	err = ks.SanityCheck()
+	err = ks.sanityCheck()
 	if err != nil {
 		// TODO: Not this
 		panic(fmt.Sprintf("failed sanity check: %v", err))
@@ -81,10 +92,10 @@ func (ks *Keyspace) LogString() string {
 	return strings.Join(s, " ")
 }
 
-// SanityCheck returns an error if the curernt range state isn't sane. It does
+// sanityCheck returns an error if the curernt range state isn't sane. It does
 // nothing to try to rectify the situaton. This method mostly compensates for
 // the fact that I'm storing all these ranges in a single flat slice.
-func (ks *Keyspace) SanityCheck() error {
+func (ks *Keyspace) sanityCheck() error {
 
 	// Check for no duplicate range IDs.
 
@@ -162,8 +173,8 @@ func (ks *Keyspace) SanityCheck() error {
 }
 
 func (ks *Keyspace) Ranges() ([]*ranje.Range, func()) {
-	ks.mu.Lock()
-	return ks.ranges, ks.mu.Unlock
+	ks.rangesMu.Lock()
+	return ks.ranges, ks.rangesMu.Unlock
 }
 
 func (ks *Keyspace) Split(r *ranje.Range, k api.Key) (one *ranje.Range, two *ranje.Range, err error) {
@@ -202,12 +213,12 @@ func (ks *Keyspace) Split(r *ranje.Range, k api.Key) (one *ranje.Range, two *ran
 		return
 	}
 
-	one = ks.Range()
+	one = ks.newRange()
 	one.Meta.Start = r.Meta.Start
 	one.Meta.End = k
 	one.Parents = []api.RangeID{r.Meta.Ident}
 
-	two = ks.Range()
+	two = ks.newRange()
 	two.Meta.Start = k
 	two.Meta.End = r.Meta.End
 	two.Parents = []api.RangeID{r.Meta.Ident}
@@ -237,6 +248,9 @@ func (ks *Keyspace) Split(r *ranje.Range, k api.Key) (one *ranje.Range, two *ran
 //       RangeGetter with a Close method to unlock. The Ranges method is
 //       somewhat like this, but returns the ranges slice.
 //
+// TODO: Many callers currently call this without holding the lock! Evidently
+//       this interface sucks and should be replaced as suggested above.
+//
 func (ks *Keyspace) GetRange(rID api.RangeID) (*ranje.Range, error) {
 	for _, r := range ks.ranges {
 		if r.Meta.Ident == rID {
@@ -247,25 +261,13 @@ func (ks *Keyspace) GetRange(rID api.RangeID) (*ranje.Range, error) {
 	return nil, fmt.Errorf("no such range: %s", rID.String())
 }
 
-// Range returns a new range with the next available ident. This is the only
+// newRange returns a new range with the next available ident. This is the only
 // way that a Range should be constructed. Callers are responsible for calling
 // mustPersistDirtyRanges to persist the new range after mutating it.
-func (ks *Keyspace) Range() *ranje.Range {
+func (ks *Keyspace) newRange() *ranje.Range {
 	ks.maxIdent += 1
 	return ranje.NewRange(ks.maxIdent)
 }
-
-//
-//
-//
-//
-///
-// ---- old stuff below ----
-//
-//
-//
-//
-//
 
 type PBNID struct {
 	Range     *ranje.Range
@@ -284,8 +286,8 @@ type PBNID struct {
 func (ks *Keyspace) PlacementsByNodeID(nID api.NodeID) []PBNID {
 	out := []PBNID{}
 
-	ks.mu.Lock()
-	defer ks.mu.Unlock()
+	ks.rangesMu.Lock()
+	defer ks.rangesMu.Unlock()
 
 	// TODO: Wow this is dumb! Keep an index of this somewhere.
 	for _, r := range ks.ranges {
@@ -302,6 +304,7 @@ func (ks *Keyspace) PlacementsByNodeID(nID api.NodeID) []PBNID {
 }
 
 // RangeToState tries to move the given range into the given state.
+//
 // TODO: This is currently only used to move ranges into Obsolete after they
 //       have been subsumed. Can we replace this with *ObsoleteRange*?
 func (ks *Keyspace) RangeToState(r *ranje.Range, state api.RangeState) error {
@@ -350,7 +353,10 @@ func (ks *Keyspace) mustPersistDirtyRanges() error {
 	return nil
 }
 
-// Caller must hold the keyspace lock.
+// Caller must hold rangesMu.
+//
+// TODO: Make this Join an arbitrary number of ranges. I think that's supported
+//       by the new operations thing now.
 func (ks *Keyspace) JoinTwo(one *ranje.Range, two *ranje.Range) (*ranje.Range, error) {
 	for _, r := range []*ranje.Range{one, two} {
 		if r.State != api.RsActive {
@@ -376,7 +382,7 @@ func (ks *Keyspace) JoinTwo(one *ranje.Range, two *ranje.Range) (*ranje.Range, e
 		}
 	}
 
-	three := ks.Range()
+	three := ks.newRange()
 	three.Meta.Start = one.Meta.Start
 	three.Meta.End = two.Meta.End
 	three.Parents = []api.RangeID{one.Meta.Ident, two.Meta.Ident}
