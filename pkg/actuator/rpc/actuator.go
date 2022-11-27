@@ -65,7 +65,7 @@ func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (a
 	case api.Serve:
 		s, err = serve(ctx, n, p)
 
-	case api.Take:
+	case api.Deactivate:
 		s, err = take(ctx, n, p)
 
 	case api.Drop:
@@ -115,12 +115,12 @@ func serve(ctx context.Context, n *roster.Node, p *ranje.Placement) (pb.RangeNod
 
 func take(ctx context.Context, n *roster.Node, p *ranje.Placement) (pb.RangeNodeState, error) {
 	rID := p.Range().Meta.Ident
-	req := &pb.TakeRequest{
+	req := &pb.DeactivateRequest{
 		Range: conv.RangeIDToProto(rID),
 	}
 
 	// TODO: Retry a few times before giving up.
-	res, err := n.Client.Take(ctx, req)
+	res, err := n.Client.Deactivate(ctx, req)
 	if err != nil {
 		return pb.RangeNodeState_UNKNOWN, err
 	}

@@ -444,7 +444,7 @@ func TestPlacementMayBecomeReady(t *testing.T) {
 	}
 }
 
-func TestPlacementMayBeTaken(t *testing.T) {
+func TestPlacementMayBeDeactivated(t *testing.T) {
 	examples := []struct {
 		name   string
 		input  []*ranje.Range

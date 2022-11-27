@@ -113,7 +113,7 @@ func TestServe(t *testing.T) {
 	assert.Error(t, err, "rpc error: code = FailedPrecondition desc = injected")
 }
 
-func TestTake(t *testing.T) {
+func TestDeactivate(t *testing.T) {
 	h := setup(t)
 	p := getPlacement(t, h.rangeGetter, 3, 0)
 	n, err := h.nodeGetter.NodeByIdent("node-aaa")
@@ -122,7 +122,7 @@ func TestTake(t *testing.T) {
 	cmd := api.Command{
 		RangeIdent: 3,
 		NodeIdent:  "node-aaa",
-		Action:     api.Take,
+		Action:     api.Deactivate,
 	}
 
 	// success
@@ -131,7 +131,7 @@ func TestTake(t *testing.T) {
 	assert.NilError(t, err)
 
 	assert.Assert(t, h.node.takeReq != nil)
-	assert.DeepEqual(t, pb.TakeRequest{
+	assert.DeepEqual(t, pb.DeactivateRequest{
 		Range: 3,
 	}, h.node.takeReq, protocmp.Transform())
 
@@ -249,7 +249,7 @@ type NodeServer struct {
 	serveReq *pb.ServeRequest
 	serveErr error
 
-	takeReq *pb.TakeRequest
+	takeReq *pb.DeactivateRequest
 	takeErr error
 
 	dropReq *pb.DropRequest
@@ -291,14 +291,14 @@ func (ns *NodeServer) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.Serv
 	}, nil
 }
 
-func (ns *NodeServer) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeResponse, error) {
+func (ns *NodeServer) Deactivate(ctx context.Context, req *pb.DeactivateRequest) (*pb.DeactivateResponse, error) {
 	ns.takeReq = req
 
 	if ns.takeErr != nil {
 		return nil, ns.takeErr
 	}
 
-	return &pb.TakeResponse{
+	return &pb.DeactivateResponse{
 		State: pb.RangeNodeState_INACTIVE,
 	}, nil
 }

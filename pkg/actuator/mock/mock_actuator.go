@@ -107,10 +107,10 @@ func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (a
 // fake remote transition at all, because real nodes (with rangelets) can assume
 // whatever state they like.
 var defaults = map[api.Action]api.RemoteState{
-	api.Prepare: api.NsInactive,
-	api.Serve:   api.NsActive,
-	api.Take:    api.NsInactive,
-	api.Drop:    api.NsNotFound,
+	api.Prepare:    api.NsInactive,
+	api.Serve:      api.NsActive,
+	api.Deactivate: api.NsInactive,
+	api.Drop:       api.NsNotFound,
 }
 
 func mustDefault(action api.Action) api.RemoteState {

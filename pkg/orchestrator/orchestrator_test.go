@@ -51,7 +51,7 @@ const noStrictTransactions = false
 //         states (NsPreparing, etc).
 //
 // In addition to the happy path, we want to test what happens when each of the
-// commands (as detailed in the Normal variant, above) fails. Take a look in the
+// commands (as detailed in the Normal variant, above) fails. Deactivate a look in the
 // docs directory for more.
 
 func TestPlace(t *testing.T) {
@@ -270,7 +270,7 @@ func TestMove(t *testing.T) {
 	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Take(R1, test-aaa)", commands(t, act))
+	require.Equal(t, "Deactivate(R1, test-aaa)", commands(t, act))
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsInactive:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
 
@@ -359,25 +359,25 @@ func TestMove_Slow(t *testing.T) {
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
 
 	//
-	// ---- Take
+	// ---- Deactivate
 	//
 
-	// Next Take will return NsDeactivating because it's "slow".
-	inject(t, act, "test-aaa", 1, api.Take).Response(api.NsDeactivating)
+	// Next Deactivate will return NsDeactivating because it's "slow".
+	inject(t, act, "test-aaa", 1, api.Deactivate).Response(api.NsDeactivating)
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Take(R1, test-aaa)", commands(t, act))
+	require.Equal(t, "Deactivate(R1, test-aaa)", commands(t, act))
 	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsInactive:replacing(test-aaa)}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsDeactivating]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
 
 	// We can do this all day.
 	requireStable(t, orch, act)
 
-	// Deactivation finished. The next Take will return Inactive.
-	inject(t, act, "test-aaa", 1, api.Take).Response(api.NsInactive)
+	// Deactivation finished. The next Deactivate will return Inactive.
+	inject(t, act, "test-aaa", 1, api.Deactivate).Response(api.NsInactive)
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Take(R1, test-aaa)", commands(t, act)) // retry
+	require.Equal(t, "Deactivate(R1, test-aaa)", commands(t, act)) // retry
 	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsInactive:replacing(test-aaa)}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
 
@@ -428,7 +428,7 @@ func TestMove_Slow(t *testing.T) {
 	// We can do this all day.
 	requireStable(t, orch, act)
 
-	// Deactivation finished. The next Take will return Inactive.
+	// Deactivation finished. The next Deactivate will return Inactive.
 	inject(t, act, "test-aaa", 1, api.Drop).Response(api.NsNotFound)
 
 	tickWait(t, orch, act)
@@ -496,7 +496,7 @@ func TestMoveFailure_Deactivate(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
-	inject(t, act, "test-aaa", 1, api.Take).Failure()
+	inject(t, act, "test-aaa", 1, api.Deactivate).Failure()
 	moveOp(orch, 1, "test-bbb")
 
 	// 1. Node B gets Prepare to verify that it can take the shard. This
@@ -519,13 +519,13 @@ func TestMoveFailure_Deactivate(t *testing.T) {
 
 	for attempt := 1; attempt <= 3; attempt++ {
 		tickWait(t, orch, act)
-		assert.Equal(t, "Take(R1, test-aaa)", commands(t, act))
+		assert.Equal(t, "Deactivate(R1, test-aaa)", commands(t, act))
 		assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsInactive:replacing(test-aaa)}", orch.ks.LogString())
 		assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
 	}
 
 	p := mustGetPlacement(t, orch.ks, 1, "test-aaa")
-	require.True(t, p.Failed(api.Take))
+	require.True(t, p.Failed(api.Deactivate))
 
 	// 3. Node B gets DropRange, to abandon the placement it prepared. It will
 	//    never become ready.
@@ -570,7 +570,7 @@ func TestMoveFailure_AddRange(t *testing.T) {
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Take(R1, test-aaa)", commands(t, act))
+	require.Equal(t, "Deactivate(R1, test-aaa)", commands(t, act))
 	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsInactive:replacing(test-aaa)}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
 
@@ -691,7 +691,7 @@ func TestSplit(t *testing.T) {
 	// 2. Deactivate
 
 	tickWait(t, orch, act)
-	assert.Equal(t, "Take(R1, test-aaa)", commands(t, act))
+	assert.Equal(t, "Deactivate(R1, test-aaa)", commands(t, act))
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive 2:NsInactive 3:NsInactive]}", orch.rost.TestString())
 
@@ -811,14 +811,14 @@ func TestSplit_Slow(t *testing.T) {
 	require.Equal(t, "{test-aaa [1:NsActive 2:NsInactive 3:NsInactive]}", orch.rost.TestString())
 
 	//
-	// ---- Take
+	// ---- Deactivate
 	// Controller takes placements in parent range.
 	//
 
-	i1t := inject(t, act, "test-aaa", 1, api.Take).Response(api.NsDeactivating)
+	i1t := inject(t, act, "test-aaa", 1, api.Deactivate).Response(api.NsDeactivating)
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Take(R1, test-aaa)", commands(t, act))
+	require.Equal(t, "Deactivate(R1, test-aaa)", commands(t, act))
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsDeactivating 2:NsInactive 3:NsInactive]}", orch.rost.TestString())
 
@@ -826,7 +826,7 @@ func TestSplit_Slow(t *testing.T) {
 	i1t.Response(api.NsInactive) // R3 finished preparing.
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Take(R1, test-aaa)", commands(t, act))
+	require.Equal(t, "Deactivate(R1, test-aaa)", commands(t, act))
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsInactive 2:NsInactive 3:NsInactive]}", orch.rost.TestString())
 
@@ -976,7 +976,7 @@ func TestSplitFailure_Deactivate_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
-	inject(t, act, "test-aaa", 1, api.Take).Failure()
+	inject(t, act, "test-aaa", 1, api.Deactivate).Failure()
 	splitOp(orch, 1)
 
 	// End up in a bad but stable situation where the original range never
@@ -988,7 +988,7 @@ func TestSplitFailure_Deactivate_Short(t *testing.T) {
 	// R1 is stuck until some operator comes and unsticks it.
 	// TODO: Make it possible (configurable) to automatically force drop it.
 	p := mustGetPlacement(t, orch.ks, 1, "test-aaa")
-	assert.True(t, p.Failed(api.Take))
+	assert.True(t, p.Failed(api.Deactivate))
 }
 
 func TestSplitFailure_Deactivate(t *testing.T) {
@@ -1034,7 +1034,7 @@ func TestSplitFailure_AddRange(t *testing.T) {
 	// 2. Deactivate
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Take(R1, test-aaa)", commands(t, act))
+	require.Equal(t, "Deactivate(R1, test-aaa)", commands(t, act))
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
 
@@ -1063,10 +1063,10 @@ func TestSplitFailure_AddRange(t *testing.T) {
 	//
 	// Undo the Serve that succeeded, so we can reactivate the predecessor while
 	// a new placement is found for the Serve that failed. Prepare can be slow,
-	// but Take and Serve should be fast.
+	// but Deactivate and Serve should be fast.
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Take(R3, test-bbb)", commands(t, act))
+	require.Equal(t, "Deactivate(R3, test-bbb)", commands(t, act))
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
 	require.True(t, mustGetPlacement(t, orch.ks, 2, "test-bbb").Failed(api.Serve))
@@ -1199,15 +1199,15 @@ func TestJoin_Slow(t *testing.T) {
 	require.Equal(t, "{Join 1,2 -> 3}", OpsString(orch.ks))
 
 	//
-	// ---- Take
+	// ---- Deactivate
 	// Controller takes the ranges from the source nodes.
 	//
 
-	i1g := inject(t, act, "test-aaa", 1, api.Take).Response(api.NsDeactivating)
-	i2g := inject(t, act, "test-bbb", 2, api.Take).Response(api.NsDeactivating)
+	i1g := inject(t, act, "test-aaa", 1, api.Deactivate).Response(api.NsDeactivating)
+	i2g := inject(t, act, "test-bbb", 2, api.Deactivate).Response(api.NsDeactivating)
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Take(R1, test-aaa), Take(R2, test-bbb)", commands(t, act))
+	require.Equal(t, "Deactivate(R1, test-aaa), Deactivate(R2, test-bbb)", commands(t, act))
 	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsDeactivating]} {test-bbb [2:NsDeactivating]} {test-ccc [3:NsInactive]}", orch.rost.TestString())
 
@@ -1217,14 +1217,14 @@ func TestJoin_Slow(t *testing.T) {
 	i2g.Response(api.NsInactive)
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Take(R1, test-aaa), Take(R2, test-bbb)", commands(t, act))
+	require.Equal(t, "Deactivate(R1, test-aaa), Deactivate(R2, test-bbb)", commands(t, act))
 	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive]} {test-ccc [3:NsInactive]}", orch.rost.TestString())
 
 	// Missing?
 	// tickWait(t, orch, act)
 	// require.Empty(t, commands(t, act))
-	// require.Equal(t, "Take(R1, test-aaa), Take(R2, test-bbb)", commands(t, act))
+	// require.Equal(t, "Deactivate(R1, test-aaa), Deactivate(R2, test-bbb)", commands(t, act))
 	// require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsInactive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsInactive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
 	// require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive]} {test-ccc [3:NsInactive]}", orch.rost.TestString())
 
@@ -1342,7 +1342,7 @@ func TestJoinFailure_Deactivate(t *testing.T) {
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 	_ = joinOp(orch, 1, 2, "test-ccc")
 
-	i1t := inject(t, act, "test-aaa", 1, api.Take).Failure()
+	i1t := inject(t, act, "test-aaa", 1, api.Deactivate).Failure()
 
 	//
 	// ---- Prepare
@@ -1360,7 +1360,7 @@ func TestJoinFailure_Deactivate(t *testing.T) {
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc [3:NsInactive]} {test-ddd []}", orch.rost.TestString())
 
 	//
-	// ---- Take
+	// ---- Deactivate
 	// The right side (R2 on test-bbb) succeeds, but the left fails and remains
 	// in NsActive. Three attempts are made.
 	//
@@ -1368,18 +1368,18 @@ func TestJoinFailure_Deactivate(t *testing.T) {
 	for attempt := 1; attempt <= 3; attempt++ {
 		tickWait(t, orch, act)
 		if attempt == 1 {
-			require.Equal(t, "Take(R1, test-aaa), Take(R2, test-bbb)", commands(t, act))
+			require.Equal(t, "Deactivate(R1, test-aaa), Deactivate(R2, test-bbb)", commands(t, act))
 			require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
 			require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsInactive]} {test-ccc [3:NsInactive]} {test-ddd []}", orch.rost.TestString())
 		} else {
-			require.Equal(t, "Take(R1, test-aaa)", commands(t, act))
+			require.Equal(t, "Deactivate(R1, test-aaa)", commands(t, act))
 			require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsInactive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
 			require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsInactive]} {test-ccc [3:NsInactive]} {test-ddd []}", orch.rost.TestString())
 		}
 	}
 
 	p := mustGetPlacement(t, orch.ks, 1, "test-aaa")
-	require.True(t, p.Failed(api.Take))
+	require.True(t, p.Failed(api.Deactivate))
 
 	// Gave up on R1, so reactivate the one which did deactivate.
 
@@ -1387,7 +1387,7 @@ func TestJoinFailure_Deactivate(t *testing.T) {
 	require.Equal(t, "Serve(R2, test-bbb)", commands(t, act))
 	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsInactive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc [3:NsInactive]} {test-ddd []}", orch.rost.TestString())
-	require.True(t, mustGetPlacement(t, orch.ks, 1, "test-aaa").Failed(api.Take))
+	require.True(t, mustGetPlacement(t, orch.ks, 1, "test-aaa").Failed(api.Deactivate))
 	require.Equal(t, "{Join 1,2 <- 3}", OpsString(orch.ks))
 
 	// R2 updates state
@@ -1415,10 +1415,10 @@ func TestJoinFailure_Deactivate(t *testing.T) {
 	// For now, reset the failure flag so the next tick will try again. (This
 	// actually seems like something there should be an operator interface for!)
 	r1p0 := mustGetPlacement(t, orch.ks, 1, "test-aaa")
-	r1p0.SetFailed(api.Take, false)
+	r1p0.SetFailed(api.Deactivate, false)
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Take(R1, test-aaa), Take(R2, test-bbb)", commands(t, act))
+	require.Equal(t, "Deactivate(R1, test-aaa), Deactivate(R2, test-bbb)", commands(t, act))
 	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa []} {test-bbb [2:NsInactive]} {test-ccc [3:NsInactive]} {test-ddd []}", orch.rost.TestString())
 	require.Equal(t, "{Join 1,2 -> 3}", OpsString(orch.ks))

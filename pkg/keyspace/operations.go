@@ -198,7 +198,7 @@ func isRecalling(parents, children []*ranje.Range) bool {
 	//       maybe untangle this.
 	for _, rc := range parents {
 		for _, pc := range rc.Placements {
-			if pc.Failed(api.Take) {
+			if pc.Failed(api.Deactivate) {
 				out = true
 			}
 		}
@@ -392,7 +392,7 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 		return fmt.Errorf("placment not in api.PsActive")
 	}
 
-	if p.Failed(api.Take) {
+	if p.Failed(api.Deactivate) {
 		return fmt.Errorf("gave up")
 	}
 
@@ -401,10 +401,10 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 		// If this placement is being replaced by another...
 		if other := replacementFor(p); other != nil {
 
-			// There is another placement replacing this one, but we've given up on
-			// it, so will destroy that (the replacement) rather than taking this
-			// one. We might have already taken this one once, and then reverted it
-			// back because the replacement failed to become ready.
+			// There is another placement replacing this one, but we've given up
+			// on it, so will destroy the replacement rather than deactivating
+			// this one. We might have already deactivated this one once, and
+			// then reverted it back because the replacement failed to activate.
 			if other.Failed(api.Serve) {
 				return fmt.Errorf("replacement has given up")
 			}
@@ -510,7 +510,7 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 
 			// If the other placement has failed to deactivate, might as well
 			// drop this one (the replacements) while an operator intervenes.
-			if other.Failed(api.Take) {
+			if other.Failed(api.Deactivate) {
 				return nil
 			}
 		}

@@ -276,7 +276,7 @@ func (n *TestNode) RPCs() []interface{} {
 		case *pb.ServeRequest:
 			return 200 + int(v.Range)
 
-		case *pb.TakeRequest:
+		case *pb.DeactivateRequest:
 			return 300 + int(v.Range)
 
 		case *pb.DropRequest:

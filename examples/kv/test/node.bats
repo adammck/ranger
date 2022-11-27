@@ -84,8 +84,8 @@ teardown() {
     assert_line -n 1 '  Code: FailedPrecondition'
     assert_line -n 2 '  Message: can only dump ranges in the TAKEN state'
 
-    # Take the range from node 1.
-    run bin/client.sh 8001 ranger.Node.Take '{"range": {"key": 1}}'
+    # Deactivate the range from node 1.
+    run bin/client.sh 8001 ranger.Node.Deactivate '{"range": {"key": 1}}'
     assert_success
 
     # Try to dump again. Success!
@@ -102,11 +102,11 @@ teardown() {
 
     # ---- setup
 
-    # Prepare the range [a,b) on node 1, Put some keys, and Take it.
+    # Prepare the range [a,b) on node 1, Put some keys, and Deactivate it.
     r1='{"ident": {"key": 1}, "start": "'$a'", "end": "'$b'"}'
     bin/client.sh 8001 ranger.Node.Prepare '{"range": '"$r1"'}'
     bin/client.sh 8001 kv.KV.Put '{"key": "'$a'", "value": "'$zzz'"}'
-    bin/client.sh 8001 ranger.Node.Take '{"range": {"key": 1}}'
+    bin/client.sh 8001 ranger.Node.Deactivate '{"range": {"key": 1}}'
 
     # ---- test
 
@@ -198,14 +198,14 @@ teardown() {
     bin/client.sh 8001 ranger.Node.Prepare '{"range": '"$r1"'}'
     bin/client.sh 8001 kv.KV.Put '{"key": "'$a1'", "value": "'$zzz'"}'
     bin/client.sh 8001 kv.KV.Put '{"key": "'$a2'", "value": "'$yyy'"}'
-    bin/client.sh 8001 ranger.Node.Take '{"range": {"key": 1}}'
+    bin/client.sh 8001 ranger.Node.Deactivate '{"range": {"key": 1}}'
 
     # Node 2: range [b,c)
     r2='{"ident": {"key": 2}, "start": "'$b'", "end": "'$c'"}'
     bin/client.sh 8002 ranger.Node.Prepare '{"range": '"$r2"'}'
     bin/client.sh 8002 kv.KV.Put '{"key": "'$b1'", "value": "'$xxx'"}'
     bin/client.sh 8002 kv.KV.Put '{"key": "'$b2'", "value": "'$www'"}'
-    bin/client.sh 8002 ranger.Node.Take '{"range": {"key": 2}}'
+    bin/client.sh 8002 ranger.Node.Deactivate '{"range": {"key": 2}}'
 
     # ---- test
 
@@ -252,7 +252,7 @@ teardown() {
     bin/client.sh 8001 kv.KV.Put '{"key": "'$a2'", "value": "'$yyy'"}'
     bin/client.sh 8001 kv.KV.Put '{"key": "'$b1'", "value": "'$xxx'"}'
     bin/client.sh 8001 kv.KV.Put '{"key": "'$b2'", "value": "'$www'"}'
-    bin/client.sh 8001 ranger.Node.Take '{"range": {"key": 1}}'
+    bin/client.sh 8001 ranger.Node.Deactivate '{"range": {"key": 1}}'
 
     # ---- test
 

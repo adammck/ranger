@@ -573,7 +573,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 		}
 
 	case api.PsActive:
-		doTake := false
+		doDeactivate := false
 
 		ri, ok := n.Get(p.Range().Meta.Ident)
 		if !ok {
@@ -584,7 +584,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 
 		switch ri.State {
 		case api.NsActive:
-			doTake = true
+			doDeactivate = true
 
 		case api.NsDeactivating:
 			p.Want(api.PsInactive)
@@ -597,7 +597,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			b.ks.PlacementToState(p, api.PsGiveUp)
 		}
 
-		if doTake {
+		if doDeactivate {
 			if err := op.MayDeactivate(p, r); err == nil {
 				p.Want(api.PsInactive)
 			}

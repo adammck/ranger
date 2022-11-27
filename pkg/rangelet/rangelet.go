@@ -220,7 +220,7 @@ func (r *Rangelet) take(rID api.RangeID) (api.RangeInfo, error) {
 	ri, ok := r.info[rID]
 	if !ok {
 		r.Unlock()
-		return api.RangeInfo{}, status.Errorf(codes.InvalidArgument, "can't Take unknown range: %v", rID)
+		return api.RangeInfo{}, status.Errorf(codes.InvalidArgument, "can't Deactivate unknown range: %v", rID)
 	}
 
 	if ri.State == api.NsDeactivating || ri.State == api.NsInactive {
@@ -230,7 +230,7 @@ func (r *Rangelet) take(rID api.RangeID) (api.RangeInfo, error) {
 
 	if ri.State != api.NsActive {
 		r.Unlock()
-		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Take: %v", ri.State)
+		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Deactivate: %v", ri.State)
 	}
 
 	// State is NsActive

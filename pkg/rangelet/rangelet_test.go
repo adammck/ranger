@@ -273,18 +273,18 @@ func TestServeErrorSlow(t *testing.T) {
 	}, waitFor, tick)
 }
 
-func setupTake(infos map[api.RangeID]*api.RangeInfo, m api.Meta) {
+func setupDeactivate(infos map[api.RangeID]*api.RangeInfo, m api.Meta) {
 	infos[m.Ident] = &api.RangeInfo{
 		Meta:  m,
 		State: api.NsActive,
 	}
 }
 
-func TestTakeFast(t *testing.T) {
+func TestDeactivateFast(t *testing.T) {
 	_, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
-	setupTake(rglt.info, m)
+	setupDeactivate(rglt.info, m)
 
 	ri, err := rglt.take(m.Ident)
 	require.NoError(t, err)
@@ -303,11 +303,11 @@ func TestTakeFast(t *testing.T) {
 	assert.Equal(t, api.NsInactive, ri.State)
 }
 
-func TestTakeSlow(t *testing.T) {
+func TestDeactivateSlow(t *testing.T) {
 	n, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
-	setupTake(rglt.info, m)
+	setupDeactivate(rglt.info, m)
 
 	n.wgDeactivate.Add(1)
 
@@ -342,19 +342,19 @@ func TestTakeSlow(t *testing.T) {
 	}
 }
 
-func TestTakeUnknown(t *testing.T) {
+func TestDeactivateUnknown(t *testing.T) {
 	_, rglt := Setup()
 
 	ri, err := rglt.take(1)
-	require.EqualError(t, err, "rpc error: code = InvalidArgument desc = can't Take unknown range: 1")
+	require.EqualError(t, err, "rpc error: code = InvalidArgument desc = can't Deactivate unknown range: 1")
 	assert.Equal(t, api.RangeInfo{}, ri)
 }
 
-func TestTakeErrorFast(t *testing.T) {
+func TestDeactivateErrorFast(t *testing.T) {
 	n, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
-	setupTake(rglt.info, m)
+	setupDeactivate(rglt.info, m)
 
 	n.erDeactivate = errors.New("error from Deactivate")
 
@@ -369,11 +369,11 @@ func TestTakeErrorFast(t *testing.T) {
 	assert.Equal(t, api.NsActive, ri.State)
 }
 
-func TestTakeErrorSlow(t *testing.T) {
+func TestDeactivateErrorSlow(t *testing.T) {
 	n, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
-	setupTake(rglt.info, m)
+	setupDeactivate(rglt.info, m)
 
 	// Deactivate will block, then return an error.
 	n.erDeactivate = errors.New("error from Deactivate")
@@ -517,7 +517,7 @@ func TestDropErrorSlow(t *testing.T) {
 	// Unblock DropRange.
 	n.wgDropRange.Done()
 
-	// Wait until state returns to Taken (because DropRange returned error).
+	// Wait until state returns to Deactivated (because DropRange returned error).
 	require.Eventually(t, func() bool {
 		ri, ok := rglt.rangeInfo(m.Ident)
 		return ok && ri.State == api.NsInactive

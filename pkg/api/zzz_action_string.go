@@ -11,13 +11,13 @@ func _() {
 	_ = x[NoAction-0]
 	_ = x[Prepare-1]
 	_ = x[Serve-2]
-	_ = x[Take-3]
+	_ = x[Deactivate-3]
 	_ = x[Drop-4]
 }
 
-const _Action_name = "NoActionPrepareServeTakeDrop"
+const _Action_name = "NoActionPrepareServeDeactivateDrop"
 
-var _Action_index = [...]uint8{0, 8, 15, 20, 24, 28}
+var _Action_index = [...]uint8{0, 8, 15, 20, 30, 34}
 
 func (i Action) String() string {
 	if i >= Action(len(_Action_index)-1) {

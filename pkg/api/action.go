@@ -9,7 +9,7 @@ const (
 	NoAction Action = iota
 	Prepare
 	Serve
-	Take
+	Deactivate
 	Drop
 )
 

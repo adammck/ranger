@@ -76,10 +76,10 @@ func (a *Actuator) Wait() {
 }
 
 var maxFailures = map[api.Action]int{
-	api.Prepare: 3,
-	api.Take:    3,
-	api.Serve:   3,
-	api.Drop:    30, // Not quite forever
+	api.Prepare:    3,
+	api.Deactivate: 3,
+	api.Serve:      3,
+	api.Drop:       30, // Not quite forever
 }
 
 func (a *Actuator) consider(p *ranje.Placement) {
@@ -179,7 +179,7 @@ type transitions struct {
 var actuations = []transitions{
 	{api.PsPending, api.PsInactive, api.Prepare},
 	{api.PsInactive, api.PsActive, api.Serve},
-	{api.PsActive, api.PsInactive, api.Take},
+	{api.PsActive, api.PsInactive, api.Deactivate},
 	{api.PsInactive, api.PsDropped, api.Drop},
 }
 

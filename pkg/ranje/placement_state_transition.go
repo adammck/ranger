@@ -18,7 +18,7 @@ func init() {
 		// Happy Path
 		{api.PsPending, api.PsInactive}, // Prepare
 		{api.PsInactive, api.PsActive},  // Serve
-		{api.PsActive, api.PsInactive},  // Take
+		{api.PsActive, api.PsInactive},  // Deactivate
 		{api.PsInactive, api.PsDropped}, // Drop
 
 		// Node crashed (or placement mysteriously vanished)
