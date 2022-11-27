@@ -220,7 +220,7 @@ func TestServeUnknown(t *testing.T) {
 	_, rglt := Setup()
 
 	ri, err := rglt.serve(1)
-	require.EqualError(t, err, "rpc error: code = InvalidArgument desc = can't Serve unknown range: 1")
+	require.EqualError(t, err, "rpc error: code = InvalidArgument desc = can't Activate unknown range: 1")
 	assert.Equal(t, api.RangeInfo{}, ri)
 }
 

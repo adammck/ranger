@@ -108,7 +108,7 @@ func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (a
 // whatever state they like.
 var defaults = map[api.Action]api.RemoteState{
 	api.Prepare:    api.NsInactive,
-	api.Serve:      api.NsActive,
+	api.Activate:   api.NsActive,
 	api.Deactivate: api.NsInactive,
 	api.Drop:       api.NsNotFound,
 }

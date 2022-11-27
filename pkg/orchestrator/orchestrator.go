@@ -517,7 +517,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 
 			// The node doesn't have the placement any more! Maybe we tried to
 			// activate it but gave up.
-			if p.Failed(api.Serve) {
+			if p.Failed(api.Activate) {
 				destroy = true
 				return
 			}
@@ -553,10 +553,10 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			return
 
 		case api.NsActivating:
-			// We've already sent the Serve RPC at least once, and the node is
-			// working on it. Just keep waiting. But send another Serve RPC to
-			// check whether it's finished and is now Ready. (Or has changed to
-			// some other state through crash or bug.)
+			// We've already sent the Activate RPC at least once, and the node
+			// is working on it. Just keep waiting. But send another Activate
+			// RPC to check whether it's finished and is now Ready. (Or has
+			// changed to some other state through crash or bug.)
 			p.Want(api.PsActive)
 
 		case api.NsDropping:

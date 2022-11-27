@@ -8,7 +8,7 @@ package ranger;
 
 service Node {
   rpc Prepare (PrepareRequest) returns (PrepareResponse) {}
-  rpc Serve (ServeRequest) returns (ServeResponse) {}
+  rpc Activate (ServeRequest) returns (ServeResponse) {}
   rpc Deactivate (DeactivateRequest) returns (DeactivateResponse) {}
   rpc Drop (DropRequest) returns (DropResponse) {}
 

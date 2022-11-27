@@ -10,14 +10,14 @@ func _() {
 	var x [1]struct{}
 	_ = x[NoAction-0]
 	_ = x[Prepare-1]
-	_ = x[Serve-2]
+	_ = x[Activate-2]
 	_ = x[Deactivate-3]
 	_ = x[Drop-4]
 }
 
-const _Action_name = "NoActionPrepareServeDeactivateDrop"
+const _Action_name = "NoActionPrepareActivateDeactivateDrop"
 
-var _Action_index = [...]uint8{0, 8, 15, 20, 30, 34}
+var _Action_index = [...]uint8{0, 8, 15, 23, 33, 37}
 
 func (i Action) String() string {
 	if i >= Action(len(_Action_index)-1) {

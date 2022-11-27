@@ -91,7 +91,7 @@ func TestServe(t *testing.T) {
 	cmd := api.Command{
 		RangeIdent: 3,
 		NodeIdent:  "node-aaa",
-		Action:     api.Serve,
+		Action:     api.Activate,
 	}
 
 	// success
@@ -279,7 +279,7 @@ func (ns *NodeServer) Prepare(ctx context.Context, req *pb.PrepareRequest) (*pb.
 	}, nil
 }
 
-func (ns *NodeServer) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.ServeResponse, error) {
+func (ns *NodeServer) Activate(ctx context.Context, req *pb.ServeRequest) (*pb.ServeResponse, error) {
 	ns.serveReq = req
 
 	if ns.serveErr != nil {

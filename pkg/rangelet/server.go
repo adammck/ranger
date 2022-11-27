@@ -79,7 +79,7 @@ func (ns *NodeServer) Prepare(ctx context.Context, req *pb.PrepareRequest) (*pb.
 	}, nil
 }
 
-func (ns *NodeServer) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.ServeResponse, error) {
+func (ns *NodeServer) Activate(ctx context.Context, req *pb.ServeRequest) (*pb.ServeResponse, error) {
 	rID, err := conv.RangeIDFromProto(req.Range)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())

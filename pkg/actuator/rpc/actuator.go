@@ -62,7 +62,7 @@ func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (a
 	case api.Prepare:
 		s, err = give(ctx, n, p, util.GetParents(a.rg, a.ng, p.Range()))
 
-	case api.Serve:
+	case api.Activate:
 		s, err = serve(ctx, n, p)
 
 	case api.Deactivate:
@@ -105,7 +105,7 @@ func serve(ctx context.Context, n *roster.Node, p *ranje.Placement) (pb.RangeNod
 	}
 
 	// TODO: Retry a few times before giving up.
-	res, err := n.Client.Serve(ctx, req)
+	res, err := n.Client.Activate(ctx, req)
 	if err != nil {
 		return pb.RangeNodeState_UNKNOWN, err
 	}

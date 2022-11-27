@@ -162,7 +162,7 @@ teardown() {
     # This would have worked at any time after node 2 finished fetching the
     # range from node 1, but one mustn't enable writes until the old node has
     # stopped serving reads, to avoid stale reads.
-    run bin/client.sh 8002 ranger.Node.Serve '{"range": {"key": 1}}'
+    run bin/client.sh 8002 ranger.Node.Activate '{"range": {"key": 1}}'
     assert_success
     assert_line -n 0 '{'
     assert_line -n 1 '  '
