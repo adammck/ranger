@@ -54,7 +54,7 @@ Not a huge deal, but pointless work.
 
 If step 2 fails -- the source placement failed to Deactivate -- just retry
 forever (and probably alert an operator). This isn't an emergency (the source
-placement is still ready), but indicates that something is quite broken.
+placement is still active), but indicates that something is quite broken.
 
 1. Prepare
    1. Prepare(b, 2)
@@ -67,7 +67,7 @@ placement is still ready), but indicates that something is quite broken.
 
 ---
 
-If step 3 fails, deactivate any destination placements which became ready (i.e.
+If step 3 fails, deactivate any destination placements which became active (i.e.
 the ones which _didn't_ fail), reactivate the source placement, drop the
 placements which failed to activate, and retry their placement.
 

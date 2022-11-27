@@ -33,7 +33,7 @@ type Placement struct {
 
 	// Set by the orchestrator to indicate that this placement was created to
 	// replace the placement of the same range on some other node. Should be
-	// cleared once the placement becomes ready.
+	// cleared once the placement activates.
 	// TODO: Change this to some kind of uuid.
 	IsReplacing api.NodeID `json:",omitempty"`
 

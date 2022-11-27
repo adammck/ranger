@@ -451,7 +451,7 @@ func TestPlacementMayBeDeactivated(t *testing.T) {
 		output [][]string
 	}{
 		{
-			name: "ready with no replacement",
+			name: "active with no replacement",
 			input: []*ranje.Range{
 				{
 					State:      api.RsActive,

@@ -351,9 +351,9 @@ func (op *Operation) MayActivate(p *ranje.Placement, r *ranje.Range) error {
 	if op == nil {
 
 		// If one of the sibling placements (on the same range) claims to be
-		// replacing this range, then it mustn't become ready (unless that sibling
-		// has given up). It was probably just moved from ready to Idle so that the
-		// sibling could become ready.
+		// replacing this range, then it mustn't activate (unless that sibling
+		// has given up). It was probably just deactivated so that the sibling
+		// could activate.
 		if other := replacementFor(p); other != nil {
 			if !other.Failed(api.Activate) {
 				return fmt.Errorf("will be replaced by sibling")
@@ -446,7 +446,7 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 			}
 
 			// TODO: This is weird. Why are we waiting for the *maximum* number
-			//       of placements to be ready in the dest? I think it's because
+			//       of active placements in the dest? I think it's because
 			//       min/max doesn't make much sense until we have replicas.
 			if n < rc.MaxActive() {
 				return fmt.Errorf("not enough inactive children")
@@ -539,7 +539,7 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 
 		// Can't drop until all of the destination ranges have enough active
 		// placements. They might still need the contents of this parent range
-		// to make themselves ready.
+		// to activate.
 		for _, r2 := range op.direction(Dest) {
 
 			active := 0

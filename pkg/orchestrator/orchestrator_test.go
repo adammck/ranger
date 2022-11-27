@@ -74,15 +74,15 @@ func TestPlace(t *testing.T) {
 	require.Equal(t, "{test-aaa [1:NsInactive]}", orch.rost.TestString())
 	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
 
-	// Third: Activate RPC is sent, to advance to ready. Returns success, and
-	// roster is updated. Keyspace is not.
+	// Third: Activate RPC is sent. Returns success, and roster is updated.
+	// Keyspace is not.
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Activate(R1, test-aaa)", commands(t, act))
 	require.Equal(t, "{test-aaa [1:NsActive]}", orch.rost.TestString())
 	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
 
-	// Forth: Keyspace is updated with ready state from roster. No RPCs sent.
+	// Forth: Keyspace is updated with active state from roster. No RPCs sent.
 
 	tickWait(t, orch, act)
 	require.Empty(t, commands(t, act))
@@ -528,7 +528,7 @@ func TestMoveFailure_Deactivate(t *testing.T) {
 	require.True(t, p.Failed(api.Deactivate))
 
 	// 3. Node B gets Drop, to abandon the placement it prepared. It will never
-	//    become ready.
+	//    activate.
 
 	tickWait(t, orch, act)
 	assert.Equal(t, "Drop(R1, test-bbb)", commands(t, act))
@@ -1240,7 +1240,7 @@ func TestJoin_Slow(t *testing.T) {
 	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsInactive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsInactive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive]} {test-ccc [3:NsActivating]}", orch.rost.TestString())
 
-	// New range becomes ready.
+	// New range activates.
 	requireStable(t, orch, act)
 	i3s.Response(api.NsActive)
 

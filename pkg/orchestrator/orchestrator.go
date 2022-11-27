@@ -120,12 +120,12 @@ func (b *Orchestrator) Tick() {
 			r3.Placements = append(r3.Placements, p)
 
 			// Unlock operator RPC if applicable.
-			// Note that this will only fire if *this* placement becomes ready.
-			// If it fails, and is replaced, and that succeeds, the RPC will
-			// never unblock.
+			// Note that this will only fire if *this* placement activates. If
+			// it fails, and is replaced, and that succeeds, the RPC will never
+			// unblock.
 			//
 			// TODO: Move this to range.OnReady, which should only fire when
-			//       the minReady number of placements are ready.
+			//       the minReady number of placements are active.
 			//
 			if opJoin.Err != nil {
 				p.OnReady(func() {
@@ -388,7 +388,7 @@ func (b *Orchestrator) doMove(r *ranje.Range, opMove OpMove) error {
 		}
 
 		if src == nil {
-			return fmt.Errorf("no ready placement found (rID=%v)", r.Meta.Ident)
+			return fmt.Errorf("no active placement found (rID=%v)", r.Meta.Ident)
 		}
 	}
 

@@ -91,7 +91,7 @@ func main() {
 			}
 		}
 
-		// Ignore ranges with no ready placements.
+		// Ignore ranges with no active placements.
 		if len(placements) == 0 {
 			continue
 		}
