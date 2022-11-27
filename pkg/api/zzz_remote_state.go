@@ -11,16 +11,16 @@ func _() {
 	_ = x[NsUnknown-0]
 	_ = x[NsInactive-1]
 	_ = x[NsActive-2]
-	_ = x[NsLoading-3]
+	_ = x[NsPreparing-3]
 	_ = x[NsActivating-4]
 	_ = x[NsDeactivating-5]
 	_ = x[NsDropping-6]
 	_ = x[NsNotFound-7]
 }
 
-const _RemoteState_name = "NsUnknownNsInactiveNsActiveNsLoadingNsActivatingNsDeactivatingNsDroppingNsNotFound"
+const _RemoteState_name = "NsUnknownNsInactiveNsActiveNsPreparingNsActivatingNsDeactivatingNsDroppingNsNotFound"
 
-var _RemoteState_index = [...]uint8{0, 9, 19, 27, 36, 48, 62, 72, 82}
+var _RemoteState_index = [...]uint8{0, 9, 19, 27, 38, 50, 64, 74, 84}
 
 func (i RemoteState) String() string {
 	if i >= RemoteState(len(_RemoteState_index)-1) {

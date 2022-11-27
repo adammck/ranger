@@ -67,7 +67,7 @@ func TestPrepareSlow(t *testing.T) {
 		ri, err := rglt.prepare(m, p)
 		require.NoError(t, err)
 		assert.Equal(t, ri.Meta, m)
-		assert.Equal(t, api.NsLoading, ri.State)
+		assert.Equal(t, api.NsPreparing, ri.State)
 	}
 
 	called := atomic.LoadUint32(&n.nPrepare)
@@ -75,7 +75,7 @@ func TestPrepareSlow(t *testing.T) {
 
 	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
-	assert.Equal(t, api.NsLoading, ri.State)
+	assert.Equal(t, api.NsPreparing, ri.State)
 
 	// Unblock Prepare.
 	n.wgPrepare.Done()
@@ -128,12 +128,12 @@ func TestPrepareErrorSlow(t *testing.T) {
 
 	// Prepare the range. Even though the client will eventually return error
 	// from Prepare, the outer call (give succeeds because it will exceed the
-	// grace period and respond with Loading.
+	// grace period and respond with NsPreparing.
 	for i := 0; i < 2; i++ {
 		ri, err := rglt.prepare(m, p)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
-		assert.Equal(t, api.NsLoading, ri.State)
+		assert.Equal(t, api.NsPreparing, ri.State)
 	}
 
 	called := atomic.LoadUint32(&n.nPrepare)

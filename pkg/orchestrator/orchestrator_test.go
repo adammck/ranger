@@ -48,7 +48,7 @@ const noStrictTransactions = false
 //
 // - Slow: Same as Normal, except that command RPCs (Prepare, etc) all take
 //         longer than the grace period, and so we see the intermediate remote
-//         states (NsLoading, etc).
+//         states (NsPreparing, etc).
 //
 // In addition to the happy path, we want to test what happens when each of the
 // commands (as detailed in the Normal variant, above) fails. Take a look in the
@@ -109,7 +109,7 @@ func TestPlace_Slow(t *testing.T) {
 	rosStr := "{test-aaa []}"
 	orch, act := orchFactory(t, ksStr, rosStr, strictTransactions)
 
-	i1g := inject(t, act, "test-aaa", 1, api.Prepare).Response(api.NsLoading)
+	i1g := inject(t, act, "test-aaa", 1, api.Prepare).Response(api.NsPreparing)
 
 	//
 	// ---- Prepare
@@ -118,12 +118,12 @@ func TestPlace_Slow(t *testing.T) {
 	tickWait(t, orch, act)
 	require.Equal(t, "Prepare(R1, test-aaa)", commands(t, act))
 	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsLoading]}", orch.rost.TestString())
+	require.Equal(t, "{test-aaa [1:NsPreparing]}", orch.rost.TestString())
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Prepare(R1, test-aaa)", commands(t, act))
 	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsLoading]}", orch.rost.TestString())
+	require.Equal(t, "{test-aaa [1:NsPreparing]}", orch.rost.TestString())
 
 	requireStable(t, orch, act)
 	i1g.Response(api.NsInactive)
@@ -333,18 +333,18 @@ func TestMove_Slow(t *testing.T) {
 	// ---- Prepare
 	//
 
-	// Next Prepare will return NsLoading because it's "slow".
-	inject(t, act, "test-bbb", 1, api.Prepare).Response(api.NsLoading)
+	// Next Prepare will return NsPreparing because it's "slow".
+	inject(t, act, "test-bbb", 1, api.Prepare).Response(api.NsPreparing)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Prepare(R1, test-bbb)", commands(t, act))
 	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsPending:replacing(test-aaa)}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsLoading]}", orch.rost.TestString())
+	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsPreparing]}", orch.rost.TestString())
 
 	// We can do this all day.
 	requireStable(t, orch, act)
 
-	// Loading finished. The next Prepare will return Inactive.
+	// Preparing finished. The next Prepare will return Inactive.
 	inject(t, act, "test-bbb", 1, api.Prepare).Response(api.NsInactive)
 
 	tickWait(t, orch, act)
@@ -772,32 +772,32 @@ func TestSplit_Slow(t *testing.T) {
 	// Controller places new ranges on nodes.
 	//
 
-	i2g := inject(t, act, "test-aaa", 2, api.Prepare).Response(api.NsLoading)
-	i3g := inject(t, act, "test-aaa", 3, api.Prepare).Response(api.NsLoading)
+	i2g := inject(t, act, "test-aaa", 2, api.Prepare).Response(api.NsPreparing)
+	i3g := inject(t, act, "test-aaa", 3, api.Prepare).Response(api.NsPreparing)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Prepare(R2, test-aaa), Prepare(R3, test-aaa)", commands(t, act))
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsPending} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsActive 2:NsLoading 3:NsLoading]}", orch.rost.TestString())
+	require.Equal(t, "{test-aaa [1:NsActive 2:NsPreparing 3:NsPreparing]}", orch.rost.TestString())
 	require.Equal(t, "{Split 1 -> 2,3}", OpsString(orch.ks))
 
 	requireStable(t, orch, act)
-	i2g.Response(api.NsInactive) // R2 finished loading (but R3 is ongoing).
+	i2g.Response(api.NsInactive) // R2 finished preparing (but R3 is ongoing).
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Prepare(R2, test-aaa), Prepare(R3, test-aaa)", commands(t, act)) // retry
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsPending} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsActive 2:NsInactive 3:NsLoading]}", orch.rost.TestString())
+	require.Equal(t, "{test-aaa [1:NsActive 2:NsInactive 3:NsPreparing]}", orch.rost.TestString())
 	require.Equal(t, "{Split 1 -> 2,3}", OpsString(orch.ks))
 
 	// Updates placement from roster.
 	tickWait(t, orch, act)
 	require.Equal(t, "Prepare(R3, test-aaa)", commands(t, act)) // retry
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsActive 2:NsInactive 3:NsLoading]}", orch.rost.TestString())
+	require.Equal(t, "{test-aaa [1:NsActive 2:NsInactive 3:NsPreparing]}", orch.rost.TestString())
 
 	requireStable(t, orch, act)
-	i3g.Response(api.NsInactive) // R3 finished loading.
+	i3g.Response(api.NsInactive) // R3 finished preparing.
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Prepare(R3, test-aaa)", commands(t, act)) // retry
@@ -823,7 +823,7 @@ func TestSplit_Slow(t *testing.T) {
 	require.Equal(t, "{test-aaa [1:NsDeactivating 2:NsInactive 3:NsInactive]}", orch.rost.TestString())
 
 	requireStable(t, orch, act)
-	i1t.Response(api.NsInactive) // R3 finished loading.
+	i1t.Response(api.NsInactive) // R3 finished preparing.
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Take(R1, test-aaa)", commands(t, act))
@@ -1175,16 +1175,16 @@ func TestJoin_Slow(t *testing.T) {
 	// Controller places new range on node.
 	//
 
-	i3g := inject(t, act, "test-ccc", 3, api.Prepare).Response(api.NsLoading)
+	i3g := inject(t, act, "test-ccc", 3, api.Prepare).Response(api.NsPreparing)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Prepare(R3, test-ccc)", commands(t, act))
 	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsPending}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc [3:NsLoading]}", orch.rost.TestString())
+	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc [3:NsPreparing]}", orch.rost.TestString())
 	require.Equal(t, "{Join 1,2 -> 3}", OpsString(orch.ks))
 
 	requireStable(t, orch, act)
-	i3g.Response(api.NsInactive) // R3 finished loading.
+	i3g.Response(api.NsInactive) // R3 finished preparing.
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Prepare(R3, test-ccc)", commands(t, act))
@@ -1808,8 +1808,8 @@ func remoteStateFromString(t *testing.T, s string) api.RemoteState {
 	switch s {
 	case "NsUnknown":
 		return api.NsUnknown
-	case "NsLoading":
-		return api.NsLoading
+	case "NsPreparing":
+		return api.NsPreparing
 	case "NsInactive":
 		return api.NsInactive
 	case "NsActivating":

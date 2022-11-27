@@ -63,10 +63,10 @@ enum RangeNodeState {
   ACTIVE = 2;
 
   // During transitions
-  LOADING = 3;      // Pending -> PreReady
-  ACTIVATING = 4;   // PreReady -> Ready
-  DEACTIVATING = 5; // Ready -> PreReady
-  DROPPING = 6;     // PreReady -> NotFound
+  PREPARING = 3;    // Pending -> Inactive
+  ACTIVATING = 4;   // Inactive -> Active
+  DEACTIVATING = 5; // Active -> Inactive
+  DROPPING = 6;     // Inactive -> NotFound
 
   // Special case: See roster.RemoteState
   NOT_FOUND = 7;

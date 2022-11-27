@@ -485,7 +485,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 		ri, ok := n.Get(p.Range().Meta.Ident)
 		if ok {
 			switch ri.State {
-			case api.NsLoading:
+			case api.NsPreparing:
 				p.Want(api.PsInactive)
 
 			case api.NsInactive:

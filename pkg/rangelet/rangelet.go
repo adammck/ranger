@@ -123,7 +123,7 @@ func (r *Rangelet) prepare(rm api.Meta, parents []api.Parent) (api.RangeInfo, er
 	if ok {
 		defer r.Unlock()
 
-		if ri.State == api.NsLoading || ri.State == api.NsInactive {
+		if ri.State == api.NsPreparing || ri.State == api.NsInactive {
 			return *ri, nil
 		}
 
@@ -132,17 +132,17 @@ func (r *Rangelet) prepare(rm api.Meta, parents []api.Parent) (api.RangeInfo, er
 
 	// Range is not currently known, so can be added.
 
-	log.Printf("R%s: nil -> %s", rID, api.NsLoading)
+	log.Printf("R%s: nil -> %s", rID, api.NsPreparing)
 	ri = &api.RangeInfo{
 		Meta:  rm,
-		State: api.NsLoading,
+		State: api.NsPreparing,
 	}
 	r.info[rID] = ri
 	r.notifyWatchers(ri)
 	r.Unlock()
 
 	withTimeout(r.gracePeriod, func() {
-		r.runThenUpdateState(rID, api.NsLoading, api.NsInactive, api.NsNotFound, func() error {
+		r.runThenUpdateState(rID, api.NsPreparing, api.NsInactive, api.NsNotFound, func() error {
 			return r.n.Prepare(rm, parents)
 		})
 	})
@@ -317,7 +317,7 @@ func (r *Rangelet) Find(k api.Key) (api.RangeID, bool) {
 		// before Prepare has returned, or while DropRange is still in
 		// progress.) The client should check the state anyway, but this makes
 		// the contract simpler.
-		if ri.State == api.NsLoading || ri.State == api.NsDropping {
+		if ri.State == api.NsPreparing || ri.State == api.NsDropping {
 			continue
 		}
 
