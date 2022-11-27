@@ -492,7 +492,7 @@ func TestMoveFailure_Prepare(t *testing.T) {
 	requireStable(t, orch, act)
 }
 
-func TestMoveFailure_PrepareDropRange(t *testing.T) {
+func TestMoveFailure_Deactivate(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
@@ -513,7 +513,7 @@ func TestMoveFailure_PrepareDropRange(t *testing.T) {
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsInactive:replacing(test-aaa)}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
 
-	// 2. Node A gets PrepareDropRange, which fails because we injected an error
+	// 2. Node A gets Deactivate, which fails because we injected an error
 	//    above. This repeats three times before we give up and accept that the
 	//    node will not relinquish the range.
 
@@ -688,7 +688,7 @@ func TestSplit(t *testing.T) {
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive 2:NsInactive 3:NsInactive]}", orch.rost.TestString())
 
-	// 2. PrepareDropRange
+	// 2. Deactivate
 
 	tickWait(t, orch, act)
 	assert.Equal(t, "Take(R1, test-aaa)", commands(t, act))
@@ -972,7 +972,7 @@ func TestSplitFailure_Prepare(t *testing.T) {
 	assert.Equal(t, "{test-aaa []} {test-bbb [3:NsActive]} {test-ccc [2:NsActive]}", orch.rost.TestString())
 }
 
-func TestSplitFailure_PrepareDropRange_Short(t *testing.T) {
+func TestSplitFailure_Deactivate_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
@@ -991,7 +991,7 @@ func TestSplitFailure_PrepareDropRange_Short(t *testing.T) {
 	assert.True(t, p.Failed(api.Take))
 }
 
-func TestSplitFailure_PrepareDropRange(t *testing.T) {
+func TestSplitFailure_Deactivate(t *testing.T) {
 	t.Skip("not implemented")
 }
 
@@ -1031,7 +1031,7 @@ func TestSplitFailure_AddRange(t *testing.T) {
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
 
-	// 2. PrepareDropRange
+	// 2. Deactivate
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Take(R1, test-aaa)", commands(t, act))
@@ -1059,7 +1059,7 @@ func TestSplitFailure_AddRange(t *testing.T) {
 	p := mustGetPlacement(t, orch.ks, 2, "test-bbb")
 	require.True(t, p.Failed(api.Serve))
 
-	// 4. PrepareDropRange
+	// 4. Deactivate
 	//
 	// Undo the Serve that succeeded, so we can reactivate the predecessor while
 	// a new placement is found for the Serve that failed. Prepare can be slow,
@@ -1336,7 +1336,7 @@ func TestJoinFailure_Prepare(t *testing.T) {
 	require.Equal(t, "{test-aaa []} {test-bbb []} {test-ccc []} {test-ddd [3:NsActive]}", orch.rost.TestString())
 }
 
-func TestJoinFailure_PrepareDropRange(t *testing.T) {
+func TestJoinFailure_Deactivate(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []} {test-ddd []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)

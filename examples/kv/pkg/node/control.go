@@ -94,10 +94,10 @@ func (n *Node) AddRange(rID api.RangeID) error {
 	return nil
 }
 
-// PrepareDropRange: Disable writes to the range, because we're about to move
-// it and I don't have the time to implement something better today. In this
-// example, keys are writable on exactly one node. (Or zero, during failures!)
-func (n *Node) PrepareDropRange(rID api.RangeID) error {
+// Deactivate: Disable writes to the range, because we're about to move it and I
+// don't have the time to implement something better today. In this example,
+// keys are writable on exactly one node. (Or zero, during failures!)
+func (n *Node) Deactivate(rID api.RangeID) error {
 	if err := n.performChaos(); err != nil {
 		return err
 	}
@@ -107,7 +107,7 @@ func (n *Node) PrepareDropRange(rID api.RangeID) error {
 
 	r, ok := n.ranges[rID]
 	if !ok {
-		panic("rangelet called PrepareDropRange with unknown range!")
+		panic("rangelet called Deactivate with unknown range!")
 	}
 
 	// Prevent further writes to the range.

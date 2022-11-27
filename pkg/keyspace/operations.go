@@ -194,8 +194,8 @@ func isRecalling(parents, children []*ranje.Range) bool {
 	// gaps while we wait for an operator (or node crash).
 	//
 	// TODO: Is this necessary if there's only one parent? What can even be done
-	//       except the split becoming wedged? TestSplitFailure_PrepareDropRange
-	//       will maybe untangle this.
+	//       except the split becoming wedged? TestSplitFailure_Deactivate will
+	//       maybe untangle this.
 	for _, rc := range parents {
 		for _, pc := range rc.Placements {
 			if pc.Failed(api.Take) {

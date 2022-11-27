@@ -223,7 +223,7 @@ func (n *Node) AddRange(rID api.RangeID) error {
 	return nil
 }
 
-func (n *Node) PrepareDropRange(rID api.RangeID) error {
+func (n *Node) Deactivate(rID api.RangeID) error {
 	return nil
 }
 

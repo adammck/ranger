@@ -23,7 +23,7 @@ type Action uint8
 const (
 	Prepare Action = iota
 	AddRange
-	PrepareDropRange
+	Deactivate
 	DropRange
 )
 
@@ -155,8 +155,8 @@ func (n *TestNode) AddRange(rID api.RangeID) error {
 	return n.transition(rID, AddRange)
 }
 
-func (n *TestNode) PrepareDropRange(rID api.RangeID) error {
-	return n.transition(rID, PrepareDropRange)
+func (n *TestNode) Deactivate(rID api.RangeID) error {
+	return n.transition(rID, Deactivate)
 }
 
 func (n *TestNode) DropRange(rID api.RangeID) error {

@@ -20,8 +20,8 @@ type Node interface {
 	// AddRange
 	AddRange(rID RangeID) error
 
-	// PrepareDropRange
-	PrepareDropRange(rID RangeID) error
+	// Deactivate
+	Deactivate(rID RangeID) error
 
 	// DropRange
 	// Range state will be set to NsDropping before calling this. If an error is

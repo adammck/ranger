@@ -242,7 +242,7 @@ func (r *Rangelet) take(rID api.RangeID) (api.RangeInfo, error) {
 
 	withTimeout(r.gracePeriod, func() {
 		r.runThenUpdateState(rID, api.NsDeactivating, api.NsInactive, api.NsActive, func() error {
-			return r.n.PrepareDropRange(rID)
+			return r.n.Deactivate(rID)
 		})
 	})
 

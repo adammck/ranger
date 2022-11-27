@@ -19,10 +19,10 @@ const tick = 10 * time.Millisecond
 
 func Setup() (*MockNode, *Rangelet) {
 	n := &MockNode{
-		wgPrepare:          &sync.WaitGroup{},
-		wgAddRange:         &sync.WaitGroup{},
-		wgPrepareDropRange: &sync.WaitGroup{},
-		wgDropRange:        &sync.WaitGroup{},
+		wgPrepare:    &sync.WaitGroup{},
+		wgAddRange:   &sync.WaitGroup{},
+		wgDeactivate: &sync.WaitGroup{},
+		wgDropRange:  &sync.WaitGroup{},
 	}
 
 	stor := fake_storage.NewFakeStorage(nil)
@@ -309,7 +309,7 @@ func TestTakeSlow(t *testing.T) {
 	m := api.Meta{Ident: 1}
 	setupTake(rglt.info, m)
 
-	n.wgPrepareDropRange.Add(1)
+	n.wgDeactivate.Add(1)
 
 	// Try to call serve a few times.
 	// Should be the same response.
@@ -325,8 +325,8 @@ func TestTakeSlow(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, api.NsDeactivating, ri.State)
 
-	// Unblock PrepareDropRange.
-	n.wgPrepareDropRange.Done()
+	// Unblock Deactivate.
+	n.wgDeactivate.Done()
 
 	// Wait until state is updated.
 	assert.Eventually(t, func() bool {
@@ -356,7 +356,7 @@ func TestTakeErrorFast(t *testing.T) {
 	m := api.Meta{Ident: 1}
 	setupTake(rglt.info, m)
 
-	n.erPrepareDropRange = errors.New("error from PrepareDropRange")
+	n.erDeactivate = errors.New("error from Deactivate")
 
 	ri, err := rglt.take(m.Ident)
 	require.NoError(t, err)
@@ -375,9 +375,9 @@ func TestTakeErrorSlow(t *testing.T) {
 	m := api.Meta{Ident: 1}
 	setupTake(rglt.info, m)
 
-	// PrepareDropRange will block, then return an error.
-	n.erPrepareDropRange = errors.New("error from PrepareDropRange")
-	n.wgPrepareDropRange.Add(1)
+	// Deactivate will block, then return an error.
+	n.erDeactivate = errors.New("error from Deactivate")
+	n.wgDeactivate.Add(1)
 
 	for i := 0; i < 2; i++ {
 		ri, err := rglt.take(m.Ident)
@@ -386,13 +386,13 @@ func TestTakeErrorSlow(t *testing.T) {
 		assert.Equal(t, api.NsDeactivating, ri.State)
 	}
 
-	called := atomic.LoadUint32(&n.nPrepareDropRange)
+	called := atomic.LoadUint32(&n.nDeactivate)
 	assert.Equal(t, uint32(1), called)
 
-	// Unblock PrepareDropRange.
-	n.wgPrepareDropRange.Done()
+	// Unblock Deactivate.
+	n.wgDeactivate.Done()
 
-	// Wait until state returns to Ready (because PrepareDropRange returned error).
+	// Wait until state returns to Ready (because Deactivate returned error).
 	require.Eventually(t, func() bool {
 		ri, ok := rglt.rangeInfo(m.Ident)
 		return ok && ri.State == api.NsActive
@@ -535,9 +535,9 @@ type MockNode struct {
 	wgAddRange *sync.WaitGroup
 	nAddRange  uint32
 
-	erPrepareDropRange error
-	wgPrepareDropRange *sync.WaitGroup
-	nPrepareDropRange  uint32
+	erDeactivate error
+	wgDeactivate *sync.WaitGroup
+	nDeactivate  uint32
 
 	erDropRange error
 	wgDropRange *sync.WaitGroup
@@ -556,10 +556,10 @@ func (n *MockNode) AddRange(rID api.RangeID) error {
 	return n.erAddRange
 }
 
-func (n *MockNode) PrepareDropRange(rID api.RangeID) error {
-	atomic.AddUint32(&n.nPrepareDropRange, 1)
-	n.wgPrepareDropRange.Wait()
-	return n.erPrepareDropRange
+func (n *MockNode) Deactivate(rID api.RangeID) error {
+	atomic.AddUint32(&n.nDeactivate, 1)
+	n.wgDeactivate.Wait()
+	return n.erDeactivate
 }
 
 func (n *MockNode) DropRange(rID api.RangeID) error {
