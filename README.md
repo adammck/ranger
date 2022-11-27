@@ -21,11 +21,32 @@ in collaborating.
 
 Services implement [rangelet.Node](pkg/api/node.go):
 
-- `GetLoadInfo(RangeID) (LoadInfo, error)`
-- `Prepare(RangeMeta, []Parent) error`
-- `Activate(RangeID) error`
-- `Deactivate(RangeID) error`
-- `Drop(RangeID) error`
+- `Prepare(RangeMeta, []Parent) error`  
+  Prepare to own the given range. This can take as long as necessary, while the
+  node allocates relevant data structures, fetches state, replays logs, warms up
+  caches, etc.
+- `Activate(RangeID) error`  
+  Accept ownership of the given range. This will only be received after the node
+  has finished preparing or (in error conditions) after deactivating the range.
+  It should be fast and unlikely to fail.
+- `Deactivate(RangeID) error`  
+  Relinquish ownership of the given range. This will only be received for active
+  ranges. It should be fast and unlikely to fail, and where possible, easy to
+  roll back.
+- `Drop(RangeID) error`  
+  Forget the given range, and release any resources associated with it. All of
+  the keys in the range have been successfully activated on some other node(s),
+  so this node can safely discard it.
+- `GetLoadInfo(RangeID) (LoadInfo, error)`  
+  Return standard information about how much load the given range is exerting on
+  the node, and optionally suggest where to split it.
+
+The `RangeMeta`, `Parent`, `RangeID`, and `LoadInfo` types are pretty simple,
+and can be found in the [pkg/api](pkg/api) package. Once a service implements
+these methods (and makes itself discoverable), the Ranger controller will take
+care of assigning ranges of keys, including the tricky workflows of moving,
+splitting, and joining ranges, and automatically recovering from errors when
+individual steps fail.
 
 This is a Go interface, but it's all gRPC+protobufs under the hood. There are no
 other implementations today, but it's a goal to avoid doing anything which would
