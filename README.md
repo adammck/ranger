@@ -21,11 +21,11 @@ in collaborating.
 
 Services implement [rangelet.Node](pkg/api/node.go):
 
-- `GetLoadInfo(rID RangeID) LoadInfo`
-- `PrepareAddRange(rm RangeMeta, parents []Parent) error`
-- `AddRange(rid RangeID) error`
-- `PrepareDropRange(rid RangeID) error`
-- `DropRange(rid RangeID) error`
+- `GetLoadInfo(RangeID) (LoadInfo, error)`
+- `Prepare(RangeMeta, []Parent) error`
+- `Activate(RangeID) error`
+- `Deactivate(RangeID) error`
+- `Drop(RangeID) error`
 
 This is a Go interface, but it's all gRPC+protobufs under the hood. There are no
 other implementations today, but it's a goal to avoid doing anything which would
