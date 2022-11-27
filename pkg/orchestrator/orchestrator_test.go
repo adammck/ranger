@@ -181,7 +181,7 @@ func TestPlaceFailure_Prepare_Short(t *testing.T) {
 }
 
 // TODO: Maybe remove this test since we have the long version below?
-func TestPlaceFailure_AddRange_Short(t *testing.T) {
+func TestPlaceFailure_Activate_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []} {test-bbb []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
@@ -195,7 +195,7 @@ func TestPlaceFailure_AddRange_Short(t *testing.T) {
 	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsActive]}", orch.rost.TestString())
 }
 
-func TestPlaceFailure_AddRange(t *testing.T) {
+func TestPlaceFailure_Activate(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []} {test-bbb []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
@@ -216,7 +216,7 @@ func TestPlaceFailure_AddRange(t *testing.T) {
 	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb []}", orch.rost.TestString())
 
-	// 2. AddRange(1, aaa)
+	// 2. Activate(1, aaa)
 	//    Makes three attempts.
 
 	for attempt := 1; attempt <= 3; attempt++ {
@@ -242,7 +242,7 @@ func TestPlaceFailure_AddRange(t *testing.T) {
 	require.Equal(t, "{test-aaa []} {test-bbb []}", orch.rost.TestString())
 
 	// 4. Prepare(1, bbb)
-	// 5. AddRange(1, bbb)
+	// 5. Activate(1, bbb)
 
 	tickUntilStable(t, orch, act)
 	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
@@ -552,7 +552,7 @@ func TestMoveFailure_Deactivate(t *testing.T) {
 	requireStable(t, orch, act)
 }
 
-func TestMoveFailure_AddRange(t *testing.T) {
+func TestMoveFailure_Activate(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
@@ -584,7 +584,7 @@ func TestMoveFailure_AddRange(t *testing.T) {
 	// require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive p1=test-bbb:PsInactive:replacing(test-aaa)}", orch.ks.LogString())
 	// require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
 
-	// 3. AddRange(1, bbb)
+	// 3. Activate(1, bbb)
 	//    Makes three attempts, which will all fail because we stubbed them to
 	//    to do so, above.
 	for attempt := 1; attempt <= 3; attempt++ {
@@ -695,7 +695,7 @@ func TestSplit(t *testing.T) {
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsInactive 2:NsInactive 3:NsInactive]}", orch.rost.TestString())
 
-	// 3. AddRange
+	// 3. Activate
 
 	tickWait(t, orch, act)
 	assert.Equal(t, "Serve(R2, test-aaa), Serve(R3, test-aaa)", commands(t, act))
@@ -995,7 +995,7 @@ func TestSplitFailure_Deactivate(t *testing.T) {
 	t.Skip("not implemented")
 }
 
-func TestSplitFailure_AddRange_Short(t *testing.T) {
+func TestSplitFailure_Activate_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
@@ -1007,7 +1007,7 @@ func TestSplitFailure_AddRange_Short(t *testing.T) {
 	assert.Equal(t, "{test-aaa []} {test-bbb [3:NsActive]} {test-ccc [2:NsActive]}", orch.rost.TestString())
 }
 
-func TestSplitFailure_AddRange(t *testing.T) {
+func TestSplitFailure_Activate(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
@@ -1038,7 +1038,7 @@ func TestSplitFailure_AddRange(t *testing.T) {
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
 
-	// 3. AddRange
+	// 3. Activate
 	// Three attempts. The first one goes to both sides of the split, succeeds
 	// on the right side (R3), but fails on the left (R2). The next two attempts
 	// only go to the failed side, and it fails twice more.
@@ -1078,7 +1078,7 @@ func TestSplitFailure_AddRange(t *testing.T) {
 	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
 	require.Equal(t, "{Split 1 <- 2,3}", OpsString(orch.ks))
 
-	// 5. AddRange
+	// 5. Activate
 	//
 	// The parent (R1) is now reactivated, so it can be active while the failed
 	// child is replaced.
@@ -1469,7 +1469,7 @@ func TestJoinFailure_Deactivate(t *testing.T) {
 	requireStable(t, orch, act)
 }
 
-func TestJoinFailure_AddRange_Short(t *testing.T) {
+func TestJoinFailure_Activate_Short(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)

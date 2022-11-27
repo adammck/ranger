@@ -198,7 +198,7 @@ func (r *Rangelet) serve(rID api.RangeID) (api.RangeInfo, error) {
 
 	withTimeout(r.gracePeriod, func() {
 		r.runThenUpdateState(rID, api.NsActivating, api.NsActive, api.NsInactive, func() error {
-			return r.n.AddRange(rID)
+			return r.n.Activate(rID)
 		})
 	})
 

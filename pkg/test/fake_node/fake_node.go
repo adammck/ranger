@@ -22,7 +22,7 @@ type Action uint8
 
 const (
 	Prepare Action = iota
-	AddRange
+	Activate
 	Deactivate
 	Drop
 )
@@ -52,7 +52,7 @@ type TestNode struct {
 
 	// Barriers to block on in the middle of range state changes. This allows
 	// tests to control exactly how long the interface methods (Prepare,
-	// AddRange, etc) take to return.
+	// Activate, etc) take to return.
 	barriers map[api.RangeID]*stateTransition
 	muBar    sync.Mutex
 
@@ -151,8 +151,8 @@ func (n *TestNode) Prepare(m api.Meta, p []api.Parent) error {
 	return n.transition(m.Ident, Prepare)
 }
 
-func (n *TestNode) AddRange(rID api.RangeID) error {
-	return n.transition(rID, AddRange)
+func (n *TestNode) Activate(rID api.RangeID) error {
+	return n.transition(rID, Activate)
 }
 
 func (n *TestNode) Deactivate(rID api.RangeID) error {

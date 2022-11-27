@@ -27,7 +27,7 @@ func newFetcher(rm api.Meta, parents []api.Parent) *fetcher {
 
 	// If this is a range move, we can just fetch the whole thing from a single
 	// node. Writes to that node will be disabled (via Deactivate) before the
-	// fetch occurs (via AddRange).
+	// fetch occurs (via Activate).
 
 	for _, par := range parents {
 		for _, plc := range par.Placements {

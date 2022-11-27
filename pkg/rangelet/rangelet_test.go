@@ -20,7 +20,7 @@ const tick = 10 * time.Millisecond
 func Setup() (*MockNode, *Rangelet) {
 	n := &MockNode{
 		wgPrepare:    &sync.WaitGroup{},
-		wgAddRange:   &sync.WaitGroup{},
+		wgActivate:   &sync.WaitGroup{},
 		wgDeactivate: &sync.WaitGroup{},
 		wgDrop:       &sync.WaitGroup{},
 	}
@@ -185,8 +185,8 @@ func TestServeSlow(t *testing.T) {
 	m := api.Meta{Ident: 1}
 	setupServe(rglt.info, m)
 
-	// AddRange will take a long time!
-	n.wgAddRange.Add(1)
+	// Activate will take a long time!
+	n.wgActivate.Add(1)
 
 	// This one will give up waiting and return early.
 	ri, err := rglt.serve(m.Ident)
@@ -199,8 +199,8 @@ func TestServeSlow(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, api.NsActivating, ri.State)
 
-	// Unblock AddRange.
-	n.wgAddRange.Done()
+	// Unblock Activate.
+	n.wgActivate.Done()
 
 	// Wait until state is returned to NsActive.
 	assert.Eventually(t, func() bool {
@@ -230,7 +230,7 @@ func TestServeErrorFast(t *testing.T) {
 	m := api.Meta{Ident: 1}
 	setupServe(rglt.info, m)
 
-	n.erAddRange = errors.New("error from AddRange")
+	n.erActivate = errors.New("error from Activate")
 
 	ri, err := rglt.serve(m.Ident)
 	require.NoError(t, err)
@@ -249,9 +249,9 @@ func TestServeErrorSlow(t *testing.T) {
 	m := api.Meta{Ident: 1}
 	setupServe(rglt.info, m)
 
-	// AddRange will block, then return an error.
-	n.erAddRange = errors.New("error from AddRange")
-	n.wgAddRange.Add(1)
+	// Activate will block, then return an error.
+	n.erActivate = errors.New("error from Activate")
+	n.wgActivate.Add(1)
 
 	for i := 0; i < 2; i++ {
 		ri, err := rglt.serve(m.Ident)
@@ -260,13 +260,13 @@ func TestServeErrorSlow(t *testing.T) {
 		assert.Equal(t, api.NsActivating, ri.State)
 	}
 
-	called := atomic.LoadUint32(&n.nAddRange)
+	called := atomic.LoadUint32(&n.nActivate)
 	assert.Equal(t, uint32(1), called)
 
-	// Unblock AddRange.
-	n.wgAddRange.Done()
+	// Unblock Activate.
+	n.wgActivate.Done()
 
-	// Wait until state returns to Prepared (because AddRange returned error).
+	// Wait until state returns to Prepared (because Activate returned error).
 	require.Eventually(t, func() bool {
 		ri, ok := rglt.rangeInfo(m.Ident)
 		return ok && ri.State == api.NsInactive
@@ -531,9 +531,9 @@ type MockNode struct {
 	wgPrepare *sync.WaitGroup // wg to wait before returning
 	nPrepare  uint32          // call counter
 
-	erAddRange error
-	wgAddRange *sync.WaitGroup
-	nAddRange  uint32
+	erActivate error
+	wgActivate *sync.WaitGroup
+	nActivate  uint32
 
 	erDeactivate error
 	wgDeactivate *sync.WaitGroup
@@ -550,10 +550,10 @@ func (n *MockNode) Prepare(m api.Meta, p []api.Parent) error {
 	return n.erPrepare
 }
 
-func (n *MockNode) AddRange(rID api.RangeID) error {
-	atomic.AddUint32(&n.nAddRange, 1)
-	n.wgAddRange.Wait()
-	return n.erAddRange
+func (n *MockNode) Activate(rID api.RangeID) error {
+	atomic.AddUint32(&n.nActivate, 1)
+	n.wgActivate.Wait()
+	return n.erActivate
 }
 
 func (n *MockNode) Deactivate(rID api.RangeID) error {

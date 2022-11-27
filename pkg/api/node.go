@@ -17,8 +17,8 @@ type Node interface {
 	// Prepare.
 	Prepare(m Meta, p []Parent) error
 
-	// AddRange
-	AddRange(rID RangeID) error
+	// Activate
+	Activate(rID RangeID) error
 
 	// Deactivate
 	Deactivate(rID RangeID) error

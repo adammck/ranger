@@ -59,7 +59,7 @@ func (n *Node) Prepare(rm api.Meta, parents []api.Parent) error {
 	}
 
 	// TODO: Ideally we would perform most of the fetch here, and only exchange
-	//       the delta (keys which have changed since then) in AddRange.
+	//       the delta (keys which have changed since then) in Activate.
 
 	n.ranges[rm.Ident] = &Range{
 		data:     map[string][]byte{},
@@ -70,8 +70,8 @@ func (n *Node) Prepare(rm api.Meta, parents []api.Parent) error {
 	return nil
 }
 
-// AddRange:
-func (n *Node) AddRange(rID api.RangeID) error {
+// Activate:
+func (n *Node) Activate(rID api.RangeID) error {
 	if err := n.performChaos(); err != nil {
 		return err
 	}
@@ -80,7 +80,7 @@ func (n *Node) AddRange(rID api.RangeID) error {
 	r, ok := n.ranges[rID]
 	n.rangesMu.RUnlock()
 	if !ok {
-		panic("rangelet called AddRange with unknown range!")
+		panic("rangelet called Activate with unknown range!")
 	}
 
 	err := r.fetcher.Fetch(r)

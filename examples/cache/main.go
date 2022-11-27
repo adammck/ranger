@@ -219,7 +219,7 @@ func (n *Node) Prepare(rm api.Meta, parents []api.Parent) error {
 	return nil
 }
 
-func (n *Node) AddRange(rID api.RangeID) error {
+func (n *Node) Activate(rID api.RangeID) error {
 	return nil
 }
 
