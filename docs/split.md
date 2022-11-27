@@ -3,124 +3,124 @@
 When a range (1) is assigned to a node (a), and we want to split it into two
 separate ranges (2, 3) assigned to different nodes (b, c), we **split** it.
 
-1. PrepareAddRange
-   1. PrepareAddRange(b, 2)
-   2. PrepareAddRange(c, 3)
-2. PrepareDropRange(a, 1)
-3. AddRange
-   1. AddRange(b, 2)
-   2. AddRange(c, 3)
-4. DropRange(a, 1)
+1. Prepare
+   1. Prepare(b, 2)
+   2. Prepare(c, 3)
+2. Deactivate(a, 1)
+3. Activate
+   1. Activate(b, 2)
+   2. Activate(c, 3)
+4. Drop(a, 1)
 
 [_TestSplit_](https://cs.github.com/adammck/ranger?q=symbol%3ATestSplit)
 
 ## Failures
 
-If any of the PrepareAddRange commands in step 1 fail, just destroy the failed
+If any of the Prepare commands in step 1 fail, just destroy the failed
 placement(s) and try again on some other node. The predecessor range is still
-Ready, so there is no particular harm in waiting while we try again.
+active, so there is no particular harm in waiting while we try again.
 
-1. <strike>PrepareAddRange</strike>
-   1. <strike>PrepareAddRange(b, 2)</strike>
-   2. <strike>PrepareAddRange(c, 3)</strike>
-1. PrepareAddRange (retry)
-   1. PrepareAddRange(d, 2)
-   2. PrepareAddRange(e, 3)
-
-or
-
-1. <strike>PrepareAddRange</strike>
-   1. <strike>PrepareAddRange(b, 2)</strike>
-   2. PrepareAddRange(c, 3)
-2. PrepareAddRange (retry)
-   1. PrepareAddRange(d, 2)
+1. <strike>Prepare</strike>
+   1. <strike>Prepare(b, 2)</strike>
+   2. <strike>Prepare(c, 3)</strike>
+1. Prepare (retry)
+   1. Prepare(d, 2)
+   2. Prepare(e, 3)
 
 or
 
-1. <strike>PrepareAddRange</strike>
-   1. PrepareAddRange(b, 2)
-   2. <strike>PrepareAddRange(c, 3)</strike>
-2. PrepareAddRange (retry)
-   1. PrepareAddRange(d, 3)
+1. <strike>Prepare</strike>
+   1. <strike>Prepare(b, 2)</strike>
+   2. Prepare(c, 3)
+2. Prepare (retry)
+   1. Prepare(d, 2)
 
-[_TestSplitFailure_PrepareAddRange_](https://cs.github.com/adammck/ranger?q=symbol%3ATestSplitFailure_PrepareAddRange)
+or
+
+1. <strike>Prepare</strike>
+   1. Prepare(b, 2)
+   2. <strike>Prepare(c, 3)</strike>
+2. Prepare (retry)
+   1. Prepare(d, 3)
+
+[_TestSplitFailure_Prepare_](https://cs.github.com/adammck/ranger?q=symbol%3ATestSplitFailure_Prepare)
 
 Note that cancellation isn't currently part of the Rangelet API (because the
 command methods don't include a context param), so we have to dumbly wait until
-both sides complete their PrepareAddRange before we can proceed, even if one
-fails fast. Not a huge deal, but pointless work.
+both sides complete their Prepare before we can proceed, even if one fails fast.
+Not a huge deal, but pointless work.
 
 ---
 
-If step 2 fails -- the source placement failed to PrepareDropRange -- just retry
+If step 2 fails -- the source placement failed to Deactivate -- just retry
 forever (and probably alert an operator). This isn't an emergency (the source
 placement is still ready), but indicates that something is quite broken.
 
-1. PrepareAddRange
-   1. PrepareAddRange(b, 2)
-   2. PrepareAddRange(c, 3)
-2. <strike>PrepareDropRange(a, 1)</strike>
-3. PrepareDropRange(a, 1) (retry)
+1. Prepare
+   1. Prepare(b, 2)
+   2. Prepare(c, 3)
+2. <strike>Deactivate(a, 1)</strike>
+3. Deactivate(a, 1) (retry)
 
 
-[_TestSplitFailure_PrepareDropRange_](https://cs.github.com/adammck/ranger?q=symbol%3ATestSplitFailure_PrepareDropRange)
+[_TestSplitFailure_Deactivate_](https://cs.github.com/adammck/ranger?q=symbol%3ATestSplitFailure_Deactivate)
 
 ---
 
-If step 3 fails, prepareDrop any destination placements which became ready (i.e.
-the ones which _didn't_ fail), revert the source placement to ready, drop the
-placements which failed to become ready, and retry their placement.
+If step 3 fails, deactivate any destination placements which became ready (i.e.
+the ones which _didn't_ fail), reactivate the source placement, drop the
+placements which failed to activate, and retry their placement.
 
-1. PrepareAddRange
-   1. PrepareAddRange(b, 2)
-   2. PrepareAddRange(c, 3)
-2. PrepareDropRange(a, 1)
-3. <strike>AddRange</strike>
-   1. <strike>AddRange(b, 2)</strike>
-   2. <strike>AddRange(c, 3)</strike>
-4. AddRange(a, 1)
-5. DropRange
-   1. DropRange(b, 2)
-   2. DropRange(c, 3)
-6. PrepareAddRange (retry)
-   1. PrepareAddRange(d, 2)
-   2. PrepareAddRange(e, 3)
-
-or
-
-1. PrepareAddRange
-   1. PrepareAddRange(b, 2)
-   2. PrepareAddRange(c, 3)
-2. PrepareDropRange(a, 1)
-3. <strike>AddRange</strike>
-   1. <strike>AddRange(b, 2)</strike>
-   2. AddRange(c, 3)
-4. PrepareDropRange
-   1. PrepareDropRange(c, 3)
-5. AddRange(a, 1)
-6. DropRange
-   1. DropRange(b, 2)
-7. PrepareAddRange (retry)
-   1. PrepareAddRange(d, 2)
+1. Prepare
+   1. Prepare(b, 2)
+   2. Prepare(c, 3)
+2. Deactivate(a, 1)
+3. <strike>Activate</strike>
+   1. <strike>Activate(b, 2)</strike>
+   2. <strike>Activate(c, 3)</strike>
+4. Activate(a, 1)
+5. Drop
+   1. Drop(b, 2)
+   2. Drop(c, 3)
+6. Prepare (retry)
+   1. Prepare(d, 2)
+   2. Prepare(e, 3)
 
 or
 
-1. PrepareAddRange
-   1. PrepareAddRange(b, 2)
-   2. PrepareAddRange(c, 3)
-2. PrepareDropRange(a, 1)
-3. <strike>AddRange</strike>
-   1. AddRange(b, 2)
-   2. <strike>AddRange(c, 3)</strike>
-4. PrepareDropRange
-   1. PrepareDropRange(b, 2)
-5. AddRange(a, 1)
-6. DropRange
-   1. DropRange(c, 3)
-7. PrepareAddRange (retry)
-   1. PrepareAddRange(c, 3)
+1. Prepare
+   1. Prepare(b, 2)
+   2. Prepare(c, 3)
+2. Deactivate(a, 1)
+3. <strike>Activate</strike>
+   1. <strike>Activate(b, 2)</strike>
+   2. Activate(c, 3)
+4. Deactivate
+   1. Deactivate(c, 3)
+5. Activate(a, 1)
+6. Drop
+   1. Drop(b, 2)
+7. Prepare (retry)
+   1. Prepare(d, 2)
 
-[_TestSplitFailure_AddRange_](https://cs.github.com/adammck/ranger?q=symbol%3ATestSplitFailure_AddRange)
+or
+
+1. Prepare
+   1. Prepare(b, 2)
+   2. Prepare(c, 3)
+2. Deactivate(a, 1)
+3. <strike>Activate</strike>
+   1. Activate(b, 2)
+   2. <strike>Activate(c, 3)</strike>
+4. Deactivate
+   1. Deactivate(b, 2)
+5. Activate(a, 1)
+6. Drop
+   1. Drop(c, 3)
+7. Prepare (retry)
+   1. Prepare(c, 3)
+
+[_TestSplitFailure_Activate_](https://cs.github.com/adammck/ranger?q=symbol%3ATestSplitFailure_Activate)
 
 This one is probably the most complex to recover from.
 
@@ -128,13 +128,13 @@ This one is probably the most complex to recover from.
 
 If step 4 fails, do nothing but keep trying forever:
 
-1. PrepareAddRange
-   1. PrepareAddRange(b, 2)
-   2. PrepareAddRange(c, 3)
-2. PrepareDropRange(a, 1)
-3. AddRange
-   1. AddRange(b, 2)
-   2. AddRange(c, 3)
-4. <strike>DropRange(a, 1)</strike>
+1. Prepare
+   1. Prepare(b, 2)
+   2. Prepare(c, 3)
+2. Deactivate(a, 1)
+3. Activate
+   1. Activate(b, 2)
+   2. Activate(c, 3)
+4. <strike>Drop(a, 1)</strike>
 
-[_TestSplitFailure_DropRange_](https://cs.github.com/adammck/ranger?q=symbol%3ATestSplitFailure_DropRange)
+[_TestSplitFailure_Drop_](https://cs.github.com/adammck/ranger?q=symbol%3ATestSplitFailure_Drop)
