@@ -21,7 +21,7 @@ import (
 type Action uint8
 
 const (
-	PrepareAddRange Action = iota
+	Prepare Action = iota
 	AddRange
 	PrepareDropRange
 	DropRange
@@ -51,7 +51,7 @@ type TestNode struct {
 	rpcsMu sync.Mutex
 
 	// Barriers to block on in the middle of range state changes. This allows
-	// tests to control exactly how long the interface methods (PrepareAddRange,
+	// tests to control exactly how long the interface methods (Prepare,
 	// AddRange, etc) take to return.
 	barriers map[api.RangeID]*stateTransition
 	muBar    sync.Mutex
@@ -147,8 +147,8 @@ func (n *TestNode) GetLoadInfo(rID api.RangeID) (api.LoadInfo, error) {
 	return li, nil
 }
 
-func (n *TestNode) PrepareAddRange(m api.Meta, p []api.Parent) error {
-	return n.transition(m.Ident, PrepareAddRange)
+func (n *TestNode) Prepare(m api.Meta, p []api.Parent) error {
+	return n.transition(m.Ident, Prepare)
 }
 
 func (n *TestNode) AddRange(rID api.RangeID) error {

@@ -215,10 +215,9 @@ func isRecalling(parents, children []*ranje.Range) bool {
 		}
 	}
 
-	// What of FailedGive (or FailedPrepareAddRange, or FailedLoad or whatever
-	// I'm calling it today), and of FailedDrop?
+	// What of FailedPrepare and of FailedDrop?
 	//
-	// Firstly, there is no FailedGive; the placement is just destroyed if it
+	// Firstly, there is no FailedPrepare; the placement is just destroyed if it
 	// isn't accepted by the node. Secondly, even if there were, we don't have
 	// to roll anything back to handle it. Placement happens before the parent
 	// ranges are deactivated, so can be re-tried as many times as necessary

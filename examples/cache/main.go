@@ -215,7 +215,7 @@ func (n *Node) GetLoadInfo(rID api.RangeID) (api.LoadInfo, error) {
 	return api.LoadInfo{}, nil
 }
 
-func (n *Node) PrepareAddRange(rm api.Meta, parents []api.Parent) error {
+func (n *Node) Prepare(rm api.Meta, parents []api.Parent) error {
 	return nil
 }
 

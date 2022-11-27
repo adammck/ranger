@@ -13,7 +13,7 @@ message RangeMeta {
   bytes end = 3; // exclusive
 }
 
-// Sent from the controller when PrepareAddRange.
+// Sent from the controller with Prepare.
 // TODO: Should include the placement index in here, so the node can verify that
 //       the controller is talking about the same placement when it sees
 //       duplicates. Just in case the controller has gone mad and is trying to

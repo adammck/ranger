@@ -46,9 +46,9 @@ const noStrictTransactions = false
 //           code changes compared to Short, but we want to be sure that there
 //           aren't a bunch of unexpected intermediate states along the way.
 //
-// - Slow: Same as Normal, except that command RPCs (PrepareAddRange, etc) all
-//         take longer than the grace period, and so we see the intermediate
-//         remote states (NsLoading, etc).
+// - Slow: Same as Normal, except that command RPCs (Prepare, etc) all take
+//         longer than the grace period, and so we see the intermediate remote
+//         states (NsLoading, etc).
 //
 // In addition to the happy path, we want to test what happens when each of the
 // commands (as detailed in the Normal variant, above) fails. Take a look in the
@@ -168,7 +168,7 @@ func TestPlace_Slow(t *testing.T) {
 	requireStable(t, orch, act)
 }
 
-func TestPlaceFailure_PrepareAddRange_Short(t *testing.T) {
+func TestPlaceFailure_Prepare_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []} {test-bbb []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
@@ -204,7 +204,7 @@ func TestPlaceFailure_AddRange(t *testing.T) {
 	// (But Give will succeed, as is the default)
 	inject(t, act, "test-aaa", 1, api.Serve).Failure()
 
-	// 1. PrepareAddRange(1, aaa)
+	// 1. Prepare(1, aaa)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Give(R1, test-aaa)", commands(t, act))
@@ -241,7 +241,7 @@ func TestPlaceFailure_AddRange(t *testing.T) {
 	require.Equal(t, "{1 [-inf, +inf] RsActive}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa []} {test-bbb []}", orch.rost.TestString())
 
-	// 4. PrepareAddRange(1, bbb)
+	// 4. Prepare(1, bbb)
 	// 5. AddRange(1, bbb)
 
 	tickUntilStable(t, orch, act)
@@ -461,7 +461,7 @@ func TestMove_Slow(t *testing.T) {
 	requireStable(t, orch, act)
 }
 
-func TestMoveFailure_PrepareAddRange(t *testing.T) {
+func TestMoveFailure_Prepare(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
@@ -499,7 +499,7 @@ func TestMoveFailure_PrepareDropRange(t *testing.T) {
 	inject(t, act, "test-aaa", 1, api.Take).Failure()
 	moveOp(orch, 1, "test-bbb")
 
-	// 1. Node B gets PrepareAddRange to verify that it can take the shard. This
+	// 1. Node B gets Prepare to verify that it can take the shard. This
 	//    succeeds (because nothing has failed yet).
 
 	tickWait(t, orch, act)
@@ -670,7 +670,7 @@ func TestSplit(t *testing.T) {
 
 	opErr := splitOp(orch, 1)
 
-	// 1. PrepareAddRange
+	// 1. Prepare
 
 	tickWait(t, orch, act)
 	assert.Empty(t, commands(t, act))
@@ -917,14 +917,14 @@ func TestSplit_Slow(t *testing.T) {
 	assertClosed(t, opErr)
 }
 
-func TestSplitFailure_PrepareAddRange(t *testing.T) {
+func TestSplitFailure_Prepare(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 	inject(t, act, "test-bbb", 2, api.Give).Failure()
 	splitOp(orch, 1)
 
-	// 1. PrepareAddRange
+	// 1. Prepare
 
 	tickWait(t, orch, act)
 	assert.Empty(t, commands(t, act))
@@ -954,7 +954,7 @@ func TestSplitFailure_PrepareAddRange(t *testing.T) {
 	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [3:NsInactive]} {test-ccc []}", orch.rost.TestString())
 
-	// 2. PrepareAddRange (retry on ccc)
+	// 2. Prepare (retry on ccc)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "{Split 1 -> 2,3}", OpsString(orch.ks))
@@ -1019,7 +1019,7 @@ func TestSplitFailure_AddRange(t *testing.T) {
 	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsPending} {3 (ccc, +inf] RsActive p0=test-bbb:PsPending}", orch.ks.LogString())
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}", orch.rost.TestString())
 
-	// 1. PrepareAddRange
+	// 1. Prepare
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Give(R2, test-bbb), Give(R3, test-bbb)", commands(t, act))
@@ -1106,7 +1106,7 @@ func TestSplitFailure_AddRange(t *testing.T) {
 	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [3:NsInactive]} {test-ccc []}", orch.rost.TestString())
 	require.Equal(t, "{Split 1 -> 2,3}", OpsString(orch.ks))
 
-	// 7. PrepareAddRange (retry)
+	// 7. Prepare (retry)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "Give(R2, test-ccc)", commands(t, act))
@@ -1301,7 +1301,7 @@ func TestJoin_Slow(t *testing.T) {
 	assertClosed(t, opErr)
 }
 
-func TestJoinFailure_PrepareAddRange(t *testing.T) {
+func TestJoinFailure_Prepare(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []} {test-ddd []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
@@ -1311,7 +1311,7 @@ func TestJoinFailure_PrepareAddRange(t *testing.T) {
 
 	_ = joinOp(orch, 1, 2, "test-ccc")
 
-	// 1. PrepareAddRange
+	// 1. Prepare
 	// Makes three attempts.
 
 	for attempt := 1; attempt <= 3; attempt++ {

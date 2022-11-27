@@ -44,8 +44,8 @@ func (n *Node) GetLoadInfo(rID api.RangeID) (api.LoadInfo, error) {
 	}, nil
 }
 
-// PrepareAddRange: Create the range, but don't do anything with it yet.
-func (n *Node) PrepareAddRange(rm api.Meta, parents []api.Parent) error {
+// Prepare: Create the range, but don't do anything with it yet.
+func (n *Node) Prepare(rm api.Meta, parents []api.Parent) error {
 	if err := n.performChaos(); err != nil {
 		return err
 	}

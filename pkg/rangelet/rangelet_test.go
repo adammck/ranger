@@ -19,7 +19,7 @@ const tick = 10 * time.Millisecond
 
 func Setup() (*MockNode, *Rangelet) {
 	n := &MockNode{
-		wgPrepareAddRange:  &sync.WaitGroup{},
+		wgPrepare:          &sync.WaitGroup{},
 		wgAddRange:         &sync.WaitGroup{},
 		wgPrepareDropRange: &sync.WaitGroup{},
 		wgDropRange:        &sync.WaitGroup{},
@@ -60,8 +60,8 @@ func TestGiveSlow(t *testing.T) {
 	m := api.Meta{Ident: 1}
 	p := []api.Parent{}
 
-	// PrepareAddRange will block.
-	n.wgPrepareAddRange.Add(1)
+	// Prepare will block.
+	n.wgPrepare.Add(1)
 
 	for i := 0; i < 2; i++ {
 		ri, err := rglt.give(m, p)
@@ -70,15 +70,15 @@ func TestGiveSlow(t *testing.T) {
 		assert.Equal(t, api.NsLoading, ri.State)
 	}
 
-	called := atomic.LoadUint32(&n.nPrepareAddRange)
+	called := atomic.LoadUint32(&n.nPrepare)
 	assert.Equal(t, uint32(1), called)
 
 	ri, ok := rglt.rangeInfo(m.Ident)
 	require.True(t, ok)
 	assert.Equal(t, api.NsLoading, ri.State)
 
-	// Unblock PrepareAddRange.
-	n.wgPrepareAddRange.Done()
+	// Unblock Prepare.
+	n.wgPrepare.Done()
 
 	// Wait until range exists.
 	assert.Eventually(t, func() bool {
@@ -100,7 +100,7 @@ func TestGiveSlow(t *testing.T) {
 
 func TestGiveErrorFast(t *testing.T) {
 	n, rglt := Setup()
-	n.erPrepareAddRange = errors.New("error from PrepareAddRange")
+	n.erPrepare = errors.New("error from Prepare")
 
 	m := api.Meta{Ident: 1}
 	p := []api.Parent{}
@@ -122,12 +122,12 @@ func TestGiveErrorSlow(t *testing.T) {
 	m := api.Meta{Ident: 1}
 	p := []api.Parent{}
 
-	// PrepareAddRange will block, then return an error.
-	n.erPrepareAddRange = errors.New("error from PrepareAddRange")
-	n.wgPrepareAddRange.Add(1)
+	// Prepare will block, then return an error.
+	n.erPrepare = errors.New("error from Prepare")
+	n.wgPrepare.Add(1)
 
 	// Give the range. Even though the client will eventually return error from
-	// PrepareAddRange, the outer call (give succeeds because it will exceed the
+	// Prepare, the outer call (give succeeds because it will exceed the
 	// grace period and respond with Loading.
 	for i := 0; i < 2; i++ {
 		ri, err := rglt.give(m, p)
@@ -136,13 +136,13 @@ func TestGiveErrorSlow(t *testing.T) {
 		assert.Equal(t, api.NsLoading, ri.State)
 	}
 
-	called := atomic.LoadUint32(&n.nPrepareAddRange)
+	called := atomic.LoadUint32(&n.nPrepare)
 	assert.Equal(t, uint32(1), called)
 
-	// Unblock PrepareAddRange.
-	n.wgPrepareAddRange.Done()
+	// Unblock Prepare.
+	n.wgPrepare.Done()
 
-	// Wait until range vanishes (because PrepareAddRange returned error).
+	// Wait until range vanishes (because Prepare returned error).
 	require.Eventually(t, func() bool {
 		_, ok := rglt.rangeInfo(m.Ident)
 		return !ok
@@ -527,9 +527,9 @@ func TestDropErrorSlow(t *testing.T) {
 // ----
 
 type MockNode struct {
-	erPrepareAddRange error           // error to return
-	wgPrepareAddRange *sync.WaitGroup // wg to wait before returning
-	nPrepareAddRange  uint32          // call counter
+	erPrepare error           // error to return
+	wgPrepare *sync.WaitGroup // wg to wait before returning
+	nPrepare  uint32          // call counter
 
 	erAddRange error
 	wgAddRange *sync.WaitGroup
@@ -544,10 +544,10 @@ type MockNode struct {
 	nDropRange  uint32
 }
 
-func (n *MockNode) PrepareAddRange(m api.Meta, p []api.Parent) error {
-	atomic.AddUint32(&n.nPrepareAddRange, 1)
-	n.wgPrepareAddRange.Wait()
-	return n.erPrepareAddRange
+func (n *MockNode) Prepare(m api.Meta, p []api.Parent) error {
+	atomic.AddUint32(&n.nPrepare, 1)
+	n.wgPrepare.Wait()
+	return n.erPrepare
 }
 
 func (n *MockNode) AddRange(rID api.RangeID) error {

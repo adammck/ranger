@@ -13,12 +13,12 @@ type Node interface {
 
 	// GetLoadInfo returns the LoadInfo for the given range.
 	// Implementations should return NotFound if (from their point of view) the
-	// range doesn't exist. This can happen when GetLoadInfo and PrepareAddRange
-	// and/or DropRange are racing.
+	// range doesn't exist. This can happen when GetLoadInfo and Prepare and/or
+	// DropRange are racing.
 	GetLoadInfo(rID RangeID) (LoadInfo, error)
 
-	// PrepareAddRange.
-	PrepareAddRange(m Meta, p []Parent) error
+	// Prepare.
+	Prepare(m Meta, p []Parent) error
 
 	// AddRange
 	AddRange(rID RangeID) error

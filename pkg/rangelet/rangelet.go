@@ -104,8 +104,8 @@ func (r *Rangelet) runThenUpdateState(rID api.RangeID, old api.RemoteState, succ
 	ri.State = s
 
 	// Special case: Ranges are never actually in NotFound; it's a signal to
-	// delete them. This happens when a PrepareAddRange fails, or a DropRange
-	// succeeds; either way, the range is gone.
+	// delete them. This happens when a Prepare fails, or a DropRange succeeds;
+	// either way, the range is gone.
 	if ri.State == api.NsNotFound {
 		delete(r.info, rID)
 	}
@@ -143,12 +143,12 @@ func (r *Rangelet) give(rm api.Meta, parents []api.Parent) (api.RangeInfo, error
 
 	withTimeout(r.gracePeriod, func() {
 		r.runThenUpdateState(rID, api.NsLoading, api.NsInactive, api.NsNotFound, func() error {
-			return r.n.PrepareAddRange(rm, parents)
+			return r.n.Prepare(rm, parents)
 		})
 	})
 
-	// PrepareAddRange either completed, or is still running but we don't want
-	// to wait any longer. Fetch infos again to find out.
+	// Prepare either completed, or is still running but we don't want to wait
+	// any longer. Fetch infos again to find out.
 	r.Lock()
 	defer r.Unlock()
 	ri, ok = r.info[rID]
@@ -314,7 +314,7 @@ func (r *Rangelet) Find(k api.Key) (api.RangeID, bool) {
 
 		// Play dumb in some cases: a range can be known to the rangelet but
 		// unknown to the client, in these states. (Find might have been called
-		// before PrepareAddRange has returned, or while DropRange is still in
+		// before Prepare has returned, or while DropRange is still in
 		// progress.) The client should check the state anyway, but this makes
 		// the contract simpler.
 		if ri.State == api.NsLoading || ri.State == api.NsDropping {
@@ -371,7 +371,7 @@ func (r *Rangelet) gatherLoadInfo() error {
 
 		if err == api.ErrNotFound {
 			// No problem. The Rangelet knows about this range, but the client
-			// doesn't, for whatever reason. Probably racing PrepareAddRange.
+			// doesn't, for whatever reason. Probably racing Prepare.
 			continue
 
 		} else if err != nil {
