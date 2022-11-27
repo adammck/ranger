@@ -36,9 +36,9 @@ func (a *Actuator) Command(cmd api.Command, p *ranje.Placement, n *roster.Node) 
 		return err
 	}
 
-	// TODO: This special case is weird. It was less so when Give was a
+	// TODO: This special case is weird. It was less so when Prepare was a
 	//       separate method. Think about it or something.
-	if cmd.Action == api.Give {
+	if cmd.Action == api.Prepare {
 		n.UpdateRangeInfo(&api.RangeInfo{
 			Meta:  p.Range().Meta,
 			State: s,
@@ -59,13 +59,13 @@ func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (a
 	var err error
 
 	switch action {
-	case api.Give:
+	case api.Prepare:
 		s, err = give(ctx, n, p, util.GetParents(a.rg, a.ng, p.Range()))
 
-	case api.Serve:
+	case api.Activate:
 		s, err = serve(ctx, n, p)
 
-	case api.Take:
+	case api.Deactivate:
 		s, err = take(ctx, n, p)
 
 	case api.Drop:
@@ -84,13 +84,13 @@ func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (a
 }
 
 func give(ctx context.Context, n *roster.Node, p *ranje.Placement, parents []*pb.Parent) (pb.RangeNodeState, error) {
-	req := &pb.GiveRequest{
+	req := &pb.PrepareRequest{
 		Range:   conv.MetaToProto(p.Range().Meta),
 		Parents: parents,
 	}
 
 	// TODO: Retry a few times before giving up.
-	res, err := n.Client.Give(ctx, req)
+	res, err := n.Client.Prepare(ctx, req)
 	if err != nil {
 		return pb.RangeNodeState_UNKNOWN, err
 	}
@@ -105,7 +105,7 @@ func serve(ctx context.Context, n *roster.Node, p *ranje.Placement) (pb.RangeNod
 	}
 
 	// TODO: Retry a few times before giving up.
-	res, err := n.Client.Serve(ctx, req)
+	res, err := n.Client.Activate(ctx, req)
 	if err != nil {
 		return pb.RangeNodeState_UNKNOWN, err
 	}
@@ -115,12 +115,12 @@ func serve(ctx context.Context, n *roster.Node, p *ranje.Placement) (pb.RangeNod
 
 func take(ctx context.Context, n *roster.Node, p *ranje.Placement) (pb.RangeNodeState, error) {
 	rID := p.Range().Meta.Ident
-	req := &pb.TakeRequest{
+	req := &pb.DeactivateRequest{
 		Range: conv.RangeIDToProto(rID),
 	}
 
 	// TODO: Retry a few times before giving up.
-	res, err := n.Client.Take(ctx, req)
+	res, err := n.Client.Deactivate(ctx, req)
 	if err != nil {
 		return pb.RangeNodeState_UNKNOWN, err
 	}

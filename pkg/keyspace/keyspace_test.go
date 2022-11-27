@@ -444,14 +444,14 @@ func TestPlacementMayBecomeReady(t *testing.T) {
 	}
 }
 
-func TestPlacementMayBeTaken(t *testing.T) {
+func TestPlacementMayBeDeactivated(t *testing.T) {
 	examples := []struct {
 		name   string
 		input  []*ranje.Range
 		output [][]string
 	}{
 		{
-			name: "ready with no replacement",
+			name: "active with no replacement",
 			input: []*ranje.Range{
 				{
 					State:      api.RsActive,

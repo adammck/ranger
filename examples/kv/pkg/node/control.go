@@ -44,8 +44,8 @@ func (n *Node) GetLoadInfo(rID api.RangeID) (api.LoadInfo, error) {
 	}, nil
 }
 
-// PrepareAddRange: Create the range, but don't do anything with it yet.
-func (n *Node) PrepareAddRange(rm api.Meta, parents []api.Parent) error {
+// Prepare: Create the range, but don't do anything with it yet.
+func (n *Node) Prepare(rm api.Meta, parents []api.Parent) error {
 	if err := n.performChaos(); err != nil {
 		return err
 	}
@@ -59,7 +59,7 @@ func (n *Node) PrepareAddRange(rm api.Meta, parents []api.Parent) error {
 	}
 
 	// TODO: Ideally we would perform most of the fetch here, and only exchange
-	//       the delta (keys which have changed since then) in AddRange.
+	//       the delta (keys which have changed since then) in Activate.
 
 	n.ranges[rm.Ident] = &Range{
 		data:     map[string][]byte{},
@@ -70,8 +70,8 @@ func (n *Node) PrepareAddRange(rm api.Meta, parents []api.Parent) error {
 	return nil
 }
 
-// AddRange:
-func (n *Node) AddRange(rID api.RangeID) error {
+// Activate:
+func (n *Node) Activate(rID api.RangeID) error {
 	if err := n.performChaos(); err != nil {
 		return err
 	}
@@ -80,7 +80,7 @@ func (n *Node) AddRange(rID api.RangeID) error {
 	r, ok := n.ranges[rID]
 	n.rangesMu.RUnlock()
 	if !ok {
-		panic("rangelet called AddRange with unknown range!")
+		panic("rangelet called Activate with unknown range!")
 	}
 
 	err := r.fetcher.Fetch(r)
@@ -94,10 +94,10 @@ func (n *Node) AddRange(rID api.RangeID) error {
 	return nil
 }
 
-// PrepareDropRange: Disable writes to the range, because we're about to move
-// it and I don't have the time to implement something better today. In this
-// example, keys are writable on exactly one node. (Or zero, during failures!)
-func (n *Node) PrepareDropRange(rID api.RangeID) error {
+// Deactivate: Disable writes to the range, because we're about to move it and I
+// don't have the time to implement something better today. In this example,
+// keys are writable on exactly one node. (Or zero, during failures!)
+func (n *Node) Deactivate(rID api.RangeID) error {
 	if err := n.performChaos(); err != nil {
 		return err
 	}
@@ -107,7 +107,7 @@ func (n *Node) PrepareDropRange(rID api.RangeID) error {
 
 	r, ok := n.ranges[rID]
 	if !ok {
-		panic("rangelet called PrepareDropRange with unknown range!")
+		panic("rangelet called Deactivate with unknown range!")
 	}
 
 	// Prevent further writes to the range.
@@ -116,8 +116,8 @@ func (n *Node) PrepareDropRange(rID api.RangeID) error {
 	return nil
 }
 
-// DropRange: Discard the range.
-func (n *Node) DropRange(rID api.RangeID) error {
+// Drop: Discard the range.
+func (n *Node) Drop(rID api.RangeID) error {
 	if err := n.performChaos(); err != nil {
 		return err
 	}
@@ -127,7 +127,7 @@ func (n *Node) DropRange(rID api.RangeID) error {
 
 	_, ok := n.ranges[rID]
 	if !ok {
-		panic("rangelet called DropRange with unknown range!")
+		panic("rangelet called Drop with unknown range!")
 	}
 
 	delete(n.ranges, rID)

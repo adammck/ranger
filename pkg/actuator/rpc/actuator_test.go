@@ -22,7 +22,7 @@ import (
 	"gotest.tools/assert/cmp"
 )
 
-func TestGive(t *testing.T) {
+func TestPrepare(t *testing.T) {
 	h := setup(t)
 	p := getPlacement(t, h.rangeGetter, 2, 0)
 	n, err := h.nodeGetter.NodeByIdent("node-aaa")
@@ -31,7 +31,7 @@ func TestGive(t *testing.T) {
 	cmd := api.Command{
 		RangeIdent: 2,
 		NodeIdent:  "node-aaa",
-		Action:     api.Give,
+		Action:     api.Prepare,
 	}
 
 	// success
@@ -39,8 +39,8 @@ func TestGive(t *testing.T) {
 	err = h.actuator.Command(cmd, p, n)
 	assert.NilError(t, err)
 
-	assert.Assert(t, h.node.giveReq != nil)
-	assert.DeepEqual(t, pb.GiveRequest{
+	assert.Assert(t, h.node.prepareReq != nil)
+	assert.DeepEqual(t, pb.PrepareRequest{
 		Range: &pb.RangeMeta{
 			Ident: 2,
 			End:   []byte("ccc"),
@@ -72,11 +72,11 @@ func TestGive(t *testing.T) {
 				},
 			},
 		},
-	}, h.node.giveReq, protocmp.Transform())
+	}, h.node.prepareReq, protocmp.Transform())
 
 	// error
 
-	h.node.giveErr = status.Errorf(codes.InvalidArgument, "injected")
+	h.node.prepareErr = status.Errorf(codes.InvalidArgument, "injected")
 
 	err = h.actuator.Command(cmd, p, n)
 	assert.Error(t, err, "rpc error: code = InvalidArgument desc = injected")
@@ -91,7 +91,7 @@ func TestServe(t *testing.T) {
 	cmd := api.Command{
 		RangeIdent: 3,
 		NodeIdent:  "node-aaa",
-		Action:     api.Serve,
+		Action:     api.Activate,
 	}
 
 	// success
@@ -113,7 +113,7 @@ func TestServe(t *testing.T) {
 	assert.Error(t, err, "rpc error: code = FailedPrecondition desc = injected")
 }
 
-func TestTake(t *testing.T) {
+func TestDeactivate(t *testing.T) {
 	h := setup(t)
 	p := getPlacement(t, h.rangeGetter, 3, 0)
 	n, err := h.nodeGetter.NodeByIdent("node-aaa")
@@ -122,7 +122,7 @@ func TestTake(t *testing.T) {
 	cmd := api.Command{
 		RangeIdent: 3,
 		NodeIdent:  "node-aaa",
-		Action:     api.Take,
+		Action:     api.Deactivate,
 	}
 
 	// success
@@ -131,7 +131,7 @@ func TestTake(t *testing.T) {
 	assert.NilError(t, err)
 
 	assert.Assert(t, h.node.takeReq != nil)
-	assert.DeepEqual(t, pb.TakeRequest{
+	assert.DeepEqual(t, pb.DeactivateRequest{
 		Range: 3,
 	}, h.node.takeReq, protocmp.Transform())
 
@@ -243,27 +243,27 @@ func (rg *FakeNodeGetter) NodeByIdent(nID api.NodeID) (*roster.Node, error) {
 type NodeServer struct {
 	pb.UnsafeNodeServer
 
-	giveErr error
-	giveReq *pb.GiveRequest
+	prepareErr error
+	prepareReq *pb.PrepareRequest
 
 	serveReq *pb.ServeRequest
 	serveErr error
 
-	takeReq *pb.TakeRequest
+	takeReq *pb.DeactivateRequest
 	takeErr error
 
 	dropReq *pb.DropRequest
 	dropErr error
 }
 
-func (ns *NodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveResponse, error) {
-	ns.giveReq = req
+func (ns *NodeServer) Prepare(ctx context.Context, req *pb.PrepareRequest) (*pb.PrepareResponse, error) {
+	ns.prepareReq = req
 
-	if ns.giveErr != nil {
-		return nil, ns.giveErr
+	if ns.prepareErr != nil {
+		return nil, ns.prepareErr
 	}
 
-	return &pb.GiveResponse{
+	return &pb.PrepareResponse{
 		RangeInfo: &pb.RangeInfo{
 			Meta: &pb.RangeMeta{
 				Ident: 0,
@@ -279,7 +279,7 @@ func (ns *NodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveRe
 	}, nil
 }
 
-func (ns *NodeServer) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.ServeResponse, error) {
+func (ns *NodeServer) Activate(ctx context.Context, req *pb.ServeRequest) (*pb.ServeResponse, error) {
 	ns.serveReq = req
 
 	if ns.serveErr != nil {
@@ -291,14 +291,14 @@ func (ns *NodeServer) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.Serv
 	}, nil
 }
 
-func (ns *NodeServer) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeResponse, error) {
+func (ns *NodeServer) Deactivate(ctx context.Context, req *pb.DeactivateRequest) (*pb.DeactivateResponse, error) {
 	ns.takeReq = req
 
 	if ns.takeErr != nil {
 		return nil, ns.takeErr
 	}
 
-	return &pb.TakeResponse{
+	return &pb.DeactivateResponse{
 		State: pb.RangeNodeState_INACTIVE,
 	}, nil
 }

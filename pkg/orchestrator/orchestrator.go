@@ -120,12 +120,12 @@ func (b *Orchestrator) Tick() {
 			r3.Placements = append(r3.Placements, p)
 
 			// Unlock operator RPC if applicable.
-			// Note that this will only fire if *this* placement becomes ready.
-			// If it fails, and is replaced, and that succeeds, the RPC will
-			// never unblock.
+			// Note that this will only fire if *this* placement activates. If
+			// it fails, and is replaced, and that succeeds, the RPC will never
+			// unblock.
 			//
 			// TODO: Move this to range.OnReady, which should only fire when
-			//       the minReady number of placements are ready.
+			//       the minReady number of placements are active.
 			//
 			if opJoin.Err != nil {
 				p.OnReady(func() {
@@ -388,7 +388,7 @@ func (b *Orchestrator) doMove(r *ranje.Range, opMove OpMove) error {
 		}
 
 		if src == nil {
-			return fmt.Errorf("no ready placement found (rID=%v)", r.Meta.Ident)
+			return fmt.Errorf("no active placement found (rID=%v)", r.Meta.Ident)
 		}
 	}
 
@@ -425,11 +425,11 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 	destroy = false
 
 	// Get the node that this placement is on. If the node couldn't be fetched,
-	// it's probably crashed, so move the placement to GiveUp so it's replaced.
+	// it's probably crashed, so move the placement to Missing so it's replaced.
 	n, err := b.rost.NodeByIdent(p.NodeID)
 	if err != nil {
-		if p.StateCurrent != api.PsGiveUp && p.StateCurrent != api.PsDropped {
-			b.ks.PlacementToState(p, api.PsGiveUp)
+		if p.StateCurrent != api.PsMissing && p.StateCurrent != api.PsDropped {
+			b.ks.PlacementToState(p, api.PsMissing)
 			return
 		}
 	}
@@ -480,24 +480,25 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 		// If the node already has the range (i.e. this is not the first tick
 		// where the placement is PsPending, so the RPC may already have been
 		// sent), check its remote state, which may have been updated by a
-		// response to a Give or by a periodic probe. We may be able to advance.
+		// response to a Prepare or by a periodic probe. We may be able to
+		// advance.
 		ri, ok := n.Get(p.Range().Meta.Ident)
 		if ok {
 			switch ri.State {
-			case api.NsLoading:
+			case api.NsPreparing:
 				p.Want(api.PsInactive)
 
 			case api.NsInactive:
 				b.ks.PlacementToState(p, api.PsInactive)
 
 			case api.NsNotFound:
-				// Special case: Give has already been attempted, but it failed.
-				// We can try again, same as if the placement was missing.
+				// Special case: Prepare has already been attempted, but it
+				// failed. We can try again, as if the placement was missing.
 				doPlace = true
 
 			default:
 				log.Printf("unexpected remote state: ris=%s, psc=%s", ri.State, p.StateCurrent)
-				b.ks.PlacementToState(p, api.PsGiveUp)
+				b.ks.PlacementToState(p, api.PsMissing)
 			}
 		} else {
 			doPlace = true
@@ -505,7 +506,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 
 		if doPlace {
 			p.Want(api.PsInactive)
-			if p.Failed(api.Give) {
+			if p.Failed(api.Prepare) {
 				destroy = true
 			}
 		}
@@ -516,7 +517,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 
 			// The node doesn't have the placement any more! Maybe we tried to
 			// activate it but gave up.
-			if p.Failed(api.Serve) {
+			if p.Failed(api.Activate) {
 				destroy = true
 				return
 			}
@@ -528,7 +529,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			}
 
 			// Otherwise, abort. It's been forgotten.
-			b.ks.PlacementToState(p, api.PsGiveUp)
+			b.ks.PlacementToState(p, api.PsMissing)
 			return
 		}
 
@@ -552,10 +553,10 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			return
 
 		case api.NsActivating:
-			// We've already sent the Serve RPC at least once, and the node is
-			// working on it. Just keep waiting. But send another Serve RPC to
-			// check whether it's finished and is now Ready. (Or has changed to
-			// some other state through crash or bug.)
+			// We've already sent the Activate RPC at least once, and the node
+			// is working on it. Just keep waiting. But send another Activate
+			// RPC to check whether it's finished and is now Ready. (Or has
+			// changed to some other state through crash or bug.)
 			p.Want(api.PsActive)
 
 		case api.NsDropping:
@@ -567,23 +568,23 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 
 		default:
 			log.Printf("unexpected remote state: ris=%s, psc=%s", ri.State, p.StateCurrent)
-			b.ks.PlacementToState(p, api.PsGiveUp)
+			b.ks.PlacementToState(p, api.PsMissing)
 			return
 		}
 
 	case api.PsActive:
-		doTake := false
+		doDeactivate := false
 
 		ri, ok := n.Get(p.Range().Meta.Ident)
 		if !ok {
 			// The node doesn't have the placement any more! Abort.
-			b.ks.PlacementToState(p, api.PsGiveUp)
+			b.ks.PlacementToState(p, api.PsMissing)
 			return
 		}
 
 		switch ri.State {
 		case api.NsActive:
-			doTake = true
+			doDeactivate = true
 
 		case api.NsDeactivating:
 			p.Want(api.PsInactive)
@@ -593,16 +594,16 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 
 		default:
 			log.Printf("unexpected remote state: ris=%s, psc=%s", ri.State, p.StateCurrent)
-			b.ks.PlacementToState(p, api.PsGiveUp)
+			b.ks.PlacementToState(p, api.PsMissing)
 		}
 
-		if doTake {
+		if doDeactivate {
 			if err := op.MayDeactivate(p, r); err == nil {
 				p.Want(api.PsInactive)
 			}
 		}
 
-	case api.PsGiveUp:
+	case api.PsMissing:
 		// This transition only exists to provide an error-handling path to
 		// PsDropped without sending any RPCs.
 		b.ks.PlacementToState(p, api.PsDropped)

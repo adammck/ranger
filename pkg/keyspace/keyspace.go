@@ -354,7 +354,7 @@ func (ks *Keyspace) mustPersistDirtyRanges() error {
 func (ks *Keyspace) JoinTwo(one *ranje.Range, two *ranje.Range) (*ranje.Range, error) {
 	for _, r := range []*ranje.Range{one, two} {
 		if r.State != api.RsActive {
-			return nil, errors.New("can't join non-ready ranges")
+			return nil, errors.New("can't join non-active ranges")
 		}
 
 		// This should not be possible. Panic?

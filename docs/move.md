@@ -3,10 +3,10 @@
 When a range is assigned to a node (a), and we want it to be assigned to a
 different node (b), we **move** it.
 
-1. PrepareAddRange(b)
-2. PrepareDropRange(a)
-3. AddRange(b)
-4. DropRange(a)
+1. Prepare(b)
+2. Deactivate(a)
+3. Activate(b)
+4. Drop(a)
 
 [_TestMove_](https://cs.github.com/adammck/ranger?q=symbol%3ATestMove)
 
@@ -14,40 +14,40 @@ different node (b), we **move** it.
 
 If step 1 fails, abort the move:
 
-1. <strike>PrepareAddRange(b)</strike>
+1. <strike>Prepare(b)</strike>
 
-[_TestMoveFailure_PrepareAddRange_](https://cs.github.com/adammck/ranger?q=symbol%3ATestMoveFailure_PrepareAddRange)
+[_TestMoveFailure_Prepare_](https://cs.github.com/adammck/ranger?q=symbol%3ATestMoveFailure_Prepare)
 
 ---
 
 If step 2 fails, drop the destination placement and abort the move:
 
-1. PrepareAddRange(b)
-2. <strike>PrepareDropRange(a)</strike>
-3. DropRange(b)
+1. Prepare(b)
+2. <strike>Deactivate(a)</strike>
+3. Drop(b)
 
-[_TestMoveFailure_PrepareDropRange_](https://cs.github.com/adammck/ranger?q=symbol%3ATestMoveFailure_PrepareDropRange)
+[_TestMoveFailure_Deactivate_](https://cs.github.com/adammck/ranger?q=symbol%3ATestMoveFailure_Deactivate)
 
 ---
 
-If step 3 fails, revert the source range to ready, drop the destination
+If step 3 fails, reactivate the source placement, drop the destination
 placement, and abort the move:
 
-1. PrepareAddRange(b)
-2. PrepareDropRange(a)
-3. <strike>AddRange(b)</strike>
-4. AddRange(a)
-5. DropRange(b)
+1. Prepare(b)
+2. Deactivate(a)
+3. <strike>Activate(b)</strike>
+4. Activate(a)
+5. Drop(b)
 
-[_TestMoveFailure_AddRange_](https://cs.github.com/adammck/ranger?q=symbol%3ATestMoveFailure_AddRange)
+[_TestMoveFailure_Activate_](https://cs.github.com/adammck/ranger?q=symbol%3ATestMoveFailure_Activate)
 
 ---
 
 If step 4 fails, do nothing but keep trying forever:
 
-1. PrepareAddRange(b)
-2. PrepareDropRange(a)
-3. AddRange(b)
-4. <strike>DropRange(a)</strike>
+1. Prepare(b)
+2. Deactivate(a)
+3. Activate(b)
+4. <strike>Drop(a)</strike>
 
-[_TestMoveFailure_DropRange_](https://cs.github.com/adammck/ranger?q=symbol%3ATestMoveFailure_DropRange)
+[_TestMoveFailure_Drop_](https://cs.github.com/adammck/ranger?q=symbol%3ATestMoveFailure_Drop)

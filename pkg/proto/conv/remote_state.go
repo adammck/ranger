@@ -16,8 +16,8 @@ func RemoteStateFromProto(s pb.RangeNodeState) api.RemoteState {
 		return api.NsInactive
 	case pb.RangeNodeState_ACTIVE:
 		return api.NsActive
-	case pb.RangeNodeState_LOADING:
-		return api.NsLoading
+	case pb.RangeNodeState_PREPARING:
+		return api.NsPreparing
 	case pb.RangeNodeState_ACTIVATING:
 		return api.NsActivating
 	case pb.RangeNodeState_DEACTIVATING:
@@ -40,8 +40,8 @@ func RemoteStateToProto(rs api.RemoteState) pb.RangeNodeState {
 		return pb.RangeNodeState_INACTIVE
 	case api.NsActive:
 		return pb.RangeNodeState_ACTIVE
-	case api.NsLoading:
-		return pb.RangeNodeState_LOADING
+	case api.NsPreparing:
+		return pb.RangeNodeState_PREPARING
 	case api.NsActivating:
 		return pb.RangeNodeState_ACTIVATING
 	case api.NsDeactivating:

@@ -7,9 +7,9 @@ type Action uint8
 
 const (
 	NoAction Action = iota
-	Give
-	Serve
-	Take
+	Prepare
+	Activate
+	Deactivate
 	Drop
 )
 

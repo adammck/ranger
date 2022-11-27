@@ -104,8 +104,8 @@ func (r *Rangelet) runThenUpdateState(rID api.RangeID, old api.RemoteState, succ
 	ri.State = s
 
 	// Special case: Ranges are never actually in NotFound; it's a signal to
-	// delete them. This happens when a PrepareAddRange fails, or a DropRange
-	// succeeds; either way, the range is gone.
+	// delete them. This happens when a Prepare fails, or a Drop succeeds;
+	// either way, the range is gone.
 	if ri.State == api.NsNotFound {
 		delete(r.info, rID)
 	}
@@ -115,7 +115,7 @@ func (r *Rangelet) runThenUpdateState(rID api.RangeID, old api.RemoteState, succ
 	r.notifyWatchers(ri)
 }
 
-func (r *Rangelet) give(rm api.Meta, parents []api.Parent) (api.RangeInfo, error) {
+func (r *Rangelet) prepare(rm api.Meta, parents []api.Parent) (api.RangeInfo, error) {
 	rID := rm.Ident
 	r.Lock()
 
@@ -123,32 +123,32 @@ func (r *Rangelet) give(rm api.Meta, parents []api.Parent) (api.RangeInfo, error
 	if ok {
 		defer r.Unlock()
 
-		if ri.State == api.NsLoading || ri.State == api.NsInactive {
+		if ri.State == api.NsPreparing || ri.State == api.NsInactive {
 			return *ri, nil
 		}
 
-		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Give: %v", ri.State)
+		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Prepare: %v", ri.State)
 	}
 
 	// Range is not currently known, so can be added.
 
-	log.Printf("R%s: nil -> %s", rID, api.NsLoading)
+	log.Printf("R%s: nil -> %s", rID, api.NsPreparing)
 	ri = &api.RangeInfo{
 		Meta:  rm,
-		State: api.NsLoading,
+		State: api.NsPreparing,
 	}
 	r.info[rID] = ri
 	r.notifyWatchers(ri)
 	r.Unlock()
 
 	withTimeout(r.gracePeriod, func() {
-		r.runThenUpdateState(rID, api.NsLoading, api.NsInactive, api.NsNotFound, func() error {
-			return r.n.PrepareAddRange(rm, parents)
+		r.runThenUpdateState(rID, api.NsPreparing, api.NsInactive, api.NsNotFound, func() error {
+			return r.n.Prepare(rm, parents)
 		})
 	})
 
-	// PrepareAddRange either completed, or is still running but we don't want
-	// to wait any longer. Fetch infos again to find out.
+	// Prepare either completed, or is still running but we don't want to wait
+	// any longer. Fetch infos again to find out.
 	r.Lock()
 	defer r.Unlock()
 	ri, ok = r.info[rID]
@@ -176,7 +176,7 @@ func (r *Rangelet) serve(rID api.RangeID) (api.RangeInfo, error) {
 	ri, ok := r.info[rID]
 	if !ok {
 		r.Unlock()
-		return api.RangeInfo{}, status.Errorf(codes.InvalidArgument, "can't Serve unknown range: %v", rID)
+		return api.RangeInfo{}, status.Errorf(codes.InvalidArgument, "can't Activate unknown range: %v", rID)
 	}
 
 	if ri.State == api.NsActivating || ri.State == api.NsActive {
@@ -186,7 +186,7 @@ func (r *Rangelet) serve(rID api.RangeID) (api.RangeInfo, error) {
 
 	if ri.State != api.NsInactive {
 		r.Unlock()
-		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Serve: %v", ri.State)
+		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Activate: %v", ri.State)
 	}
 
 	// State is NsInactive
@@ -198,7 +198,7 @@ func (r *Rangelet) serve(rID api.RangeID) (api.RangeInfo, error) {
 
 	withTimeout(r.gracePeriod, func() {
 		r.runThenUpdateState(rID, api.NsActivating, api.NsActive, api.NsInactive, func() error {
-			return r.n.AddRange(rID)
+			return r.n.Activate(rID)
 		})
 	})
 
@@ -220,7 +220,7 @@ func (r *Rangelet) take(rID api.RangeID) (api.RangeInfo, error) {
 	ri, ok := r.info[rID]
 	if !ok {
 		r.Unlock()
-		return api.RangeInfo{}, status.Errorf(codes.InvalidArgument, "can't Take unknown range: %v", rID)
+		return api.RangeInfo{}, status.Errorf(codes.InvalidArgument, "can't Deactivate unknown range: %v", rID)
 	}
 
 	if ri.State == api.NsDeactivating || ri.State == api.NsInactive {
@@ -230,7 +230,7 @@ func (r *Rangelet) take(rID api.RangeID) (api.RangeInfo, error) {
 
 	if ri.State != api.NsActive {
 		r.Unlock()
-		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Take: %v", ri.State)
+		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Deactivate: %v", ri.State)
 	}
 
 	// State is NsActive
@@ -242,7 +242,7 @@ func (r *Rangelet) take(rID api.RangeID) (api.RangeInfo, error) {
 
 	withTimeout(r.gracePeriod, func() {
 		r.runThenUpdateState(rID, api.NsDeactivating, api.NsInactive, api.NsActive, func() error {
-			return r.n.PrepareDropRange(rID)
+			return r.n.Deactivate(rID)
 		})
 	})
 
@@ -288,7 +288,7 @@ func (r *Rangelet) drop(rID api.RangeID) (api.RangeInfo, error) {
 
 	withTimeout(r.gracePeriod, func() {
 		r.runThenUpdateState(rID, api.NsDropping, api.NsNotFound, api.NsInactive, func() error {
-			return r.n.DropRange(rID)
+			return r.n.Drop(rID)
 		})
 	})
 
@@ -302,7 +302,7 @@ func (r *Rangelet) drop(rID api.RangeID) (api.RangeInfo, error) {
 	}
 
 	// The range is still here.
-	// DropRange is presumably still running.
+	// Drop is presumably still running.
 	return *ri, nil
 }
 
@@ -314,10 +314,10 @@ func (r *Rangelet) Find(k api.Key) (api.RangeID, bool) {
 
 		// Play dumb in some cases: a range can be known to the rangelet but
 		// unknown to the client, in these states. (Find might have been called
-		// before PrepareAddRange has returned, or while DropRange is still in
-		// progress.) The client should check the state anyway, but this makes
-		// the contract simpler.
-		if ri.State == api.NsLoading || ri.State == api.NsDropping {
+		// before Prepare has returned, or while Drop is still in progress.) The
+		// client should check the state anyway, but this makes the contract
+		// simpler.
+		if ri.State == api.NsPreparing || ri.State == api.NsDropping {
 			continue
 		}
 
@@ -371,7 +371,7 @@ func (r *Rangelet) gatherLoadInfo() error {
 
 		if err == api.ErrNotFound {
 			// No problem. The Rangelet knows about this range, but the client
-			// doesn't, for whatever reason. Probably racing PrepareAddRange.
+			// doesn't, for whatever reason. Probably racing Prepare.
 			continue
 
 		} else if err != nil {

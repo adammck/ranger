@@ -28,7 +28,7 @@ func (d *Discovery) getIdent() string {
 	return fmt.Sprintf("%s:%d", d.host, d.port)
 }
 
-// TODO: Take a consul API here, not a cfg.
+// TODO: Deactivate a consul API here, not a cfg.
 func New(serviceName, addr string, cfg *consulapi.Config, srv *grpc.Server) (*Discovery, error) {
 	client, err := consulapi.NewClient(cfg)
 	if err != nil {

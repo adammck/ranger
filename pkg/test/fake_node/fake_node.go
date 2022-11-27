@@ -21,10 +21,10 @@ import (
 type Action uint8
 
 const (
-	PrepareAddRange Action = iota
-	AddRange
-	PrepareDropRange
-	DropRange
+	Prepare Action = iota
+	Activate
+	Deactivate
+	Drop
 )
 
 type stateTransition struct {
@@ -51,8 +51,8 @@ type TestNode struct {
 	rpcsMu sync.Mutex
 
 	// Barriers to block on in the middle of range state changes. This allows
-	// tests to control exactly how long the interface methods (PrepareAddRange,
-	// AddRange, etc) take to return.
+	// tests to control exactly how long the interface methods (Prepare,
+	// Activate, etc) take to return.
 	barriers map[api.RangeID]*stateTransition
 	muBar    sync.Mutex
 
@@ -147,21 +147,21 @@ func (n *TestNode) GetLoadInfo(rID api.RangeID) (api.LoadInfo, error) {
 	return li, nil
 }
 
-func (n *TestNode) PrepareAddRange(m api.Meta, p []api.Parent) error {
-	return n.transition(m.Ident, PrepareAddRange)
+func (n *TestNode) Prepare(m api.Meta, p []api.Parent) error {
+	return n.transition(m.Ident, Prepare)
 }
 
-func (n *TestNode) AddRange(rID api.RangeID) error {
-	return n.transition(rID, AddRange)
+func (n *TestNode) Activate(rID api.RangeID) error {
+	return n.transition(rID, Activate)
 }
 
-func (n *TestNode) PrepareDropRange(rID api.RangeID) error {
-	return n.transition(rID, PrepareDropRange)
+func (n *TestNode) Deactivate(rID api.RangeID) error {
+	return n.transition(rID, Deactivate)
 }
 
-func (n *TestNode) DropRange(rID api.RangeID) error {
+func (n *TestNode) Drop(rID api.RangeID) error {
 	// TODO: Remove placement from loadinfos if transition succeeds?
-	return n.transition(rID, DropRange)
+	return n.transition(rID, Drop)
 }
 
 // From: https://harrigan.xyz/blog/testing-go-grpc-server-using-an-in-memory-buffer-with-bufconn/
@@ -270,13 +270,13 @@ func (n *TestNode) RPCs() []interface{} {
 	val := func(i int) int {
 
 		switch v := ret[i].(type) {
-		case *pb.GiveRequest:
+		case *pb.PrepareRequest:
 			return 100 + int(v.Range.Ident)
 
 		case *pb.ServeRequest:
 			return 200 + int(v.Range)
 
-		case *pb.TakeRequest:
+		case *pb.DeactivateRequest:
 			return 300 + int(v.Range)
 
 		case *pb.DropRequest:

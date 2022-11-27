@@ -215,19 +215,19 @@ func (n *Node) GetLoadInfo(rID api.RangeID) (api.LoadInfo, error) {
 	return api.LoadInfo{}, nil
 }
 
-func (n *Node) PrepareAddRange(rm api.Meta, parents []api.Parent) error {
+func (n *Node) Prepare(rm api.Meta, parents []api.Parent) error {
 	return nil
 }
 
-func (n *Node) AddRange(rID api.RangeID) error {
+func (n *Node) Activate(rID api.RangeID) error {
 	return nil
 }
 
-func (n *Node) PrepareDropRange(rID api.RangeID) error {
+func (n *Node) Deactivate(rID api.RangeID) error {
 	return nil
 }
 
-func (n *Node) DropRange(rID api.RangeID) error {
+func (n *Node) Drop(rID api.RangeID) error {
 	return nil
 }
 

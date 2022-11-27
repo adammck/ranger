@@ -76,10 +76,10 @@ func (a *Actuator) Wait() {
 }
 
 var maxFailures = map[api.Action]int{
-	api.Give:  3,
-	api.Take:  3,
-	api.Serve: 3,
-	api.Drop:  30, // Not quite forever
+	api.Prepare:    3,
+	api.Deactivate: 3,
+	api.Activate:   3,
+	api.Drop:       30, // Not quite forever
 }
 
 func (a *Actuator) consider(p *ranje.Placement) {
@@ -177,9 +177,9 @@ type transitions struct {
 // TODO: Move this out to some outer actuator.
 // Somewhat duplicated from placement_state.go.
 var actuations = []transitions{
-	{api.PsPending, api.PsInactive, api.Give},
-	{api.PsInactive, api.PsActive, api.Serve},
-	{api.PsActive, api.PsInactive, api.Take},
+	{api.PsPending, api.PsInactive, api.Prepare},
+	{api.PsInactive, api.PsActive, api.Activate},
+	{api.PsActive, api.PsInactive, api.Deactivate},
 	{api.PsInactive, api.PsDropped, api.Drop},
 }
 
@@ -220,7 +220,7 @@ func (a *Actuator) incrementError(cmd api.Command, p *ranje.Placement, n *roster
 
 		// TODO: Can this go somewhere else? The roster needs to know that the
 		//       failure happened so it can avoid placing ranges on the node.
-		if cmd.Action == api.Give || cmd.Action == api.Serve {
+		if cmd.Action == api.Prepare || cmd.Action == api.Activate {
 			n.PlacementFailed(p.Range().Meta.Ident, time.Now())
 		}
 	}

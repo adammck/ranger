@@ -194,11 +194,11 @@ func isRecalling(parents, children []*ranje.Range) bool {
 	// gaps while we wait for an operator (or node crash).
 	//
 	// TODO: Is this necessary if there's only one parent? What can even be done
-	//       except the split becoming wedged? TestSplitFailure_PrepareDropRange
-	//       will maybe untangle this.
+	//       except the split becoming wedged? TestSplitFailure_Deactivate will
+	//       maybe untangle this.
 	for _, rc := range parents {
 		for _, pc := range rc.Placements {
-			if pc.Failed(api.Take) {
+			if pc.Failed(api.Deactivate) {
 				out = true
 			}
 		}
@@ -209,16 +209,15 @@ func isRecalling(parents, children []*ranje.Range) bool {
 	// ensure no gaps while we give the failed range(s) to some other node.
 	for _, rc := range children {
 		for _, pc := range rc.Placements {
-			if pc.Failed(api.Serve) {
+			if pc.Failed(api.Activate) {
 				out = true
 			}
 		}
 	}
 
-	// What of FailedGive (or FailedPrepareAddRange, or FailedLoad or whatever
-	// I'm calling it today), and of FailedDrop?
+	// What of FailedPrepare and of FailedDrop?
 	//
-	// Firstly, there is no FailedGive; the placement is just destroyed if it
+	// Firstly, there is no FailedPrepare; the placement is just destroyed if it
 	// isn't accepted by the node. Secondly, even if there were, we don't have
 	// to roll anything back to handle it. Placement happens before the parent
 	// ranges are deactivated, so can be re-tried as many times as necessary
@@ -330,8 +329,8 @@ func (op *Operation) MayActivate(p *ranje.Placement, r *ranje.Range) error {
 	}
 
 	// If this placement has been given up on, it's destined to be dropped
-	// rather than served. We might have tried to serve it and failed.
-	if p.Failed(api.Serve) {
+	// rather than activated. We might have tried to activate it and failed.
+	if p.Failed(api.Activate) {
 		return fmt.Errorf("gave up")
 	}
 
@@ -352,11 +351,11 @@ func (op *Operation) MayActivate(p *ranje.Placement, r *ranje.Range) error {
 	if op == nil {
 
 		// If one of the sibling placements (on the same range) claims to be
-		// replacing this range, then it mustn't become ready (unless that sibling
-		// has given up). It was probably just moved from ready to Idle so that the
-		// sibling could become ready.
+		// replacing this range, then it mustn't activate (unless that sibling
+		// has given up). It was probably just deactivated so that the sibling
+		// could activate.
 		if other := replacementFor(p); other != nil {
-			if !other.Failed(api.Serve) {
+			if !other.Failed(api.Activate) {
 				return fmt.Errorf("will be replaced by sibling")
 			}
 		}
@@ -393,7 +392,7 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 		return fmt.Errorf("placment not in api.PsActive")
 	}
 
-	if p.Failed(api.Take) {
+	if p.Failed(api.Deactivate) {
 		return fmt.Errorf("gave up")
 	}
 
@@ -402,11 +401,11 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 		// If this placement is being replaced by another...
 		if other := replacementFor(p); other != nil {
 
-			// There is another placement replacing this one, but we've given up on
-			// it, so will destroy that (the replacement) rather than taking this
-			// one. We might have already taken this one once, and then reverted it
-			// back because the replacement failed to become ready.
-			if other.Failed(api.Serve) {
+			// There is another placement replacing this one, but we've given up
+			// on it, so will destroy the replacement rather than deactivating
+			// this one. We might have already deactivated this one once, and
+			// then reverted it back because the replacement failed to activate.
+			if other.Failed(api.Activate) {
 				return fmt.Errorf("replacement has given up")
 			}
 
@@ -447,7 +446,7 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 			}
 
 			// TODO: This is weird. Why are we waiting for the *maximum* number
-			//       of placements to be ready in the dest? I think it's because
+			//       of active placements in the dest? I think it's because
 			//       min/max doesn't make much sense until we have replicas.
 			if n < rc.MaxActive() {
 				return fmt.Errorf("not enough inactive children")
@@ -501,7 +500,7 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 			// other placement should be reactivated and this one should be
 			// dropped. In order to make that a bit safer and more orderly,
 			// delay the drop until after the other one has reactivated.
-			if p.Failed(api.Serve) {
+			if p.Failed(api.Activate) {
 				if other.StateCurrent == api.PsActive {
 					return nil
 				} else {
@@ -511,7 +510,7 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 
 			// If the other placement has failed to deactivate, might as well
 			// drop this one (the replacements) while an operator intervenes.
-			if other.Failed(api.Take) {
+			if other.Failed(api.Deactivate) {
 				return nil
 			}
 		}
@@ -521,7 +520,7 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 		// is about to be activated, so don't drop it unless that's already been
 		// tried and failed.
 
-		if p.Failed(api.Serve) {
+		if p.Failed(api.Activate) {
 			return nil
 		}
 
@@ -529,7 +528,7 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 	}
 
 	if op.isDirection(Dest, r.Meta.Ident) {
-		if p.Failed(api.Serve) {
+		if p.Failed(api.Activate) {
 			return nil
 		}
 
@@ -540,7 +539,7 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 
 		// Can't drop until all of the destination ranges have enough active
 		// placements. They might still need the contents of this parent range
-		// to make themselves ready.
+		// to activate.
 		for _, r2 := range op.direction(Dest) {
 
 			active := 0
@@ -548,7 +547,7 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 				if p2.StateCurrent == api.PsActive {
 					active += 1
 				}
-				if p2.Failed(api.Serve) {
+				if p2.Failed(api.Activate) {
 					return fmt.Errorf("child range has placement given up, which will be dropped")
 				}
 			}
@@ -567,7 +566,7 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 		// back, so do drop it.
 
 		if op.isChild(r.Meta.Ident) {
-			if p.Failed(api.Serve) {
+			if p.Failed(api.Activate) {
 				return nil
 			}
 

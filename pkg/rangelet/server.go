@@ -58,7 +58,7 @@ func parentsFromProto(prot []*pb.Parent) ([]api.Parent, error) {
 	return p, nil
 }
 
-func (ns *NodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveResponse, error) {
+func (ns *NodeServer) Prepare(ctx context.Context, req *pb.PrepareRequest) (*pb.PrepareResponse, error) {
 	meta, err := conv.MetaFromProto(req.Range)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "error parsing range meta: %v", err)
@@ -69,17 +69,17 @@ func (ns *NodeServer) Give(ctx context.Context, req *pb.GiveRequest) (*pb.GiveRe
 		return nil, status.Errorf(codes.InvalidArgument, "error parsing parents: %v", err)
 	}
 
-	ri, err := ns.r.give(meta, parents)
+	ri, err := ns.r.prepare(meta, parents)
 	if err != nil {
 		return nil, err
 	}
 
-	return &pb.GiveResponse{
+	return &pb.PrepareResponse{
 		RangeInfo: conv.RangeInfoToProto(ri),
 	}, nil
 }
 
-func (ns *NodeServer) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.ServeResponse, error) {
+func (ns *NodeServer) Activate(ctx context.Context, req *pb.ServeRequest) (*pb.ServeResponse, error) {
 	rID, err := conv.RangeIDFromProto(req.Range)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -95,7 +95,7 @@ func (ns *NodeServer) Serve(ctx context.Context, req *pb.ServeRequest) (*pb.Serv
 	}, nil
 }
 
-func (ns *NodeServer) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeResponse, error) {
+func (ns *NodeServer) Deactivate(ctx context.Context, req *pb.DeactivateRequest) (*pb.DeactivateResponse, error) {
 	rID, err := conv.RangeIDFromProto(req.Range)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -106,7 +106,7 @@ func (ns *NodeServer) Take(ctx context.Context, req *pb.TakeRequest) (*pb.TakeRe
 		return nil, err
 	}
 
-	return &pb.TakeResponse{
+	return &pb.DeactivateResponse{
 		State: conv.RemoteStateToProto(ri.State),
 	}, nil
 }

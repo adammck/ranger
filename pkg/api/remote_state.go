@@ -12,10 +12,10 @@ const (
 	NsActive
 
 	// During transitions
-	NsLoading      // Pending  -> PreReady
-	NsActivating   // PreReady -> Ready
-	NsDeactivating // Ready    -> PreReady
-	NsDropping     // PreReady -> NotFound
+	NsPreparing    // Pending  -> Inactive
+	NsActivating   // Inactive -> Active
+	NsDeactivating // Active   -> Inactive
+	NsDropping     // Inactive -> NotFound
 
 	// Special case: This is never returned by probes, since those only include
 	// the state of ranges which the node has. This is returned by redundant

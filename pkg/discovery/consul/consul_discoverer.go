@@ -13,7 +13,7 @@ type Discoverer struct {
 	consul *consulapi.Client
 }
 
-// TODO: Take a consul API client here, not a cfg.
+// TODO: Deactivate a consul API client here, not a cfg.
 func NewDiscoverer(cfg *consulapi.Config) (*Discoverer, error) {
 	client, err := consulapi.NewClient(cfg)
 	if err != nil {
