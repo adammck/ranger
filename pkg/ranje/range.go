@@ -70,19 +70,41 @@ func (r *Range) NewPlacement(nodeID api.NodeID) *Placement {
 // TODO: Remove this and fix doMove (the only caller) to taint the src placement
 //       itself. Moves are really just tainting a placement and then creating a
 //       new one-- the new one will naturally replace the old tainted one.
-func (r *Range) NewReplacement(destNodeID, srcNodeID api.NodeID, done func()) *Placement {
+func (r *Range) NewReplacement(destNodeID api.NodeID, src *Placement) *Placement {
 	p := &Placement{
 		rang:         r,
 		NodeID:       destNodeID,
 		StateCurrent: api.PsPending,
 		StateDesired: api.PsPending,
-		IsReplacing:  srcNodeID,
-		replaceDone:  done,
+		IsReplacing:  src.NodeID,
 	}
 
 	r.Placements = append(r.Placements, p)
 
 	return p
+}
+
+// DestroyPlacement removes the given placement from the range. This is the only
+// was that should happen, to ensure that the onDestroy callback is called.
+func (r *Range) DestroyPlacement(p *Placement) {
+	for i, pp := range r.Placements {
+		if p != pp {
+			continue
+		}
+
+		if p.onDestroy != nil {
+			p.onDestroy()
+		}
+
+		r.Placements = append(r.Placements[:i], r.Placements[i+1:]...)
+		return
+	}
+
+	// This really should never happen. It indicates a concurrency bug, because
+	// any thread destroying placements should be holding the keyspace lock.
+	panic(fmt.Sprintf(
+		"tried to destroy non-existent placement: r=%s, dest=%s",
+		r.Meta.Ident, p.NodeID))
 }
 
 // TODO: This is only used by Keyspace.LogString, which is only used by tests!

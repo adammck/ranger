@@ -43,8 +43,8 @@ type Placement struct {
 	failures map[api.Action]bool
 
 	// Not persisted.
-	replaceDone func()
-	onReady     func()
+	onDestroy func()
+	onReady   func()
 
 	// Guards everything.
 	// TODO: What is "everything" ??
@@ -71,15 +71,9 @@ func (p *Placement) Range() *Range {
 	return p.rang
 }
 
+// TODO: Remove this method (and Placement.IsReplacing).
 func (p *Placement) DoneReplacing() {
 	p.IsReplacing = ""
-
-	// Callback to unblock operator Move RPCs.
-	// TODO: This is kind of dumb. Would be better to store the callbacks
-	//       somewhere else, and look them up when calling this method.
-	if p.replaceDone != nil {
-		p.replaceDone()
-	}
 }
 
 func (p *Placement) Want(new api.PlacementState) error {
@@ -128,6 +122,10 @@ func (p *Placement) OnReady(f func()) {
 	}
 
 	p.onReady = f
+}
+
+func (p *Placement) OnDestroy(f func()) {
+	p.onDestroy = f
 }
 
 // Failed returns true if the given action has been attempted but has failed.

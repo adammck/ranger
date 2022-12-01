@@ -326,16 +326,16 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 
 	// Tick every placement.
 
-	toDestroy := []int{}
+	toDestroy := []*ranje.Placement{}
 
-	for i, p := range r.Placements {
+	for _, p := range r.Placements {
 		if b.tickPlacement(p, r, op) {
-			toDestroy = append(toDestroy, i)
+			toDestroy = append(toDestroy, p)
 		}
 	}
 
-	for _, idx := range toDestroy {
-		r.Placements = append(r.Placements[:idx], r.Placements[idx+1:]...)
+	for _, p := range toDestroy {
+		r.DestroyPlacement(p)
 	}
 }
 
@@ -401,17 +401,16 @@ func (b *Orchestrator) doMove(r *ranje.Range, opMove OpMove) error {
 	}
 
 	// If the move was initiated by an operator (via RPC), then it will have an
-	// error channel. When the move is complete, close to channel to unblock the
-	// RPC handler.
-	var cb func()
+	// error channel. When the source range is ready to be destroyed (i.e. the
+	// move is complete), close to channel to unblock the RPC handler.
 	if opMove.Err != nil {
-		cb = func() {
+		src.OnDestroy(func() {
 			close(opMove.Err)
-		}
+		})
 	}
 
 	// TODO: Taint the src range here and just use r.NewPlacement.
-	r.NewReplacement(destNodeID, src.NodeID, cb)
+	r.NewReplacement(destNodeID, src)
 
 	return nil
 }
@@ -429,6 +428,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 		}
 	}
 
+	// TODO: Remove this with DoneReplacing.
 	// If this placement is replacing another, and that placement is gone from
 	// the keyspace, then clear the annotation. (Note that we don't care what
 	// the roster says; this is just cleanup.)
