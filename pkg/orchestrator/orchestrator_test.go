@@ -515,27 +515,10 @@ func TestMoveFailure_Deactivate(t *testing.T) {
 	p := mustGetPlacement(t, orch.ks, 1, "test-aaa")
 	require.True(t, p.Failed(api.Deactivate))
 
-	// 3. Node B gets Drop, to abandon the placement it prepared. It will never
-	//    activate.
-
-	tickWait(t, orch, act)
-	assert.Equal(t, "Drop(R1, test-bbb)", commands(t, act))
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive:tainted p1=test-bbb:PsInactive}", orch.ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb []}", orch.rost.TestString())
-
-	tickWait(t, orch, act)
-	assert.Empty(t, commands(t, act))
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive:tainted p1=test-bbb:PsDropped}", orch.ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb []}", orch.rost.TestString())
-
-	// Failed placement is destroyed.
-	tickWait(t, orch, act)
-	assert.Empty(t, commands(t, act))
-	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive:tainted}", orch.ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb []}", orch.rost.TestString())
-
-	// Stable now, because the move was a one-off. (The balancer might try the
-	// same thing again, but that's a separate test.)
+	// We are wedged in this non-ideal (because of the extra inactive placement)
+	// but stable (because the original placement is still active) state until
+	// the situation rectifies itself or until an operator intervenes and
+	// manually deactivates the placement on Node A.
 	requireStable(t, orch, act)
 }
 

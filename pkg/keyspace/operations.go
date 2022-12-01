@@ -414,13 +414,6 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 			}
 		}
 
-		// Is this placement replacing some other? It's already in active, so
-		// the other must have already become inactive. There is no reason we'd
-		// turn around now.
-		if other := replacedBy(p); other != nil {
-			return fmt.Errorf("replacing other")
-		}
-
 		// Otherwise, no operation is in progress and the placement isn't being
 		// replaced, so there is no reason that we'd deactivate.
 		return fmt.Errorf("no reason")
@@ -475,46 +468,41 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 	}
 
 	if op == nil {
-		// If this placement is tainted, we *want* to drop it. We've probably
-		// deactivated it in order to let some other placement activate. But we
-		// must keep this one around until the replacement becomes active, in
-		// case it fails and we need to reactivate this one.
+
+		// If the placement is tainted, we *want* to drop it. It's probably been
+		// recently deactivated to allow its replacement to activate. But delay
+		// the drop until that has actually happened, in case it fails and we
+		// need to reactivate this tainted placement.
 		if p.Tainted {
 			if n := r.NumPlacementsInState(api.PsActive); n < r.MaxActive() {
-				return fmt.Errorf("not enough active placements")
+				return fmt.Errorf("delaying drop until after sibling activate")
 			}
 
 			return nil
 		}
 
-		// Is this placement replacing some other?
-		if other := replacedBy(p); other != nil {
-
-			// If this placement (the replacement) has failed to activate, the
-			// other placement should be reactivated and this one should be
-			// dropped. In order to make that a bit safer and more orderly,
-			// delay the drop until after the other one has reactivated.
-			if p.Failed(api.Activate) {
-				if other.StateCurrent == api.PsActive {
-					return nil
-				} else {
-					return fmt.Errorf("won't drop aborted placement until original is reactivated")
-				}
-			}
-
-			// If the other placement has failed to deactivate, might as well
-			// drop this one (the replacements) while an operator intervenes.
-			if other.Failed(api.Deactivate) {
-				return nil
-			}
-		}
-
-		// Not replacing any other placement, just floating around...? Not sure
-		// what's going on here, but the placement has probably been placed and
-		// is about to be activated, so don't drop it unless that's already been
-		// tried and failed.
-
+		// We also want to drop the placement if it failed to activate, and
+		// there is no reason to delay, because we already know that we can't
+		// reactivate it. We gave up on that.
+		//
+		// But we *do* delay in the specific case that there are other siblings
+		// eligible to activate, because that makes the orchestrator tests more
+		// linear. There is no good reason.
+		//
+		// TODO: Write some more tests to verify that there is no real reason to
+		//       delay the drop, and then just do that.
 		if p.Failed(api.Activate) {
+			n := r.NumPlacementsInState(api.PsActive)
+
+			// number of placements eligible to activate.
+			m := r.NumPlacements(func(other *ranje.Placement) bool {
+				return other != p && other.StateCurrent == api.PsInactive && !other.Failed(api.Activate)
+			})
+
+			if n < r.MaxActive() && m > 0 {
+				return fmt.Errorf("delaying drop until after sibling activate")
+			}
+
 			return nil
 		}
 
@@ -561,18 +549,4 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 	}
 
 	return fmt.Errorf("not a child, not a parent? rID=%v", r.Meta.Ident)
-}
-
-// TODO: Remove this method. Use Tainted.
-func replacedBy(p *ranje.Placement) *ranje.Placement {
-	var out *ranje.Placement
-
-	for _, pp := range p.Range().Placements {
-		if p.IsReplacing == pp.NodeID {
-			out = pp
-			break
-		}
-	}
-
-	return out
 }
