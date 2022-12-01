@@ -98,6 +98,13 @@ func (r *Range) MinPlacements() int {
 	return 1
 }
 
+// MaxPlacements return the maximum number of placements that this range should
+// ever have. It's fine to be lower, but no more than this will be created, even
+// if that means that an operation can't proceed.
+func (r *Range) MaxPlacements() int {
+	return 2
+}
+
 // MaxActive returns the maximum number of active placements that this range
 // should ever have. Ranger will aim for exactly this number; any fewer, and
 // more should be activated asap.
