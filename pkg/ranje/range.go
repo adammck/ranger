@@ -178,18 +178,31 @@ func (r *Range) MinActive() int {
 	return 0
 }
 
-// PlacementsInState returns the number of placements currently in the given
-// state.
-func (r *Range) PlacementsInState(s api.PlacementState) int {
+// NumPlacements calls the given func for each placement, and returns the number
+// of which return true. This is useful when checking whether there are enough
+// placements with some complex property.
+func (r *Range) NumPlacements(f func(p *Placement) bool) int {
 	n := 0
 
 	for _, p := range r.Placements {
-		if p.StateCurrent == s {
+		if f(p) {
 			n += 1
 		}
 	}
 
 	return n
+}
+
+// NumPlacementsInState returns the number of placements currently in the given
+// state. It's just a handy wrapper around a common usage of NumPlacements.
+//
+// TODO: This is currently only used when comparing to r.MaxActive! Maybe change
+//       it to just do that? Seems kind of weird.
+//
+func (r *Range) NumPlacementsInState(s api.PlacementState) int {
+	return r.NumPlacements(func(p *Placement) bool {
+		return p.StateCurrent == s
+	})
 }
 
 func (r *Range) ToState(new api.RangeState) error {

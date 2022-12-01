@@ -334,22 +334,30 @@ func (op *Operation) MayActivate(p *ranje.Placement, r *ranje.Range) error {
 		return fmt.Errorf("gave up")
 	}
 
-	// Count how many PsActive placements this range has. If it's fewer than the
-	// MinReady (i.e. the minimum number of active placements wanted), then this
-	// placement may become active.
-	if n := r.PlacementsInState(api.PsActive); n >= r.MaxActive() {
+	// Count how many active placements this range has. If there are already the
+	// maximum allowed, we certainly can't activate another.
+	if n := r.NumPlacementsInState(api.PsActive); n >= r.MaxActive() {
 		return fmt.Errorf("too many active placements (n=%d, MaxActive=%d)", n, r.MaxActive())
 	}
 
 	if op == nil {
 
-		// If one of the sibling placements (on the same range) claims to be
-		// replacing this range, then it mustn't activate (unless that sibling
-		// has given up). It was probably just deactivated so that the sibling
-		// could activate.
-		if other := replacementFor(p); other != nil {
-			if !other.Failed(api.Activate) {
-				return fmt.Errorf("will be replaced by sibling")
+		// If this placement is tainted, *only* allow it to activate if there
+		// are zero placements which are:
+		//
+		//  1. not this placement
+		//  2. ready to be activated, i.e. in PsInactive
+		//  3. haven't tried to activate already and failed
+		//
+		// If there are zero of those, then this activating this tainted
+		// placement is the best we can do to restore service. Probably it was
+		// deactivated to allow another placement to activate, but that failed.
+		if p.Tainted {
+			n := r.NumPlacements(func(other *ranje.Placement) bool {
+				return other != p && other.StateCurrent == api.PsInactive && !other.Failed(api.Activate)
+			})
+			if n > 0 {
+				return fmt.Errorf("untainted sibling")
 			}
 		}
 
@@ -389,24 +397,21 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 		return fmt.Errorf("gave up")
 	}
 
+	// TODO: Check whether the number of active placements is < MinActive here,
+	//       and abort if so. This will be needed for replication.
+
 	if op == nil {
 
-		// If this placement is being replaced by another...
-		if other := replacementFor(p); other != nil {
-
-			// There is another placement replacing this one, but we've given up
-			// on it, so will destroy the replacement rather than deactivating
-			// this one. We might have already deactivated this one once, and
-			// then reverted it back because the replacement failed to activate.
-			if other.Failed(api.Activate) {
-				return fmt.Errorf("replacement has given up")
+		// If this placement is tainted, we *want* to deactivate it. But we must
+		// wait until there is at least one other placement ready to activate in
+		// its place, to make the transition as brief as possible.
+		if p.Tainted {
+			n := r.NumPlacements(func(other *ranje.Placement) bool {
+				return other != p && other.StateCurrent == api.PsInactive && !other.Failed(api.Activate)
+			})
+			if n > 0 {
+				return nil
 			}
-
-			if other.StateCurrent != api.PsInactive {
-				return fmt.Errorf("replacement is not inactive")
-			}
-
-			return nil
 		}
 
 		// Is this placement replacing some other? It's already in active, so
@@ -435,7 +440,7 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 			//       of active placements in the dest? I think it's because
 			//       min/max doesn't make much sense until we have replicas.
 
-			if n := rc.PlacementsInState(api.PsInactive); n < rc.MaxActive() {
+			if n := rc.NumPlacementsInState(api.PsInactive); n < rc.MaxActive() {
 				return fmt.Errorf("not enough inactive children")
 			}
 		}
@@ -470,11 +475,13 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 	}
 
 	if op == nil {
-		// Is this placement being replaced by some other? Can drop as soon as
-		// that other placement becomes active.
-		if other := replacementFor(p); other != nil {
-			if other.StateCurrent != api.PsActive {
-				return fmt.Errorf("replacement not api.PsActive; is %s", other.StateCurrent)
+		// If this placement is tainted, we *want* to drop it. We've probably
+		// deactivated it in order to let some other placement activate. But we
+		// must keep this one around until the replacement becomes active, in
+		// case it fails and we need to reactivate this one.
+		if p.Tainted {
+			if n := r.NumPlacementsInState(api.PsActive); n < r.MaxActive() {
+				return fmt.Errorf("not enough active placements")
 			}
 
 			return nil
@@ -528,7 +535,7 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 		// placements. They might still need the contents of this parent range
 		// to activate.
 		for _, r2 := range op.direction(Dest) {
-			if n := r2.PlacementsInState(api.PsActive); n < r2.MaxActive() {
+			if n := r2.NumPlacementsInState(api.PsActive); n < r2.MaxActive() {
 				return fmt.Errorf("child range has too few active placements (want=%d, got=%d)", r2.MaxActive(), n)
 			}
 		}
@@ -562,20 +569,6 @@ func replacedBy(p *ranje.Placement) *ranje.Placement {
 
 	for _, pp := range p.Range().Placements {
 		if p.IsReplacing == pp.NodeID {
-			out = pp
-			break
-		}
-	}
-
-	return out
-}
-
-// TODO: Remove this method. Use Tainted.
-func replacementFor(p *ranje.Placement) *ranje.Placement {
-	var out *ranje.Placement
-
-	for _, pp := range p.Range().Placements {
-		if pp.IsReplacing == p.NodeID {
 			out = pp
 			break
 		}
