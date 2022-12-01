@@ -366,6 +366,12 @@ func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (api.NodeID, er
 		}
 	}
 
+	// Convert slice of excluded nodes into a map for easy member check.
+	excluded := map[api.NodeID]struct{}{}
+	for _, nID := range c.Not {
+		excluded[nID] = struct{}{}
+	}
+
 	rID := api.ZeroRange
 	if rng != nil {
 		rID = rng.Meta.Ident
@@ -373,17 +379,27 @@ func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (api.NodeID, er
 
 	// Exclude a node if:
 	//
-	// 1. It already has this range.
+	// 1. It has been explicitly excluded.
 	//
-	// 2. It's drained, i.e. it doesn't want any more ranges. It's probably
+	// 2. It already has this range.
+	//
+	// 3. It's drained, i.e. it doesn't want any more ranges. It's probably
 	//    shutting down.
 	//
-	// 3. It's missing, i.e. hasn't responded to our probes in a while. It might
+	// 4. It's missing, i.e. hasn't responded to our probes in a while. It might
 	//    still come back, but let's avoid it anyway.
 	//
-	// 4. This range has failed to place on this node within the past minute.
+	// 5. This range has failed to place on this node within the past minute.
 	//
 	for i := range nodes {
+		if _, ok := excluded[nodes[i].Ident()]; ok {
+			if c.NodeID != "" {
+				return "", fmt.Errorf("node is excluded: %v", nodes[i].Ident())
+			}
+
+			continue
+		}
+
 		if rID != api.ZeroRange && nodes[i].HasRange(rng.Meta.Ident) {
 			if c.NodeID != "" {
 				return "", fmt.Errorf("node already has range: %v", c.NodeID)

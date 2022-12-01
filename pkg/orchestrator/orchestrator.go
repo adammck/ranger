@@ -193,15 +193,20 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 	switch r.State {
 	case api.RsActive:
 
-		// Not enough placements? Create one!
-		if len(r.Placements) < r.MinPlacements() {
+		// Not enough placements? Create enough to reach the minimum.
+		if n := r.MinPlacements() - len(r.Placements); n > 0 {
+			con := ranje.Constraint{}
 
-			nID, err := b.rost.Candidate(r, ranje.AnyNode)
-			if err != nil {
-				return
+			for i := 0; i < n; i++ {
+				nID, err := b.rost.Candidate(r, con)
+				if err != nil {
+					//log.Printf("no candidate for: rID=%s, con=%v, err=%v", r, con, err)
+					continue
+				}
+
+				con = con.WithNot(nID)
+				r.NewPlacement(nID)
 			}
-
-			r.NewPlacement(nID)
 		}
 
 		// Pending move for this range?

@@ -32,11 +32,24 @@ type Keyspace struct {
 	// The highest RangeID of any known range. Increment this before creating a
 	// new range.
 	maxIdent api.RangeID
+
+	// The default replication config.
+	replication ranje.ReplicationConfig
 }
 
 func New(persister persister.Persister) (*Keyspace, error) {
+	return NewWithReplication(persister, ranje.ReplicationConfig{
+		MinPlacements: 1,
+		MaxPlacements: 2,
+		MinActive:     0,
+		MaxActive:     1,
+	})
+}
+
+func NewWithReplication(persister persister.Persister, replication ranje.ReplicationConfig) (*Keyspace, error) {
 	ks := &Keyspace{
-		pers: persister,
+		pers:        persister,
+		replication: replication,
 	}
 
 	ranges, err := persister.GetRanges()
@@ -57,7 +70,7 @@ func New(persister persister.Persister) (*Keyspace, error) {
 	for _, r := range ks.ranges {
 
 		// Repair the range.
-		// TODO: Anything left to do here?
+		r.Repair(&ks.replication)
 
 		// Repair the placements
 		for _, p := range r.Placements {
@@ -266,7 +279,7 @@ func (ks *Keyspace) GetRange(rID api.RangeID) (*ranje.Range, error) {
 // mustPersistDirtyRanges to persist the new range after mutating it.
 func (ks *Keyspace) newRange() *ranje.Range {
 	ks.maxIdent += 1
-	return ranje.NewRange(ks.maxIdent)
+	return ranje.NewRange(ks.maxIdent, &ks.replication)
 }
 
 type PBNID struct {

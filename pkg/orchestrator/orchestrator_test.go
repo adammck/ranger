@@ -54,7 +54,7 @@ const noStrictTransactions = false
 // commands (as detailed in the Normal variant, above) fails. Deactivate a look in the
 // docs directory for more.
 
-func TestPlace(t *testing.T) {
+func Test_R1_Place(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
@@ -90,6 +90,39 @@ func TestPlace(t *testing.T) {
 	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
 
 	// No more changes. This is steady state.
+
+	requireStable(t, orch, act)
+}
+
+func Test_R3_Place(t *testing.T) {
+	ksStr := "{1 [-inf, +inf] RsActive}"
+	rosStr := "{test-aaa []} {test-bbb []} {test-ccc []}"
+	orch, act := orchFactoryWithReplication(t, ksStr, rosStr, noStrictTransactions, &ranje.ReplicationConfig{
+		MinPlacements: 3,
+		MaxPlacements: 6,
+		MinActive:     3,
+		MaxActive:     6,
+	})
+
+	tickWait(t, orch, act)
+	require.Equal(t, "Prepare(R1, test-aaa), Prepare(R1, test-bbb), Prepare(R1, test-ccc)", commands(t, act))
+	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [1:NsInactive]} {test-ccc [1:NsInactive]}", orch.rost.TestString())
+	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending p1=test-bbb:PsPending p2=test-ccc:PsPending}", orch.ks.LogString())
+
+	tickWait(t, orch, act)
+	require.Empty(t, commands(t, act))
+	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [1:NsInactive]} {test-ccc [1:NsInactive]}", orch.rost.TestString())
+	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive p1=test-bbb:PsInactive p2=test-ccc:PsInactive}", orch.ks.LogString())
+
+	tickWait(t, orch, act)
+	require.Equal(t, "Activate(R1, test-aaa), Activate(R1, test-bbb), Activate(R1, test-ccc)", commands(t, act))
+	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc [1:NsActive]}", orch.rost.TestString())
+	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive p1=test-bbb:PsInactive p2=test-ccc:PsInactive}", orch.ks.LogString())
+
+	tickWait(t, orch, act)
+	require.Empty(t, commands(t, act))
+	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc [1:NsActive]}", orch.rost.TestString())
+	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsActive p2=test-ccc:PsActive}", orch.ks.LogString())
 
 	requireStable(t, orch, act)
 }
@@ -1714,10 +1747,10 @@ func parseRoster(t *testing.T, s string) []nodeStub {
 }
 
 // TODO: Remove config param. Config was a mistake.
-func keyspaceFactory(t *testing.T, stubs []rangeStub) *keyspace.Keyspace {
+func keyspaceFactory(t *testing.T, stubs []rangeStub, repl *ranje.ReplicationConfig) *keyspace.Keyspace {
 	ranges := make([]*ranje.Range, len(stubs))
 	for i := range stubs {
-		r := ranje.NewRange(api.RangeID(i + 1))
+		r := ranje.NewRange(api.RangeID(i+1), nil)
 		r.State = api.RsActive
 
 		if i > 0 {
@@ -1742,8 +1775,17 @@ func keyspaceFactory(t *testing.T, stubs []rangeStub) *keyspace.Keyspace {
 
 	pers := &FakePersister{ranges: ranges}
 
+	var ks *keyspace.Keyspace
 	var err error
-	ks, err := keyspace.New(pers)
+
+	// TODO: Straighten this out somehow.
+	if repl == nil {
+		// Use default replication.
+		ks, err = keyspace.New(pers)
+	} else {
+		ks, err = keyspace.NewWithReplication(pers, *repl)
+	}
+
 	if err != nil {
 		t.Fatalf("keyspace.New: %s", err)
 	}
@@ -1792,8 +1834,8 @@ func rosterFactory(t *testing.T, ctx context.Context, ks *keyspace.Keyspace, stu
 }
 
 // TODO: Merge this with orchFactoryCheck once TestJunk is gone.
-func orchFactoryNoCheck(t *testing.T, sKS, sRos string, strict bool) (*Orchestrator, *actuator.Actuator) {
-	ks := keyspaceFactory(t, parseKeyspace(t, sKS))
+func orchFactoryNoCheck(t *testing.T, sKS, sRos string, strict bool, repl *ranje.ReplicationConfig) (*Orchestrator, *actuator.Actuator) {
+	ks := keyspaceFactory(t, parseKeyspace(t, sKS), repl)
 	ros := rosterFactory(t, context.TODO(), ks, parseRoster(t, sRos))
 	srv := grpc.NewServer() // TODO: Allow this to be nil.
 	act := actuator.New(ks, ros, 0, mock_actuator.New(strict))
@@ -1801,8 +1843,9 @@ func orchFactoryNoCheck(t *testing.T, sKS, sRos string, strict bool) (*Orchestra
 	return orch, act
 }
 
-func orchFactory(t *testing.T, sKS, sRos string, strict bool) (*Orchestrator, *actuator.Actuator) {
-	orch, act := orchFactoryNoCheck(t, sKS, sRos, strict)
+// TODO: Replace the strict and repl params with options or something.
+func orchFactoryWithReplication(t *testing.T, sKS, sRos string, strict bool, repl *ranje.ReplicationConfig) (*Orchestrator, *actuator.Actuator) {
+	orch, act := orchFactoryNoCheck(t, sKS, sRos, strict, repl)
 
 	// Verify that the current state of the keyspace and roster is what was
 	// requested. (Require it, because if not, the test harness is broken.)
@@ -1810,6 +1853,11 @@ func orchFactory(t *testing.T, sKS, sRos string, strict bool) (*Orchestrator, *a
 	require.Equal(t, sRos, orch.rost.TestString())
 
 	return orch, act
+}
+
+// The older interface which almost all of the tests use.
+func orchFactory(t *testing.T, sKS, sRos string, strict bool) (*Orchestrator, *actuator.Actuator) {
+	return orchFactoryWithReplication(t, sKS, sRos, strict, nil)
 }
 
 func placementStateFromString(t *testing.T, s string) api.PlacementState {

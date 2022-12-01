@@ -33,9 +33,15 @@ type Range struct {
 	// TODO: Also store the old state, so we can roll back instead of crash?
 	// TODO: Invert so that zero value is the default: needing pesisting.
 	dirty bool
+
+	// The replication config for this range. It's a pointer so it can point
+	// back to the keyspace's default replication config and be updated
+	// together. In theory it can be changed on a per-range basis, but that
+	// isn't well tested as of today.
+	repl *ReplicationConfig
 }
 
-func NewRange(rID api.RangeID) *Range {
+func NewRange(rID api.RangeID, repl *ReplicationConfig) *Range {
 	return &Range{
 		Meta: api.Meta{
 			Ident: rID,
@@ -49,7 +55,13 @@ func NewRange(rID api.RangeID) *Range {
 
 		// Starts dirty, because it hasn't been persisted yet.
 		dirty: true,
+
+		repl: repl,
 	}
+}
+
+func (r *Range) Repair(repl *ReplicationConfig) {
+	r.repl = repl
 }
 
 func (r *Range) NewPlacement(nodeID api.NodeID) *Placement {
@@ -153,21 +165,21 @@ func (r *Range) Dirty() bool {
 // MinPlacements returns the number of placements (in any state) that this range
 // should have. If it has fewer than this, more should be created asap.
 func (r *Range) MinPlacements() int {
-	return 1
+	return r.repl.MinPlacements
 }
 
 // MaxPlacements return the maximum number of placements that this range should
 // ever have. It's fine to be lower, but no more than this will be created, even
 // if that means that an operation can't proceed.
 func (r *Range) MaxPlacements() int {
-	return 2
+	return r.repl.MaxPlacements
 }
 
 // MaxActive returns the maximum number of active placements that this range
 // should ever have. Ranger will aim for exactly this number; any fewer, and
 // more should be activated asap.
 func (r *Range) MaxActive() int {
-	return 1
+	return r.repl.MaxActive
 }
 
 // MinActive returns the minimum number of active placements that this range
@@ -175,7 +187,7 @@ func (r *Range) MaxActive() int {
 // during operations will be allowed to proceed so long as the number of active
 // ranges is not below this number. It can be equal to this number!
 func (r *Range) MinActive() int {
-	return 0
+	return r.repl.MinActive
 }
 
 // NumPlacements calls the given func for each placement, and returns the number
