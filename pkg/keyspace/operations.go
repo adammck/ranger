@@ -337,14 +337,7 @@ func (op *Operation) MayActivate(p *ranje.Placement, r *ranje.Range) error {
 	// Count how many PsActive placements this range has. If it's fewer than the
 	// MinReady (i.e. the minimum number of active placements wanted), then this
 	// placement may become active.
-	n := 0
-	for _, pp := range r.Placements {
-		if pp.StateCurrent == api.PsActive {
-			n += 1
-		}
-	}
-
-	if n >= r.MaxActive() {
+	if n := r.PlacementsInState(api.PsActive); n >= r.MaxActive() {
 		return fmt.Errorf("too many active placements (n=%d, MaxActive=%d)", n, r.MaxActive())
 	}
 
@@ -438,17 +431,11 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 		// Inactive.
 		for _, rc := range op.direction(Dest) {
 
-			n := 0
-			for _, pc := range rc.Placements {
-				if pc.StateCurrent == api.PsInactive {
-					n += 1
-				}
-			}
-
 			// TODO: This is weird. Why are we waiting for the *maximum* number
 			//       of active placements in the dest? I think it's because
 			//       min/max doesn't make much sense until we have replicas.
-			if n < rc.MaxActive() {
+
+			if n := rc.PlacementsInState(api.PsInactive); n < rc.MaxActive() {
 				return fmt.Errorf("not enough inactive children")
 			}
 		}
@@ -541,18 +528,8 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 		// placements. They might still need the contents of this parent range
 		// to activate.
 		for _, r2 := range op.direction(Dest) {
-
-			active := 0
-			for _, p2 := range r2.Placements {
-				if p2.StateCurrent == api.PsActive {
-					active += 1
-				}
-				if p2.Failed(api.Activate) {
-					return fmt.Errorf("child range has placement given up, which will be dropped")
-				}
-			}
-			if active < r2.MaxActive() {
-				return fmt.Errorf("child range has too few active placements (want=%d, got=%d)", r2.MaxActive(), active)
+			if n := r2.PlacementsInState(api.PsActive); n < r2.MaxActive() {
+				return fmt.Errorf("child range has too few active placements (want=%d, got=%d)", r2.MaxActive(), n)
 			}
 		}
 

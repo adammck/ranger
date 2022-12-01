@@ -178,6 +178,20 @@ func (r *Range) MinActive() int {
 	return 0
 }
 
+// PlacementsInState returns the number of placements currently in the given
+// state.
+func (r *Range) PlacementsInState(s api.PlacementState) int {
+	n := 0
+
+	for _, p := range r.Placements {
+		if p.StateCurrent == s {
+			n += 1
+		}
+	}
+
+	return n
+}
+
 func (r *Range) ToState(new api.RangeState) error {
 	r.Lock()
 	defer r.Unlock()
