@@ -383,10 +383,9 @@ func setupRangeGetter() *FakeRangeGetter {
 		Children: []api.RangeID{2, 3},
 		Meta:     api.Meta{Ident: 1, Start: api.ZeroKey, End: api.ZeroKey},
 	}
-	r1p0 := ranje.NewPlacement(r1, "node-aaa")
+	r1p0 := r1.NewPlacement("node-aaa")
 	r1p0.StateCurrent = api.PsInactive
 	r1p0.StateDesired = api.PsInactive
-	r1.Placements = []*ranje.Placement{r1p0}
 
 	r2 := &ranje.Range{
 		State:    api.RsActive,
@@ -394,10 +393,9 @@ func setupRangeGetter() *FakeRangeGetter {
 		Children: []api.RangeID{},
 		Meta:     api.Meta{Ident: 2, End: api.Key("ccc")},
 	}
-	r2p0 := ranje.NewPlacement(r2, "node-aaa")
+	r2p0 := r2.NewPlacement("node-aaa")
 	r2p0.StateCurrent = api.PsActive
 	r2p0.StateDesired = api.PsActive
-	r2.Placements = []*ranje.Placement{r2p0}
 
 	r3 := &ranje.Range{
 		State:    api.RsActive,
@@ -405,10 +403,9 @@ func setupRangeGetter() *FakeRangeGetter {
 		Children: []api.RangeID{},
 		Meta:     api.Meta{Ident: 3, Start: api.Key("ccc")},
 	}
-	r3p0 := ranje.NewPlacement(r3, "node-aaa")
+	r3p0 := r3.NewPlacement("node-aaa")
 	r3p0.StateCurrent = api.PsActive
 	r3p0.StateDesired = api.PsActive
-	r3.Placements = []*ranje.Placement{r3p0}
 
 	return NewFakeRangeGetter(r1, r2, r3)
 }

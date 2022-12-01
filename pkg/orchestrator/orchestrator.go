@@ -116,8 +116,7 @@ func (b *Orchestrator) Tick() {
 			// If we made it this far, the join has happened and already been
 			// persisted. No turning back now.
 
-			p := ranje.NewPlacement(r3, nIDr3)
-			r3.Placements = append(r3.Placements, p)
+			p := r3.NewPlacement(nIDr3)
 
 			// Unlock operator RPC if applicable.
 			// Note that this will only fire if *this* placement activates. If
@@ -202,8 +201,7 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 				return
 			}
 
-			p := ranje.NewPlacement(r, nID)
-			r.Placements = append(r.Placements, p)
+			r.NewPlacement(nID)
 		}
 
 		// Pending move for this range?
@@ -301,11 +299,8 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 			//       into a "ranges which have splits scheduled" loop before the
 			//       main all-ranges loop. Join is already up there.
 
-			pL := ranje.NewPlacement(rL, nIDL)
-			rL.Placements = append(rL.Placements, pL)
-
-			pR := ranje.NewPlacement(rR, nIDR)
-			rR.Placements = append(rR.Placements, pR)
+			rL.NewPlacement(nIDL)
+			rR.NewPlacement(nIDR)
 
 			// If the split was initiated by an operator (via RPC), then it will
 			// have an error channel. When the split is complete (i.e. the range
@@ -415,8 +410,8 @@ func (b *Orchestrator) doMove(r *ranje.Range, opMove OpMove) error {
 		}
 	}
 
-	p := ranje.NewReplacement(r, destNodeID, src.NodeID, cb)
-	r.Placements = append(r.Placements, p)
+	// TODO: Taint the src range here and just use r.NewPlacement.
+	r.NewReplacement(destNodeID, src.NodeID, cb)
 
 	return nil
 }

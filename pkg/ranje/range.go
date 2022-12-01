@@ -52,6 +52,39 @@ func NewRange(rID api.RangeID) *Range {
 	}
 }
 
+func (r *Range) NewPlacement(nodeID api.NodeID) *Placement {
+	p := &Placement{
+		rang:         r,
+		NodeID:       nodeID,
+		StateCurrent: api.PsPending,
+		StateDesired: api.PsPending,
+	}
+
+	r.Placements = append(r.Placements, p)
+
+	return p
+}
+
+// Special constructor for placements replacing some other placement.
+//
+// TODO: Remove this and fix doMove (the only caller) to taint the src placement
+//       itself. Moves are really just tainting a placement and then creating a
+//       new one-- the new one will naturally replace the old tainted one.
+func (r *Range) NewReplacement(destNodeID, srcNodeID api.NodeID, done func()) *Placement {
+	p := &Placement{
+		rang:         r,
+		NodeID:       destNodeID,
+		StateCurrent: api.PsPending,
+		StateDesired: api.PsPending,
+		IsReplacing:  srcNodeID,
+		replaceDone:  done,
+	}
+
+	r.Placements = append(r.Placements, p)
+
+	return p
+}
+
 // TODO: This is only used by Keyspace.LogString, which is only used by tests!
 //       So move it to the tests or use it elsewhere.
 func (r *Range) LogString() string {

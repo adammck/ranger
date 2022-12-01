@@ -53,27 +53,7 @@ type Placement struct {
 	sync.Mutex
 }
 
-func NewPlacement(r *Range, nodeID api.NodeID) *Placement {
-	return &Placement{
-		rang:         r,
-		NodeID:       nodeID,
-		StateCurrent: api.PsPending,
-		StateDesired: api.PsPending,
-	}
-}
-
-// Special constructor for placements replacing some other placement.
-func NewReplacement(r *Range, destNodeID, srcNodeID api.NodeID, done func()) *Placement {
-	return &Placement{
-		rang:         r,
-		NodeID:       destNodeID,
-		StateCurrent: api.PsPending,
-		StateDesired: api.PsPending,
-		IsReplacing:  srcNodeID,
-		replaceDone:  done,
-	}
-}
-
+// TODO: Get rid of this once deserialization works properly.
 func (p *Placement) Repair(r *Range) {
 	if p.rang != nil {
 		panic("tried to repair valid placementn")
