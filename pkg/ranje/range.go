@@ -112,7 +112,6 @@ func (r *Range) DestroyPlacement(p *Placement) {
 func (r *Range) LogString() string {
 	ps := ""
 
-	// TODO: Use Placement.LogString
 	for i, p := range r.Placements {
 		ps = fmt.Sprintf("%s p%d=%s:%s", ps, i, p.NodeID, p.StateCurrent)
 
@@ -128,8 +127,12 @@ func (r *Range) LogString() string {
 		// 	ps = fmt.Sprintf("%s:att=%d", ps, p.Attempts)
 		// }
 
-		if p.IsReplacing != "" {
-			ps = fmt.Sprintf("%s:replacing(%v)", ps, p.IsReplacing)
+		// if p.IsReplacing != "" {
+		// 	ps = fmt.Sprintf("%s:replacing(%v)", ps, p.IsReplacing)
+		// }
+
+		if p.Tainted {
+			ps = fmt.Sprintf("%s:tainted", ps)
 		}
 	}
 

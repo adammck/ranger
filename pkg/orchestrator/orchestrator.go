@@ -387,6 +387,16 @@ func (b *Orchestrator) doMove(r *ranje.Range, opMove OpMove) error {
 		}
 	}
 
+	// If the src is already tainted, it might be being replaced by some other
+	// placement already. (The operator must manually remove the taint if that
+	// really isn't the case.)
+	//
+	// TODO: Add an endpoint to remove the taint.
+	if src.Tainted {
+		return fmt.Errorf("src placement is already tainted (rID=%s, src=%s)", r.Meta.Ident, src.NodeID)
+	}
+
+	// TODO: Remove this.
 	// If the source placement is already being replaced by some other
 	// placement, reject the move.
 	for _, p := range r.Placements {
@@ -409,8 +419,13 @@ func (b *Orchestrator) doMove(r *ranje.Range, opMove OpMove) error {
 		})
 	}
 
-	// TODO: Taint the src range here and just use r.NewPlacement.
+	// TODO: Just use r.NewPlacement once IsReplacing is gone.
 	r.NewReplacement(destNodeID, src)
+
+	// Taint the source range, to provide a hint to the orchestrator that it
+	// should deactivate and drop itself asap (i.e. when the replacement,
+	// created just above, becomes ready to activate in its place.)
+	src.Tainted = true
 
 	return nil
 }

@@ -31,6 +31,15 @@ type Placement struct {
 	// in. The Actuator is responsible for telling the remote node about this.
 	StateDesired api.PlacementState
 
+	// Set by the orchestrator to indicate that this placement should be
+	// deactivated and dropped when possible. This won't actually happen until
+	// it's possible to do so within the min/max placement boundaries.
+	//
+	// (Adding a placement without tainting the old one will result in the new
+	// one sitting at Inactive indefinitely, since there's no reason for the old
+	// one to deactivate itself.)
+	Tainted bool `json:",omitempty"`
+
 	// Set by the orchestrator to indicate that this placement was created to
 	// replace the placement of the same range on some other node. Should be
 	// cleared once the placement activates.

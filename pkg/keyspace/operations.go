@@ -579,6 +579,7 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 	return fmt.Errorf("not a child, not a parent? rID=%v", r.Meta.Ident)
 }
 
+// TODO: Remove this method. Use Tainted.
 func replacedBy(p *ranje.Placement) *ranje.Placement {
 	var out *ranje.Placement
 
@@ -592,6 +593,7 @@ func replacedBy(p *ranje.Placement) *ranje.Placement {
 	return out
 }
 
+// TODO: Remove this method. Use Tainted.
 func replacementFor(p *ranje.Placement) *ranje.Placement {
 	var out *ranje.Placement
 
