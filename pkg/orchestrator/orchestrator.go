@@ -216,8 +216,23 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 			}
 		}
 
-		// Pending move for this range?
-		if opMove, ok := b.moveOp(r.Meta.Ident); ok {
+		// Initiate any pending moves for this range.
+		for {
+
+			// Can't move if we're already at the max placements. The fact that
+			// moveOp results in a new placement is... just known.
+			//
+			// TODO: This is a hack and doesn't belong here. Move ops should be
+			//       broken into adds and taints.
+			if len(r.Placements) >= r.MaxPlacements() {
+				break
+			}
+
+			opMove, ok := b.moveOp(r.Meta.Ident)
+			if !ok {
+				break
+			}
+
 			err := b.doMove(r, opMove)
 			if err != nil {
 				// If the move was initiated by an operator, also forward the
@@ -226,8 +241,6 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 					opMove.Err <- err
 					close(opMove.Err)
 				}
-
-				return
 			}
 		}
 

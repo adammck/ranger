@@ -41,7 +41,7 @@ var r3 = &ranje.ReplicationConfig{
 	MaxActive:    4,
 	//
 	MinPlacements: 3,
-	MaxPlacements: 9,
+	MaxPlacements: 5, // Up to two spare
 }
 
 // Note: These tests are very verbose, but the orchestrator is the most critical
@@ -405,6 +405,74 @@ func Test_R3_Move(t *testing.T) {
 		"{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsActive p2=test-ddd:PsActive}")
 
 	requireStable(t, orch, act)
+}
+
+func Test_R3_MoveMulti(t *testing.T) {
+	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsActive p2=test-ccc:PsActive}"
+	rosStr := "{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc [1:NsActive]} {test-ddd []} {test-eee []} {test-fff []}"
+	orch, act := orchFactoryWithReplication(t, ksStr, rosStr, noStrictTransactions, r3)
+	requireStable(t, orch, act)
+
+	// Queue up *three* moves. Only two of them will proceed right away, because
+	// MaxPlacements==5. The last will start as soon as a placement is dropped.
+	moveOpWithSource(orch, 1, "test-aaa", "test-ddd")
+	moveOpWithSource(orch, 1, "test-bbb", "test-eee")
+	moveOpWithSource(orch, 1, "test-ccc", "test-fff")
+
+	tickCmp(t, orch, act,
+		"Prepare(R1, test-ddd), Prepare(R1, test-eee)",
+		"{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc [1:NsActive]} {test-ddd [1:NsInactive]} {test-eee [1:NsInactive]} {test-fff []}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsActive:tainted p1=test-bbb:PsActive:tainted p2=test-ccc:PsActive p3=test-ddd:PsPending p4=test-eee:PsPending}")
+
+	tickCmp(t, orch, act,
+		"",
+		"{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc [1:NsActive]} {test-ddd [1:NsInactive]} {test-eee [1:NsInactive]} {test-fff []}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsActive:tainted p1=test-bbb:PsActive:tainted p2=test-ccc:PsActive p3=test-ddd:PsInactive p4=test-eee:PsInactive}")
+
+	tickCmp(t, orch, act,
+		"Activate(R1, test-ddd), Activate(R1, test-eee)",
+		"{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc [1:NsActive]} {test-ddd [1:NsActive]} {test-eee [1:NsActive]} {test-fff []}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsActive:tainted p1=test-bbb:PsActive:tainted p2=test-ccc:PsActive p3=test-ddd:PsInactive p4=test-eee:PsInactive}")
+
+	tickCmp(t, orch, act,
+		"",
+		"{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc [1:NsActive]} {test-ddd [1:NsActive]} {test-eee [1:NsActive]} {test-fff []}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsActive:tainted p1=test-bbb:PsActive:tainted p2=test-ccc:PsActive p3=test-ddd:PsActive p4=test-eee:PsActive}")
+
+	tickCmp(t, orch, act,
+		"Deactivate(R1, test-aaa), Deactivate(R1, test-bbb)",
+		"{test-aaa [1:NsInactive]} {test-bbb [1:NsInactive]} {test-ccc [1:NsActive]} {test-ddd [1:NsActive]} {test-eee [1:NsActive]} {test-fff []}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsActive:tainted p1=test-bbb:PsActive:tainted p2=test-ccc:PsActive p3=test-ddd:PsActive p4=test-eee:PsActive}")
+
+	tickCmp(t, orch, act,
+		"",
+		"{test-aaa [1:NsInactive]} {test-bbb [1:NsInactive]} {test-ccc [1:NsActive]} {test-ddd [1:NsActive]} {test-eee [1:NsActive]} {test-fff []}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive:tainted p1=test-bbb:PsInactive:tainted p2=test-ccc:PsActive p3=test-ddd:PsActive p4=test-eee:PsActive}")
+
+	tickCmp(t, orch, act,
+		"Drop(R1, test-aaa), Drop(R1, test-bbb)",
+		"{test-aaa []} {test-bbb []} {test-ccc [1:NsActive]} {test-ddd [1:NsActive]} {test-eee [1:NsActive]} {test-fff []}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive:tainted p1=test-bbb:PsInactive:tainted p2=test-ccc:PsActive p3=test-ddd:PsActive p4=test-eee:PsActive}")
+
+	tickCmp(t, orch, act,
+		"",
+		"{test-aaa []} {test-bbb []} {test-ccc [1:NsActive]} {test-ddd [1:NsActive]} {test-eee [1:NsActive]} {test-fff []}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsDropped:tainted p1=test-bbb:PsDropped:tainted p2=test-ccc:PsActive p3=test-ddd:PsActive p4=test-eee:PsActive}")
+
+	tickCmp(t, orch, act,
+		"",
+		"{test-aaa []} {test-bbb []} {test-ccc [1:NsActive]} {test-ddd [1:NsActive]} {test-eee [1:NsActive]} {test-fff []}",
+		"{1 [-inf, +inf] RsActive p0=test-ccc:PsActive p1=test-ddd:PsActive p2=test-eee:PsActive}")
+
+	// Now the next move can start, because we are back below MaxPlacements.
+
+	tickCmp(t, orch, act,
+		"Prepare(R1, test-fff)",
+		"{test-aaa []} {test-bbb []} {test-ccc [1:NsActive]} {test-ddd [1:NsActive]} {test-eee [1:NsActive]} {test-fff [1:NsInactive]}",
+		"{1 [-inf, +inf] RsActive p0=test-ccc:PsActive:tainted p1=test-ddd:PsActive p2=test-eee:PsActive p3=test-fff:PsPending}")
+
+	// No need to test this one again.
+	tickUntilStable(t, orch, act)
 }
 
 func TestMove_Short(t *testing.T) {
