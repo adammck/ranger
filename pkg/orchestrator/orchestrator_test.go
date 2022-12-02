@@ -24,6 +24,14 @@ import (
 const strictTransactions = true
 const noStrictTransactions = false
 
+// The replication config used by R3 tests.
+var r3 = &ranje.ReplicationConfig{
+	MinPlacements: 3,
+	MaxPlacements: 9,
+	MinActive:     3,
+	MaxActive:     4,
+}
+
 // Note: These tests are very verbose, but the orchestrator is the most critical
 // part of Ranger. When things go wrong here (e.g. storage nodes getting into a
 // weird combination of state and not being able to recover), we're immediately
@@ -97,32 +105,27 @@ func Test_R1_Place(t *testing.T) {
 func Test_R3_Place(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []} {test-bbb []} {test-ccc []}"
-	orch, act := orchFactoryWithReplication(t, ksStr, rosStr, noStrictTransactions, &ranje.ReplicationConfig{
-		MinPlacements: 3,
-		MaxPlacements: 6,
-		MinActive:     3,
-		MaxActive:     6,
-	})
+	orch, act := orchFactoryWithReplication(t, ksStr, rosStr, noStrictTransactions, r3)
 
-	tickWait(t, orch, act)
-	require.Equal(t, "Prepare(R1, test-aaa), Prepare(R1, test-bbb), Prepare(R1, test-ccc)", commands(t, act))
-	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [1:NsInactive]} {test-ccc [1:NsInactive]}", orch.rost.TestString())
-	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsPending p1=test-bbb:PsPending p2=test-ccc:PsPending}", orch.ks.LogString())
+	tickCmp(t, orch, act,
+		"Prepare(R1, test-aaa), Prepare(R1, test-bbb), Prepare(R1, test-ccc)",
+		"{test-aaa [1:NsInactive]} {test-bbb [1:NsInactive]} {test-ccc [1:NsInactive]}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsPending p1=test-bbb:PsPending p2=test-ccc:PsPending}")
 
-	tickWait(t, orch, act)
-	require.Empty(t, commands(t, act))
-	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [1:NsInactive]} {test-ccc [1:NsInactive]}", orch.rost.TestString())
-	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive p1=test-bbb:PsInactive p2=test-ccc:PsInactive}", orch.ks.LogString())
+	tickCmp(t, orch, act,
+		"",
+		"{test-aaa [1:NsInactive]} {test-bbb [1:NsInactive]} {test-ccc [1:NsInactive]}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive p1=test-bbb:PsInactive p2=test-ccc:PsInactive}")
 
-	tickWait(t, orch, act)
-	require.Equal(t, "Activate(R1, test-aaa), Activate(R1, test-bbb), Activate(R1, test-ccc)", commands(t, act))
-	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc [1:NsActive]}", orch.rost.TestString())
-	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive p1=test-bbb:PsInactive p2=test-ccc:PsInactive}", orch.ks.LogString())
+	tickCmp(t, orch, act,
+		"Activate(R1, test-aaa), Activate(R1, test-bbb), Activate(R1, test-ccc)",
+		"{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc [1:NsActive]}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive p1=test-bbb:PsInactive p2=test-ccc:PsInactive}")
 
-	tickWait(t, orch, act)
-	require.Empty(t, commands(t, act))
-	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc [1:NsActive]}", orch.rost.TestString())
-	require.Equal(t, "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsActive p2=test-ccc:PsActive}", orch.ks.LogString())
+	tickCmp(t, orch, act,
+		"",
+		"{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc [1:NsActive]}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsActive p2=test-ccc:PsActive}")
 
 	requireStable(t, orch, act)
 }
@@ -2027,6 +2030,22 @@ func tickWait(t *testing.T, orch *Orchestrator, act *actuator.Actuator, waiters 
 		}
 		cmds := strings.Join(s, ", ")
 		t.Fatalf("unexpected command(s) while strict actuation enabled: %s", cmds)
+	}
+}
+
+func tickCmp(t *testing.T, orch *Orchestrator, act *actuator.Actuator, expectedCommands, expectedRoster, expectedKeyspace string) {
+	t.Helper()
+	tickWait(t, orch, act)
+
+	// Assert (not require) so we can see all of the errors for this tick.
+	a := assert.Equal(t, expectedCommands, commands(t, act), "actuated commands")
+	b := assert.Equal(t, expectedRoster, orch.rost.TestString(), "roster state")
+	c := assert.Equal(t, expectedKeyspace, orch.ks.LogString(), "keyspace state")
+
+	// But stop the test if any of them failed, since further ticks are nonsense
+	// after one has given unexpected results.
+	if !a || !b || !c {
+		t.Fatal("commands, roster, or keyspace did not match expected")
 	}
 }
 
