@@ -162,6 +162,25 @@ func (r *Range) Dirty() bool {
 	return r.dirty
 }
 
+func (r *Range) TargetActive() int {
+	return r.repl.TargetActive
+}
+
+// MinActive returns the minimum number of active placements that this range
+// should ever have. This is the *lower bound*; there will usually be more, but
+// during operations will be allowed to proceed so long as the number of active
+// ranges is not below this number. It can be equal to this number!
+func (r *Range) MinActive() int {
+	return r.repl.MinActive
+}
+
+// MaxActive returns the maximum number of active placements that this range
+// should ever have. Ranger will aim for exactly this number; any fewer, and
+// more should be activated asap.
+func (r *Range) MaxActive() int {
+	return r.repl.MaxActive
+}
+
 // MinPlacements returns the number of placements (in any state) that this range
 // should have. If it has fewer than this, more should be created asap.
 func (r *Range) MinPlacements() int {
@@ -173,21 +192,6 @@ func (r *Range) MinPlacements() int {
 // if that means that an operation can't proceed.
 func (r *Range) MaxPlacements() int {
 	return r.repl.MaxPlacements
-}
-
-// MaxActive returns the maximum number of active placements that this range
-// should ever have. Ranger will aim for exactly this number; any fewer, and
-// more should be activated asap.
-func (r *Range) MaxActive() int {
-	return r.repl.MaxActive
-}
-
-// MinActive returns the minimum number of active placements that this range
-// should ever have. This is the *lower bound*; there will usually be more, but
-// during operations will be allowed to proceed so long as the number of active
-// ranges is not below this number. It can be equal to this number!
-func (r *Range) MinActive() int {
-	return r.repl.MinActive
 }
 
 // NumPlacements calls the given func for each placement, and returns the number

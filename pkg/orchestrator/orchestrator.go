@@ -189,12 +189,19 @@ func (b *Orchestrator) Tick() {
 	// TODO: Persist here, instead of after individual state updates?
 }
 
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 	switch r.State {
 	case api.RsActive:
 
 		// Not enough placements? Create enough to reach the minimum.
-		if n := r.MinPlacements() - len(r.Placements); n > 0 {
+		if n := min(r.MinPlacements(), r.TargetActive()) - len(r.Placements); n > 0 {
 			con := ranje.Constraint{}
 
 			for i := 0; i < n; i++ {

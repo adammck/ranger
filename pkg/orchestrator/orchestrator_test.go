@@ -24,12 +24,24 @@ import (
 const strictTransactions = true
 const noStrictTransactions = false
 
+// The replication config used by R1 tests.
+var r1 = &ranje.ReplicationConfig{
+	TargetActive: 1,
+	MinActive:    0,
+	MaxActive:    1,
+	//
+	MinPlacements: 1,
+	MaxPlacements: 2,
+}
+
 // The replication config used by R3 tests.
 var r3 = &ranje.ReplicationConfig{
+	TargetActive: 3,
+	MinActive:    3,
+	MaxActive:    4,
+	//
 	MinPlacements: 3,
 	MaxPlacements: 9,
-	MinActive:     3,
-	MaxActive:     4,
 }
 
 // Note: These tests are very verbose, but the orchestrator is the most critical
@@ -285,7 +297,7 @@ func TestPlaceFailure_Activate(t *testing.T) {
 	require.Equal(t, "{test-aaa []} {test-bbb [1:NsActive]}", orch.rost.TestString())
 }
 
-func TestMove(t *testing.T) {
+func Test_R1_Move(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
@@ -335,6 +347,62 @@ func TestMove(t *testing.T) {
 	assert.Empty(t, commands(t, act))
 	assert.Equal(t, "{1 [-inf, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
 	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsActive]}", orch.rost.TestString())
+
+	requireStable(t, orch, act)
+}
+
+func Test_R3_Move(t *testing.T) {
+	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsActive p2=test-ccc:PsActive}"
+	rosStr := "{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc [1:NsActive]} {test-ddd []}"
+	orch, act := orchFactoryWithReplication(t, ksStr, rosStr, noStrictTransactions, r3)
+	requireStable(t, orch, act)
+
+	moveOpWithSource(orch, 1, "test-ccc", "test-ddd")
+
+	tickCmp(t, orch, act,
+		"Prepare(R1, test-ddd)",
+		"{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc [1:NsActive]} {test-ddd [1:NsInactive]}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsActive p2=test-ccc:PsActive:tainted p3=test-ddd:PsPending}")
+
+	tickCmp(t, orch, act,
+		"",
+		"{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc [1:NsActive]} {test-ddd [1:NsInactive]}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsActive p2=test-ccc:PsActive:tainted p3=test-ddd:PsInactive}")
+
+	tickCmp(t, orch, act,
+		"Activate(R1, test-ddd)",
+		"{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc [1:NsActive]} {test-ddd [1:NsActive]}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsActive p2=test-ccc:PsActive:tainted p3=test-ddd:PsInactive}")
+
+	tickCmp(t, orch, act,
+		"",
+		"{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc [1:NsActive]} {test-ddd [1:NsActive]}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsActive p2=test-ccc:PsActive:tainted p3=test-ddd:PsActive}")
+
+	tickCmp(t, orch, act,
+		"Deactivate(R1, test-ccc)",
+		"{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc [1:NsInactive]} {test-ddd [1:NsActive]}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsActive p2=test-ccc:PsActive:tainted p3=test-ddd:PsActive}")
+
+	tickCmp(t, orch, act,
+		"",
+		"{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc [1:NsInactive]} {test-ddd [1:NsActive]}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsActive p2=test-ccc:PsInactive:tainted p3=test-ddd:PsActive}")
+
+	tickCmp(t, orch, act,
+		"Drop(R1, test-ccc)",
+		"{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc []} {test-ddd [1:NsActive]}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsActive p2=test-ccc:PsInactive:tainted p3=test-ddd:PsActive}")
+
+	tickCmp(t, orch, act,
+		"",
+		"{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc []} {test-ddd [1:NsActive]}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsActive p2=test-ccc:PsDropped:tainted p3=test-ddd:PsActive}")
+
+	tickCmp(t, orch, act,
+		"",
+		"{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc []} {test-ddd [1:NsActive]}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsActive p2=test-ddd:PsActive}")
 
 	requireStable(t, orch, act)
 }
@@ -1860,7 +1928,7 @@ func orchFactoryWithReplication(t *testing.T, sKS, sRos string, strict bool, rep
 
 // The older interface which almost all of the tests use.
 func orchFactory(t *testing.T, sKS, sRos string, strict bool) (*Orchestrator, *actuator.Actuator) {
-	return orchFactoryWithReplication(t, sKS, sRos, strict, nil)
+	return orchFactoryWithReplication(t, sKS, sRos, strict, r1)
 }
 
 func placementStateFromString(t *testing.T, s string) api.PlacementState {
@@ -1912,11 +1980,13 @@ func remoteStateFromString(t *testing.T, s string) api.RemoteState {
 	return api.NsUnknown // unreachable
 }
 
-func moveOp(orch *Orchestrator, rID int, dest string) chan error {
+// TODO: Combine this with moveOp.
+func moveOpWithSource(orch *Orchestrator, rID int, src, dest string) chan error {
 	ch := make(chan error)
 
 	op := OpMove{
 		Range: api.RangeID(rID),
+		Src:   api.NodeID(src),
 		Dest:  api.NodeID(dest),
 	}
 
@@ -1925,6 +1995,11 @@ func moveOp(orch *Orchestrator, rID int, dest string) chan error {
 	orch.opMovesMu.Unlock()
 
 	return ch
+}
+
+// TODO: Combine this with moveOpWithSource.
+func moveOp(orch *Orchestrator, rID int, dest string) chan error {
+	return moveOpWithSource(orch, rID, "", dest)
 }
 
 func splitOp(orch *Orchestrator, rID int) chan error {

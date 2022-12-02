@@ -334,10 +334,12 @@ func (op *Operation) MayActivate(p *ranje.Placement, r *ranje.Range) error {
 		return fmt.Errorf("gave up")
 	}
 
+	active := r.NumPlacementsInState(api.PsActive)
+
 	// Count how many active placements this range has. If there are already the
 	// maximum allowed, we certainly can't activate another.
-	if n := r.NumPlacementsInState(api.PsActive); n >= r.MaxActive() {
-		return fmt.Errorf("too many active placements (n=%d, MaxActive=%d)", n, r.MaxActive())
+	if active >= r.MaxActive() {
+		return fmt.Errorf("too many active placements (n=%d, MaxActive=%d)", active, r.MaxActive())
 	}
 
 	if op == nil {
@@ -353,6 +355,12 @@ func (op *Operation) MayActivate(p *ranje.Placement, r *ranje.Range) error {
 		// placement is the best we can do to restore service. Probably it was
 		// deactivated to allow another placement to activate, but that failed.
 		if p.Tainted {
+
+			if active >= r.TargetActive() {
+				return fmt.Errorf("already at target")
+			}
+
+			// ???
 			n := r.NumPlacements(func(other *ranje.Placement) bool {
 				return other != p && other.StateCurrent == api.PsInactive && !other.Failed(api.Activate)
 			})
@@ -397,8 +405,14 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 		return fmt.Errorf("gave up")
 	}
 
-	// TODO: Check whether the number of active placements is < MinActive here,
-	//       and abort if so. This will be needed for replication.
+	active := r.NumPlacementsInState(api.PsActive)
+
+	// Count how many active placements this range has. If there aren't any
+	// spare, i.e. there would be fewer than the minimum if this placement
+	// deactivated, then we can't do it.
+	if active <= r.MinActive() {
+		return fmt.Errorf("not enough active placements (n=%d, min=%d)", active, r.MinActive())
+	}
 
 	if op == nil {
 
@@ -406,9 +420,17 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 		// wait until there is at least one other placement ready to activate in
 		// its place, to make the transition as brief as possible.
 		if p.Tainted {
+
+			if active > r.TargetActive() {
+				return nil
+			}
+
 			n := r.NumPlacements(func(other *ranje.Placement) bool {
 				return other != p && other.StateCurrent == api.PsInactive && !other.Failed(api.Activate)
 			})
+			// TODO: This is no good! Multiple placements may deactivate in a
+			//       single tick based on the availability of *one* inactive
+			//       placement ready to activate. Maybe look at StateDesired.
 			if n > 0 {
 				return nil
 			}
@@ -471,10 +493,10 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 
 		// If the placement is tainted, we *want* to drop it. It's probably been
 		// recently deactivated to allow its replacement to activate. But delay
-		// the drop until that has actually happened, in case it fails and we
-		// need to reactivate this tainted placement.
+		// the drop until the number of active placements has gotten back to the
+		// target, in case need to reactivate this tainted placement.
 		if p.Tainted {
-			if n := r.NumPlacementsInState(api.PsActive); n < r.MaxActive() {
+			if n := r.NumPlacementsInState(api.PsActive); n < r.TargetActive() {
 				return fmt.Errorf("delaying drop until after sibling activate")
 			}
 

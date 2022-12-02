@@ -37,6 +37,7 @@ type Keyspace struct {
 	replication ranje.ReplicationConfig
 }
 
+// TODO: Remove this method and the defaults.
 func New(persister persister.Persister) (*Keyspace, error) {
 	return NewWithReplication(persister, ranje.ReplicationConfig{
 		MinPlacements: 1,
