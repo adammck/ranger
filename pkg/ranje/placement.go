@@ -40,12 +40,6 @@ type Placement struct {
 	// one to deactivate itself.)
 	Tainted bool `json:",omitempty"`
 
-	// Set by the orchestrator to indicate that this placement was created to
-	// replace the placement of the same range on some other node. Should be
-	// cleared once the placement activates.
-	// TODO: Change this to some kind of uuid.
-	IsReplacing api.NodeID `json:",omitempty"`
-
 	// failures is updated by the actuator when an action is attempted a few
 	// times but fails. This generally causes the placement to become wedged
 	// until an operator intervenes.
@@ -78,11 +72,6 @@ func (p *Placement) LogString() string {
 
 func (p *Placement) Range() *Range {
 	return p.rang
-}
-
-// TODO: Remove this method (and Placement.IsReplacing).
-func (p *Placement) DoneReplacing() {
-	p.IsReplacing = ""
 }
 
 func (p *Placement) Want(new api.PlacementState) error {

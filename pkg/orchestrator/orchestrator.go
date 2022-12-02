@@ -421,15 +421,6 @@ func (b *Orchestrator) doMove(r *ranje.Range, opMove OpMove) error {
 		return fmt.Errorf("src placement is already tainted (rID=%s, src=%s)", r.Meta.Ident, src.NodeID)
 	}
 
-	// TODO: Remove this.
-	// If the source placement is already being replaced by some other
-	// placement, reject the move.
-	for _, p := range r.Placements {
-		if p.IsReplacing == src.NodeID {
-			return fmt.Errorf("placement already being replaced (src=%v, dest=%v)", src, p.NodeID)
-		}
-	}
-
 	destNodeID, err := b.rost.Candidate(r, ranje.Constraint{NodeID: opMove.Dest})
 	if err != nil {
 		return err
@@ -444,8 +435,7 @@ func (b *Orchestrator) doMove(r *ranje.Range, opMove OpMove) error {
 		})
 	}
 
-	// TODO: Just use r.NewPlacement once IsReplacing is gone.
-	r.NewReplacement(destNodeID, src)
+	r.NewPlacement(destNodeID)
 
 	// Taint the source range, to provide a hint to the orchestrator that it
 	// should deactivate and drop itself asap (i.e. when the replacement,
@@ -465,24 +455,6 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 		if p.StateCurrent != api.PsMissing && p.StateCurrent != api.PsDropped {
 			b.ks.PlacementToState(p, api.PsMissing)
 			return
-		}
-	}
-
-	// TODO: Remove this with DoneReplacing.
-	// If this placement is replacing another, and that placement is gone from
-	// the keyspace, then clear the annotation. (Note that we don't care what
-	// the roster says; this is just cleanup.)
-	if p.IsReplacing != "" {
-		found := false
-		for _, pp := range p.Range().Placements {
-			if p.IsReplacing == pp.NodeID {
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			p.DoneReplacing()
 		}
 	}
 

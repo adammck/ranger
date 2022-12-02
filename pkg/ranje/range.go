@@ -77,25 +77,6 @@ func (r *Range) NewPlacement(nodeID api.NodeID) *Placement {
 	return p
 }
 
-// Special constructor for placements replacing some other placement.
-//
-// TODO: Remove this and fix doMove (the only caller) to taint the src placement
-//       itself. Moves are really just tainting a placement and then creating a
-//       new one-- the new one will naturally replace the old tainted one.
-func (r *Range) NewReplacement(destNodeID api.NodeID, src *Placement) *Placement {
-	p := &Placement{
-		rang:         r,
-		NodeID:       destNodeID,
-		StateCurrent: api.PsPending,
-		StateDesired: api.PsPending,
-		IsReplacing:  src.NodeID,
-	}
-
-	r.Placements = append(r.Placements, p)
-
-	return p
-}
-
 // DestroyPlacement removes the given placement from the range. This is the only
 // was that should happen, to ensure that the onDestroy callback is called.
 func (r *Range) DestroyPlacement(p *Placement) {
@@ -137,10 +118,6 @@ func (r *Range) LogString() string {
 
 		// if p.Attempts > 0 {
 		// 	ps = fmt.Sprintf("%s:att=%d", ps, p.Attempts)
-		// }
-
-		// if p.IsReplacing != "" {
-		// 	ps = fmt.Sprintf("%s:replacing(%v)", ps, p.IsReplacing)
 		// }
 
 		if p.Tainted {
