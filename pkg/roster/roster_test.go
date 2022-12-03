@@ -49,7 +49,7 @@ func (ts *RosterSuite) TestNoCandidates() {
 
 	nID, err := ts.rost.Candidate(ts.r, ranje.AnyNode)
 	if ts.Error(err) {
-		ts.Equal(fmt.Errorf("no candidates available (rID=1, c=any)"), err)
+		ts.Equal(fmt.Errorf("no candidates available (rID=1, c=Constraint{any})"), err)
 	}
 	ts.Equal(nID, api.ZeroNodeID)
 }
