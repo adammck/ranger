@@ -33,7 +33,8 @@ type Keyspace struct {
 	// new range.
 	maxIdent api.RangeID
 
-	// The default replication config.
+	// The default replication config. Ranges spawned by this keyspace will
+	// inherit this. It's currently hard to change.
 	replication ranje.ReplicationConfig
 }
 
@@ -226,6 +227,10 @@ func (ks *Keyspace) Split(r *ranje.Range, k api.Key) (one *ranje.Range, two *ran
 		// The error is clear enough, no need to wrap it.
 		return
 	}
+
+	// TODO: Child ranges should inherit their replication configs from their
+	//       parent range(s). This is currently okay because there's no way to
+	//       change configs for individual ranges.
 
 	one = ks.newRange()
 	one.Meta.Start = r.Meta.Start
