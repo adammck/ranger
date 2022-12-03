@@ -435,7 +435,7 @@ func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (api.NodeID, er
 	}
 
 	if len(candidates) == 0 {
-		return "", fmt.Errorf("no candidates available (rID=%v, c=%v)", rng.Meta.Ident, c)
+		return "", fmt.Errorf("no candidates available (rID=%v, c=%v)", rID, c)
 	}
 
 	// Pick the node with lowest utilization. For nodes with the exact same
