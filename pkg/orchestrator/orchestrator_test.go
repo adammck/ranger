@@ -2200,7 +2200,7 @@ func moveOp(orch *Orchestrator, rID int, dest string) chan error {
 }
 
 func splitOp(orch *Orchestrator, rID int) chan error {
-	ch := make(chan error)
+	ch := make(chan error, 1)
 	rID_ := api.RangeID(rID)
 
 	op := OpSplit{
@@ -2219,7 +2219,7 @@ func splitOp(orch *Orchestrator, rID int) chan error {
 // JoinOp injects a join operation to the given orchestrator, to kick off the
 // operation at the start of a test.
 func joinOp(orch *Orchestrator, r1ID, r2ID int, dest string) chan error {
-	ch := make(chan error)
+	ch := make(chan error, 1)
 
 	// TODO: Do this via the operator interface instead.
 
