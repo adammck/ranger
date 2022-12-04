@@ -536,23 +536,48 @@ func initJoinInner(b *Orchestrator, opJoin OpJoin) (*ranje.Placement, error) {
 
 	r1, err := b.ks.GetRange(opJoin.Left)
 	if err != nil {
-		return nil, fmt.Errorf("join with invalid left side: %v (rID=%v)", err, opJoin.Left)
+		return nil, fmt.Errorf("join with invalid left side: %v (rID=%s)", err, opJoin.Left)
 	}
 
 	r2, err := b.ks.GetRange(opJoin.Right)
 	if err != nil {
-		return nil, fmt.Errorf("join with invalid right side: %v (rID=%v)", err, opJoin.Right)
+		return nil, fmt.Errorf("join with invalid right side: %v (rID=%s)", err, opJoin.Right)
 	}
 
-	// Find the candidate for the new (joined) range before performing the join.
-	// Once that happens, we can't (currently) abort.
-	c := ranje.AnyNode
-	if opJoin.Dest != "" {
-		c = ranje.Constraint{NodeID: opJoin.Dest}
+	constraint := ranje.AnyNode
+
+	// Exclude any node which has a placement of either parent reange.
+	// TODO: Make this tweakable once Dest can specify all target nodes.
+	for _, r := range []*ranje.Range{r1, r2} {
+		for _, p := range r.Placements {
+			constraint.Not = append(constraint.Not, p.NodeID)
+		}
 	}
-	nIDr3, err := b.rost.Candidate(nil, c)
-	if err != nil {
-		return nil, fmt.Errorf("error selecting join candidate: %v", err)
+
+	// Use replication configs of the left parent for now.
+	// TODO: Verify that the two ranges have compatible replication configs, so
+	//       that the join can be performed without deadlocking.
+	n := min(r1.MinPlacements(), r1.TargetActive())
+	nIDs := make([]api.NodeID, n)
+
+	// Find the candidates for the placements of the new (joined) range before
+	// performing the join. Once that happens, we can't (currently) abort, so
+	// the parent ranges will be stuck in RsSubsuming.
+
+	for i := 0; i < n; i++ {
+
+		c := constraint
+		if i == 0 && opJoin.Dest != "" {
+			c.NodeID = opJoin.Dest
+		}
+
+		nIDs[i], err = b.rost.Candidate(nil, c)
+		if err != nil {
+			return nil, fmt.Errorf("error selecting join candidate: %v", err)
+		}
+
+		// Exclude this node from further placements.
+		constraint = constraint.WithNot(nIDs[i])
 	}
 
 	r3, err := b.ks.JoinTwo(r1, r2)
@@ -563,9 +588,12 @@ func initJoinInner(b *Orchestrator, opJoin OpJoin) (*ranje.Placement, error) {
 	// If we made it this far, the join has happened and already been persisted.
 	// No turning back now.
 
-	p := r3.NewPlacement(nIDr3)
+	ps := make([]*ranje.Placement, n)
+	for i := range nIDs {
+		ps[i] = r3.NewPlacement(nIDs[i])
+	}
 
-	return p, nil
+	return ps[0], nil
 }
 
 // TODO: Dedup this with initJoin, once OnReady is OnObsolete.

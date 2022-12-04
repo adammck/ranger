@@ -1414,10 +1414,10 @@ func TestSplitFailure_Drop_Short(t *testing.T) {
 	assert.True(t, p.Failed(api.Drop))
 }
 
-func TestJoin(t *testing.T) {
+func TestJoin_R1(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []}"
-	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+	orch, act := orchFactoryWithReplication(t, ksStr, rosStr, noStrictTransactions, r1)
 	opErr := joinOp(orch, 1, 2, "test-ccc")
 
 	// Prepare
@@ -1479,6 +1479,95 @@ func TestJoin(t *testing.T) {
 
 	requireStable(t, orch, act)
 	assertClosed(t, opErr)
+}
+
+func TestJoin_R3(t *testing.T) {
+	ksStr := "{1 [-inf, ggg] RsActive p0=aaa:PsActive p1=bbb:PsActive p2=ccc:PsActive} {2 (ggg, +inf] RsActive p0=ddd:PsActive p1=eee:PsActive p2=fff:PsActive}"
+	rosStr := "{aaa [1:NsActive]} {bbb [1:NsActive]} {ccc [1:NsActive]} {ddd [2:NsActive]} {eee [2:NsActive]} {fff [2:NsActive]} {ggg []} {hhh []} {iii []}"
+	orch, act := orchFactoryWithReplication(t, ksStr, rosStr, noStrictTransactions, r3)
+	requireStable(t, orch, act)
+
+	// Init
+
+	opErr := joinOp(orch, 1, 2, "")
+
+	// Prepare
+
+	tickCmpOpErr(t, orch, act,
+		"Prepare(R3, ggg), Prepare(R3, hhh), Prepare(R3, iii)",
+		"{aaa [1:NsActive]} {bbb [1:NsActive]} {ccc [1:NsActive]} {ddd [2:NsActive]} {eee [2:NsActive]} {fff [2:NsActive]} {ggg [3:NsInactive]} {hhh [3:NsInactive]} {iii [3:NsInactive]}",
+		"{1 [-inf, ggg] RsSubsuming p0=aaa:PsActive p1=bbb:PsActive p2=ccc:PsActive} {2 (ggg, +inf] RsSubsuming p0=ddd:PsActive p1=eee:PsActive p2=fff:PsActive} {3 [-inf, +inf] RsActive p0=ggg:PsPending p1=hhh:PsPending p2=iii:PsPending}",
+		"{Join 1,2 -> 3}",
+		opErr)
+
+	tickCmpOpErr(t, orch, act,
+		"",
+		"{aaa [1:NsActive]} {bbb [1:NsActive]} {ccc [1:NsActive]} {ddd [2:NsActive]} {eee [2:NsActive]} {fff [2:NsActive]} {ggg [3:NsInactive]} {hhh [3:NsInactive]} {iii [3:NsInactive]}",
+		"{1 [-inf, ggg] RsSubsuming p0=aaa:PsActive p1=bbb:PsActive p2=ccc:PsActive} {2 (ggg, +inf] RsSubsuming p0=ddd:PsActive p1=eee:PsActive p2=fff:PsActive} {3 [-inf, +inf] RsActive p0=ggg:PsInactive p1=hhh:PsInactive p2=iii:PsInactive}",
+		"{Join 1,2 -> 3}",
+		opErr)
+
+	// Deactivate
+
+	tickCmpOpErr(t, orch, act,
+		"Deactivate(R1, aaa), Deactivate(R1, bbb), Deactivate(R1, ccc), Deactivate(R2, ddd), Deactivate(R2, eee), Deactivate(R2, fff)",
+		"{aaa [1:NsInactive]} {bbb [1:NsInactive]} {ccc [1:NsInactive]} {ddd [2:NsInactive]} {eee [2:NsInactive]} {fff [2:NsInactive]} {ggg [3:NsInactive]} {hhh [3:NsInactive]} {iii [3:NsInactive]}",
+		"{1 [-inf, ggg] RsSubsuming p0=aaa:PsActive p1=bbb:PsActive p2=ccc:PsActive} {2 (ggg, +inf] RsSubsuming p0=ddd:PsActive p1=eee:PsActive p2=fff:PsActive} {3 [-inf, +inf] RsActive p0=ggg:PsInactive p1=hhh:PsInactive p2=iii:PsInactive}",
+		"{Join 1,2 -> 3}",
+		opErr)
+
+	// Activate
+
+	tickCmpOpErr(t, orch, act,
+		"Activate(R3, ggg), Activate(R3, hhh), Activate(R3, iii)",
+		"{aaa [1:NsInactive]} {bbb [1:NsInactive]} {ccc [1:NsInactive]} {ddd [2:NsInactive]} {eee [2:NsInactive]} {fff [2:NsInactive]} {ggg [3:NsActive]} {hhh [3:NsActive]} {iii [3:NsActive]}",
+		"{1 [-inf, ggg] RsSubsuming p0=aaa:PsInactive p1=bbb:PsInactive p2=ccc:PsInactive} {2 (ggg, +inf] RsSubsuming p0=ddd:PsInactive p1=eee:PsInactive p2=fff:PsInactive} {3 [-inf, +inf] RsActive p0=ggg:PsInactive p1=hhh:PsInactive p2=iii:PsInactive}",
+		"{Join 1,2 -> 3}",
+		opErr)
+
+	tickCmpOpErr(t, orch, act,
+		"",
+		"{aaa [1:NsInactive]} {bbb [1:NsInactive]} {ccc [1:NsInactive]} {ddd [2:NsInactive]} {eee [2:NsInactive]} {fff [2:NsInactive]} {ggg [3:NsActive]} {hhh [3:NsActive]} {iii [3:NsActive]}",
+		"{1 [-inf, ggg] RsSubsuming p0=aaa:PsInactive p1=bbb:PsInactive p2=ccc:PsInactive} {2 (ggg, +inf] RsSubsuming p0=ddd:PsInactive p1=eee:PsInactive p2=fff:PsInactive} {3 [-inf, +inf] RsActive p0=ggg:PsActive p1=hhh:PsActive p2=iii:PsActive}",
+		"{Join 1,2 -> 3}",
+		opErr)
+
+	// TODO: This should be later, when R1 and R2 become RsObsolete.
+	assertClosed(t, opErr)
+
+	// Drop
+
+	tickCmpOpErr(t, orch, act,
+		"Drop(R1, aaa), Drop(R1, bbb), Drop(R1, ccc), Drop(R2, ddd), Drop(R2, eee), Drop(R2, fff)",
+		"{aaa []} {bbb []} {ccc []} {ddd []} {eee []} {fff []} {ggg [3:NsActive]} {hhh [3:NsActive]} {iii [3:NsActive]}",
+		"{1 [-inf, ggg] RsSubsuming p0=aaa:PsInactive p1=bbb:PsInactive p2=ccc:PsInactive} {2 (ggg, +inf] RsSubsuming p0=ddd:PsInactive p1=eee:PsInactive p2=fff:PsInactive} {3 [-inf, +inf] RsActive p0=ggg:PsActive p1=hhh:PsActive p2=iii:PsActive}",
+		"{Join 1,2 -> 3}",
+		opErr)
+
+	tickCmpOpErr(t, orch, act,
+		"",
+		"{aaa []} {bbb []} {ccc []} {ddd []} {eee []} {fff []} {ggg [3:NsActive]} {hhh [3:NsActive]} {iii [3:NsActive]}",
+		"{1 [-inf, ggg] RsSubsuming p0=aaa:PsDropped p1=bbb:PsDropped p2=ccc:PsDropped} {2 (ggg, +inf] RsSubsuming p0=ddd:PsDropped p1=eee:PsDropped p2=fff:PsDropped} {3 [-inf, +inf] RsActive p0=ggg:PsActive p1=hhh:PsActive p2=iii:PsActive}",
+		"{Join 1,2 -> 3}",
+		opErr)
+
+	// Cleanup
+
+	tickCmpOpErr(t, orch, act,
+		"",
+		"{aaa []} {bbb []} {ccc []} {ddd []} {eee []} {fff []} {ggg [3:NsActive]} {hhh [3:NsActive]} {iii [3:NsActive]}",
+		"{1 [-inf, ggg] RsSubsuming} {2 (ggg, +inf] RsSubsuming} {3 [-inf, +inf] RsActive p0=ggg:PsActive p1=hhh:PsActive p2=iii:PsActive}",
+		"{Join 1,2 -> 3}",
+		opErr)
+
+	tickCmpOpErr(t, orch, act,
+		"",
+		"{aaa []} {bbb []} {ccc []} {ddd []} {eee []} {fff []} {ggg [3:NsActive]} {hhh [3:NsActive]} {iii [3:NsActive]}",
+		"{1 [-inf, ggg] RsObsolete} {2 (ggg, +inf] RsObsolete} {3 [-inf, +inf] RsActive p0=ggg:PsActive p1=hhh:PsActive p2=iii:PsActive}",
+		"", // Operation has finished.
+		opErr)
+
+	requireStable(t, orch, act)
 }
 
 func TestJoin_Short(t *testing.T) {
@@ -1633,6 +1722,21 @@ func TestJoin_Slow(t *testing.T) {
 
 	requireStable(t, orch, act)
 	assertClosed(t, opErr)
+}
+
+func TestJoinFailure_InitParentExcluded(t *testing.T) {
+	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
+	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []}"
+	orch, act := orchFactoryWithReplication(t, ksStr, rosStr, noStrictTransactions, r1)
+
+	for _, nID := range []string{"test-aaa", "test-bbb"} {
+		opErr := joinOp(orch, 1, 2, nID)
+		tickWait(t, orch, act)
+
+		// Excluded because parent range is assigned there.
+		assertClosedError(t, opErr, fmt.Sprintf(
+			"error selecting join candidate: node is excluded: %s", nID))
+	}
 }
 
 func TestJoinFailure_Prepare(t *testing.T) {
@@ -2223,14 +2327,14 @@ func joinOp(orch *Orchestrator, r1ID, r2ID int, dest string) chan error {
 
 	// TODO: Do this via the operator interface instead.
 
-	// TODO: Inject the target node for r3. It currently defaults to the empty
-	//       node
-
 	op := OpJoin{
 		Left:  api.RangeID(r1ID),
 		Right: api.RangeID(r2ID),
-		Dest:  api.NodeID(dest),
 		Err:   ch,
+	}
+
+	if dest != "" {
+		op.Dest = api.NodeID(dest)
 	}
 
 	orch.opJoinsMu.Lock()
@@ -2432,6 +2536,18 @@ func mustGetPlacement(t *testing.T, ks *keyspace.Keyspace, rID int, nodeID strin
 		t.Fatalf("r(%d).PlacementByNodeID(%s): no such placement", rID, nodeID)
 	}
 	return p
+}
+
+// assertClosedError asserts that the given error channel contains an error with
+// the given message, and is closed.
+func assertClosedError(t *testing.T, ch <-chan error, expected string) {
+	t.Helper()
+	select {
+	case err := <-ch:
+		assert.EqualError(t, err, expected)
+	default:
+		assert.Fail(t, "expected channel to be closed")
+	}
 }
 
 // assertClosed asserts that the given error channel is closed.
