@@ -1532,9 +1532,6 @@ func TestJoin_R3(t *testing.T) {
 		"{Join 1,2 -> 3}",
 		opErr)
 
-	// TODO: This should be later, when R1 and R2 become RsObsolete.
-	assertClosed(t, opErr)
-
 	// Drop
 
 	tickCmpOpErr(t, orch, act,
@@ -1567,6 +1564,7 @@ func TestJoin_R3(t *testing.T) {
 		"", // Operation has finished.
 		opErr)
 
+	assertClosed(t, opErr)
 	requireStable(t, orch, act)
 }
 

@@ -504,7 +504,7 @@ func (b *Orchestrator) Run(t *time.Ticker) {
 //
 // Caller must hold the keyspace lock and opJoinsMu.
 func (b *Orchestrator) initJoin(opJoin OpJoin) {
-	p, err := initJoinInner(b, opJoin)
+	r, err := initJoinInner(b, opJoin)
 
 	// If no error channel is given, this drops the error on the floor.
 	if opJoin.Err == nil {
@@ -517,22 +517,20 @@ func (b *Orchestrator) initJoin(opJoin OpJoin) {
 		return
 	}
 
-	// Unlock operator RPC when the join finishes.
-	//
-	// Note that this will only fire if *this* placement activates. If it fails,
-	// and is replaced, and that succeeds, the RPC will never unblock.
-	//
-	// TODO: Use Range.OnObsolete for this, like splits do, then remove
-	//       Placement.OnReady.
-	//
-	p.OnReady(func() {
+	// Unlock operator RPC when the join finishes. This assumes that both
+	// parents will become obsolete at once, via Operation.CheckComplete.
+	r.OnObsolete(func() {
 		close(opJoin.Err)
 	})
 }
 
 // initJoinInner is a helper func so we can return errors directly. This should
 // only be called by initJoin, which plumbs the error into the right channel.
-func initJoinInner(b *Orchestrator, opJoin OpJoin) (*ranje.Placement, error) {
+//
+// The range returned is not the new range! It's an arbitrary parent range,
+// because the caller needs it (to attach the obsolete callback) and this func
+// already looks it up from the rID, so I'm being lazy and passing it along.
+func initJoinInner(b *Orchestrator, opJoin OpJoin) (*ranje.Range, error) {
 
 	r1, err := b.ks.GetRange(opJoin.Left)
 	if err != nil {
@@ -588,12 +586,13 @@ func initJoinInner(b *Orchestrator, opJoin OpJoin) (*ranje.Placement, error) {
 	// If we made it this far, the join has happened and already been persisted.
 	// No turning back now.
 
-	ps := make([]*ranje.Placement, n)
 	for i := range nIDs {
-		ps[i] = r3.NewPlacement(nIDs[i])
+		r3.NewPlacement(nIDs[i])
 	}
 
-	return ps[0], nil
+	// It's not an error that this func returns r1 not r3. The caller needs it.
+	// See the docstring.
+	return r1, nil
 }
 
 // TODO: Dedup this with initJoin, once OnReady is OnObsolete.

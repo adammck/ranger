@@ -47,7 +47,6 @@ type Placement struct {
 
 	// Not persisted.
 	onDestroy func()
-	onReady   func()
 
 	// Guards everything.
 	// TODO: What is "everything" ??
@@ -88,13 +87,6 @@ func (p *Placement) ToState(new api.PlacementState) error {
 		return err
 	}
 
-	// Special case: When entering PsActive, fire the optional callback.
-	if new == api.PsActive {
-		if p.onReady != nil {
-			p.onReady()
-		}
-	}
-
 	old := p.StateCurrent
 	p.StateCurrent = new
 	p.failures = nil
@@ -103,23 +95,6 @@ func (p *Placement) ToState(new api.PlacementState) error {
 	log.Printf("R%sP%d: %s -> %s", p.rang.Meta.Ident, p.rang.PlacementIndex(p.NodeID), old, new)
 
 	return nil
-}
-
-func (p *Placement) OnReady(f func()) {
-	p.Lock()
-	defer p.Unlock()
-
-	if p.onReady != nil {
-		panic("placement already has non-nil onReady callback")
-	}
-
-	if p.StateCurrent != api.PsPending {
-		panic(fmt.Sprintf(
-			"can't attach onReady callback to non-pending placement (s=%v, rID=%v, nID=%v)",
-			p.StateCurrent, p.rang.Meta.Ident, p.NodeID))
-	}
-
-	p.onReady = f
 }
 
 func (p *Placement) OnDestroy(f func()) {
