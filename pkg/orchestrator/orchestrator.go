@@ -268,11 +268,21 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 			//       okay to give up, unlike RsActive. Ranges would need to keep
 			//       track of how many placements had been created and failed.
 
-			c := ranje.AnyNode
-			if opSplit.Left != "" {
-				c = ranje.Constraint{NodeID: opSplit.Left}
+			constraint := ranje.AnyNode
+
+			// Exclude any node which has a placement of the parent range.
+			// TODO: Make this tweakable; some systems may prefer to split on
+			//       the parent node (i.e. both sides are placed on the same
+			//       node as the parent they are split from) and then move.
+			for _, p := range r.Placements {
+				constraint.Not = append(constraint.Not, p.NodeID)
 			}
-			nIDL, err := b.rost.Candidate(nil, c)
+
+			cL := constraint
+			if opSplit.Left != "" {
+				cL = cL.WithNodeID(opSplit.Left)
+			}
+			nIDL, err := b.rost.Candidate(nil, cL)
 			if err != nil {
 				if opSplit.Err != nil {
 					opSplit.Err <- err
@@ -281,11 +291,11 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 				return
 			}
 
-			c = ranje.AnyNode
+			cR := constraint.WithNot(nIDL)
 			if opSplit.Right != "" {
-				c = ranje.Constraint{NodeID: opSplit.Right}
+				cR = cR.WithNodeID(opSplit.Right)
 			}
-			nIDR, err := b.rost.Candidate(nil, c)
+			nIDR, err := b.rost.Candidate(nil, cR)
 			if err != nil {
 				if opSplit.Err != nil {
 					opSplit.Err <- err

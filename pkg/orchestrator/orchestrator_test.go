@@ -802,10 +802,10 @@ func TestMoveFailure_Drop(t *testing.T) {
 	assert.Equal(t, "{test-aaa []} {test-bbb [1:NsActive]}", orch.rost.TestString())
 }
 
-func TestSplit(t *testing.T) {
-	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
-	rosStr := "{test-aaa [1:NsActive]}"
-	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+func TestSplit_R1(t *testing.T) {
+	ksStr := "{1 [-inf, +inf] RsActive p0=aaa:PsActive}"
+	rosStr := "{aaa [1:NsActive]} {bbb []} {ccc []}"
+	orch, act := orchFactoryWithReplication(t, ksStr, rosStr, noStrictTransactions, r1)
 	requireStable(t, orch, act)
 
 	// 0. Initiate
@@ -816,63 +816,63 @@ func TestSplit(t *testing.T) {
 
 	tickWait(t, orch, act)
 	assert.Empty(t, commands(t, act))
-	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsPending} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsActive]}", orch.rost.TestString())
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive} {2 [-inf, ccc] RsActive p0=bbb:PsPending} {3 (ccc, +inf] RsActive p0=ccc:PsPending}", orch.ks.LogString())
+	assert.Equal(t, "{aaa [1:NsActive]} {bbb []} {ccc []}", orch.rost.TestString())
 	assert.Equal(t, "{Split 1 -> 2,3}", OpsString(orch.ks))
 
 	tickWait(t, orch, act)
-	assert.Equal(t, "Prepare(R2, test-aaa), Prepare(R3, test-aaa)", commands(t, act))
-	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsPending} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsActive 2:NsInactive 3:NsInactive]}", orch.rost.TestString())
+	assert.Equal(t, "Prepare(R2, bbb), Prepare(R3, ccc)", commands(t, act))
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive} {2 [-inf, ccc] RsActive p0=bbb:PsPending} {3 (ccc, +inf] RsActive p0=ccc:PsPending}", orch.ks.LogString())
+	assert.Equal(t, "{aaa [1:NsActive]} {bbb [2:NsInactive]} {ccc [3:NsInactive]}", orch.rost.TestString())
 
 	tickWait(t, orch, act)
 	assert.Empty(t, commands(t, act))
-	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsActive 2:NsInactive 3:NsInactive]}", orch.rost.TestString())
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive} {2 [-inf, ccc] RsActive p0=bbb:PsInactive} {3 (ccc, +inf] RsActive p0=ccc:PsInactive}", orch.ks.LogString())
+	assert.Equal(t, "{aaa [1:NsActive]} {bbb [2:NsInactive]} {ccc [3:NsInactive]}", orch.rost.TestString())
 
 	// 2. Deactivate
 
 	tickWait(t, orch, act)
-	assert.Equal(t, "Deactivate(R1, test-aaa)", commands(t, act))
-	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsInactive 2:NsInactive 3:NsInactive]}", orch.rost.TestString())
+	assert.Equal(t, "Deactivate(R1, aaa)", commands(t, act))
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive} {2 [-inf, ccc] RsActive p0=bbb:PsInactive} {3 (ccc, +inf] RsActive p0=ccc:PsInactive}", orch.ks.LogString())
+	assert.Equal(t, "{aaa [1:NsInactive]} {bbb [2:NsInactive]} {ccc [3:NsInactive]}", orch.rost.TestString())
 
 	// 3. Activate
 
 	tickWait(t, orch, act)
-	assert.Equal(t, "Activate(R2, test-aaa), Activate(R3, test-aaa)", commands(t, act))
-	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsInactive 2:NsActive 3:NsActive]}", orch.rost.TestString())
+	assert.Equal(t, "Activate(R2, bbb), Activate(R3, ccc)", commands(t, act))
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsInactive} {2 [-inf, ccc] RsActive p0=bbb:PsInactive} {3 (ccc, +inf] RsActive p0=ccc:PsInactive}", orch.ks.LogString())
+	assert.Equal(t, "{aaa [1:NsInactive]} {bbb [2:NsActive]} {ccc [3:NsActive]}", orch.rost.TestString())
 
 	tickWait(t, orch, act)
 	assert.Empty(t, commands(t, act))
-	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsInactive 2:NsActive 3:NsActive]}", orch.rost.TestString())
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsInactive} {2 [-inf, ccc] RsActive p0=bbb:PsActive} {3 (ccc, +inf] RsActive p0=ccc:PsActive}", orch.ks.LogString())
+	assert.Equal(t, "{aaa [1:NsInactive]} {bbb [2:NsActive]} {ccc [3:NsActive]}", orch.rost.TestString())
 
 	// 4. Drop
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Drop(R1, test-aaa)", commands(t, act))
-	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
-	assert.Equal(t, "{test-aaa [2:NsActive 3:NsActive]}", orch.rost.TestString())
+	require.Equal(t, "Drop(R1, aaa)", commands(t, act))
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsInactive} {2 [-inf, ccc] RsActive p0=bbb:PsActive} {3 (ccc, +inf] RsActive p0=ccc:PsActive}", orch.ks.LogString())
+	assert.Equal(t, "{aaa []} {bbb [2:NsActive]} {ccc [3:NsActive]}", orch.rost.TestString())
 
 	tickWait(t, orch, act)
 	assert.Empty(t, commands(t, act))
-	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsDropped} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
-	assert.Equal(t, "{test-aaa [2:NsActive 3:NsActive]}", orch.rost.TestString())
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsDropped} {2 [-inf, ccc] RsActive p0=bbb:PsActive} {3 (ccc, +inf] RsActive p0=ccc:PsActive}", orch.ks.LogString())
+	assert.Equal(t, "{aaa []} {bbb [2:NsActive]} {ccc [3:NsActive]}", orch.rost.TestString())
 
 	// 5. Cleanup
 
 	tickWait(t, orch, act)
 	assert.Empty(t, commands(t, act))
-	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
-	assert.Equal(t, "{test-aaa [2:NsActive 3:NsActive]}", orch.rost.TestString())
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming} {2 [-inf, ccc] RsActive p0=bbb:PsActive} {3 (ccc, +inf] RsActive p0=ccc:PsActive}", orch.ks.LogString())
+	assert.Equal(t, "{aaa []} {bbb [2:NsActive]} {ccc [3:NsActive]}", orch.rost.TestString())
 	assert.Equal(t, "{Split 1 -> 2,3}", OpsString(orch.ks)) // Operation is still active.
 
 	tickWait(t, orch, act)
 	assert.Empty(t, commands(t, act))
-	assert.Equal(t, "{1 [-inf, +inf] RsObsolete} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
-	assert.Equal(t, "{test-aaa [2:NsActive 3:NsActive]}", orch.rost.TestString())
+	assert.Equal(t, "{1 [-inf, +inf] RsObsolete} {2 [-inf, ccc] RsActive p0=bbb:PsActive} {3 (ccc, +inf] RsActive p0=ccc:PsActive}", orch.ks.LogString())
+	assert.Equal(t, "{aaa []} {bbb [2:NsActive]} {ccc [3:NsActive]}", orch.rost.TestString())
 	assert.Empty(t, OpsString(orch.ks)) // Operation has finished.
 
 	requireStable(t, orch, act)
@@ -880,21 +880,21 @@ func TestSplit(t *testing.T) {
 }
 
 func TestSplit_Short(t *testing.T) {
-	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
-	rosStr := "{test-aaa [1:NsActive]}"
+	ksStr := "{1 [-inf, +inf] RsActive p0=aaa:PsActive}"
+	rosStr := "{aaa [1:NsActive]} {bbb []} {ccc []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
 
 	splitOp(orch, 1)
 	tickUntilStable(t, orch, act)
 
 	// Range 1 was split into ranges 2 and 3 at ccc.
-	assert.Equal(t, "{test-aaa [2:NsActive 3:NsActive]}", orch.rost.TestString())
-	assert.Equal(t, "{1 [-inf, +inf] RsObsolete} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
+	assert.Equal(t, "{aaa []} {bbb [2:NsActive]} {ccc [3:NsActive]}", orch.rost.TestString())
+	assert.Equal(t, "{1 [-inf, +inf] RsObsolete} {2 [-inf, ccc] RsActive p0=bbb:PsActive} {3 (ccc, +inf] RsActive p0=ccc:PsActive}", orch.ks.LogString())
 }
 
 func TestSplit_Slow(t *testing.T) {
-	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
-	rosStr := "{test-aaa [1:NsActive]}"
+	ksStr := "{1 [-inf, +inf] RsActive p0=aaa:PsActive}"
+	rosStr := "{aaa [1:NsActive]} {bbb []} {ccc []}"
 	orch, act := orchFactory(t, ksStr, rosStr, strictTransactions)
 	opErr := splitOp(orch, 1)
 
@@ -905,8 +905,8 @@ func TestSplit_Slow(t *testing.T) {
 
 	tickWait(t, orch, act)
 	require.Empty(t, commands(t, act))
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsPending} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsActive]}", orch.rost.TestString())
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive} {2 [-inf, ccc] RsActive p0=bbb:PsPending} {3 (ccc, +inf] RsActive p0=ccc:PsPending}", orch.ks.LogString())
+	require.Equal(t, "{aaa [1:NsActive]} {bbb []} {ccc []}", orch.rost.TestString())
 	require.Equal(t, "{Split 1 -> 2,3}", OpsString(orch.ks))
 
 	//
@@ -914,132 +914,132 @@ func TestSplit_Slow(t *testing.T) {
 	// Controller places new ranges on nodes.
 	//
 
-	i2g := inject(t, act, "test-aaa", 2, api.Prepare).Response(api.NsPreparing)
-	i3g := inject(t, act, "test-aaa", 3, api.Prepare).Response(api.NsPreparing)
+	i2g := inject(t, act, "bbb", 2, api.Prepare).Response(api.NsPreparing)
+	i3g := inject(t, act, "ccc", 3, api.Prepare).Response(api.NsPreparing)
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Prepare(R2, test-aaa), Prepare(R3, test-aaa)", commands(t, act))
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsPending} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsActive 2:NsPreparing 3:NsPreparing]}", orch.rost.TestString())
+	require.Equal(t, "Prepare(R2, bbb), Prepare(R3, ccc)", commands(t, act))
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive} {2 [-inf, ccc] RsActive p0=bbb:PsPending} {3 (ccc, +inf] RsActive p0=ccc:PsPending}", orch.ks.LogString())
+	require.Equal(t, "{aaa [1:NsActive]} {bbb [2:NsPreparing]} {ccc [3:NsPreparing]}", orch.rost.TestString())
 	require.Equal(t, "{Split 1 -> 2,3}", OpsString(orch.ks))
 
 	requireStable(t, orch, act)
 	i2g.Response(api.NsInactive) // R2 finished preparing (but R3 is ongoing).
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Prepare(R2, test-aaa), Prepare(R3, test-aaa)", commands(t, act)) // retry
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsPending} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsActive 2:NsInactive 3:NsPreparing]}", orch.rost.TestString())
+	require.Equal(t, "Prepare(R2, bbb), Prepare(R3, ccc)", commands(t, act)) // retry
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive} {2 [-inf, ccc] RsActive p0=bbb:PsPending} {3 (ccc, +inf] RsActive p0=ccc:PsPending}", orch.ks.LogString())
+	require.Equal(t, "{aaa [1:NsActive]} {bbb [2:NsInactive]} {ccc [3:NsPreparing]}", orch.rost.TestString())
 	require.Equal(t, "{Split 1 -> 2,3}", OpsString(orch.ks))
 
 	// Updates placement from roster.
 	tickWait(t, orch, act)
-	require.Equal(t, "Prepare(R3, test-aaa)", commands(t, act)) // retry
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsActive 2:NsInactive 3:NsPreparing]}", orch.rost.TestString())
+	require.Equal(t, "Prepare(R3, ccc)", commands(t, act)) // retry
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive} {2 [-inf, ccc] RsActive p0=bbb:PsInactive} {3 (ccc, +inf] RsActive p0=ccc:PsPending}", orch.ks.LogString())
+	require.Equal(t, "{aaa [1:NsActive]} {bbb [2:NsInactive]} {ccc [3:NsPreparing]}", orch.rost.TestString())
 
 	requireStable(t, orch, act)
 	i3g.Response(api.NsInactive) // R3 finished preparing.
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Prepare(R3, test-aaa)", commands(t, act)) // retry
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsPending}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsActive 2:NsInactive 3:NsInactive]}", orch.rost.TestString())
+	require.Equal(t, "Prepare(R3, ccc)", commands(t, act)) // retry
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive} {2 [-inf, ccc] RsActive p0=bbb:PsInactive} {3 (ccc, +inf] RsActive p0=ccc:PsPending}", orch.ks.LogString())
+	require.Equal(t, "{aaa [1:NsActive]} {bbb [2:NsInactive]} {ccc [3:NsInactive]}", orch.rost.TestString())
 
 	// Updates placement from roster.
 	tickWait(t, orch, act)
 	require.Empty(t, commands(t, act))
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsActive 2:NsInactive 3:NsInactive]}", orch.rost.TestString())
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive} {2 [-inf, ccc] RsActive p0=bbb:PsInactive} {3 (ccc, +inf] RsActive p0=ccc:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{aaa [1:NsActive]} {bbb [2:NsInactive]} {ccc [3:NsInactive]}", orch.rost.TestString())
 
 	//
 	// ---- Deactivate
 	// Controller takes placements in parent range.
 	//
 
-	i1t := inject(t, act, "test-aaa", 1, api.Deactivate).Response(api.NsDeactivating)
+	i1t := inject(t, act, "aaa", 1, api.Deactivate).Response(api.NsDeactivating)
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Deactivate(R1, test-aaa)", commands(t, act))
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsDeactivating 2:NsInactive 3:NsInactive]}", orch.rost.TestString())
+	require.Equal(t, "Deactivate(R1, aaa)", commands(t, act))
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive} {2 [-inf, ccc] RsActive p0=bbb:PsInactive} {3 (ccc, +inf] RsActive p0=ccc:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{aaa [1:NsDeactivating]} {bbb [2:NsInactive]} {ccc [3:NsInactive]}", orch.rost.TestString())
 
 	requireStable(t, orch, act)
 	i1t.Response(api.NsInactive) // R3 finished preparing.
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Deactivate(R1, test-aaa)", commands(t, act))
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsInactive 2:NsInactive 3:NsInactive]}", orch.rost.TestString())
+	require.Equal(t, "Deactivate(R1, aaa)", commands(t, act))
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive} {2 [-inf, ccc] RsActive p0=bbb:PsInactive} {3 (ccc, +inf] RsActive p0=ccc:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{aaa [1:NsInactive]} {bbb [2:NsInactive]} {ccc [3:NsInactive]}", orch.rost.TestString())
 
 	//
 	// ---- Activate
 	// Controller instructs both child ranges to become Ready.
 	//
 
-	i2s := inject(t, act, "test-aaa", 2, api.Activate).Response(api.NsActivating)
-	i3s := inject(t, act, "test-aaa", 3, api.Activate).Response(api.NsActivating)
+	i2s := inject(t, act, "bbb", 2, api.Activate).Response(api.NsActivating)
+	i3s := inject(t, act, "ccc", 3, api.Activate).Response(api.NsActivating)
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Activate(R2, test-aaa), Activate(R3, test-aaa)", commands(t, act))
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsInactive 2:NsActivating 3:NsActivating]}", orch.rost.TestString())
+	require.Equal(t, "Activate(R2, bbb), Activate(R3, ccc)", commands(t, act))
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsInactive} {2 [-inf, ccc] RsActive p0=bbb:PsInactive} {3 (ccc, +inf] RsActive p0=ccc:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{aaa [1:NsInactive]} {bbb [2:NsActivating]} {ccc [3:NsActivating]}", orch.rost.TestString())
 
 	requireStable(t, orch, act)
 	i3s.Response(api.NsActive) // R3 activated.
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Activate(R2, test-aaa), Activate(R3, test-aaa)", commands(t, act))
-	require.Equal(t, "{test-aaa [1:NsInactive 2:NsActivating 3:NsActive]}", orch.rost.TestString())
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "Activate(R2, bbb), Activate(R3, ccc)", commands(t, act))
+	require.Equal(t, "{aaa [1:NsInactive]} {bbb [2:NsActivating]} {ccc [3:NsActive]}", orch.rost.TestString())
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsInactive} {2 [-inf, ccc] RsActive p0=bbb:PsInactive} {3 (ccc, +inf] RsActive p0=ccc:PsInactive}", orch.ks.LogString())
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Activate(R2, test-aaa)", commands(t, act))
-	require.Equal(t, "{test-aaa [1:NsInactive 2:NsActivating 3:NsActive]}", orch.rost.TestString())
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
+	require.Equal(t, "Activate(R2, bbb)", commands(t, act))
+	require.Equal(t, "{aaa [1:NsInactive]} {bbb [2:NsActivating]} {ccc [3:NsActive]}", orch.rost.TestString())
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsInactive} {2 [-inf, ccc] RsActive p0=bbb:PsInactive} {3 (ccc, +inf] RsActive p0=ccc:PsActive}", orch.ks.LogString())
 
 	requireStable(t, orch, act)
 	i2s.Response(api.NsActive) // R2 activated.
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Activate(R2, test-aaa)", commands(t, act))
-	require.Equal(t, "{test-aaa [1:NsInactive 2:NsActive 3:NsActive]}", orch.rost.TestString())
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-aaa:PsInactive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
+	require.Equal(t, "Activate(R2, bbb)", commands(t, act))
+	require.Equal(t, "{aaa [1:NsInactive]} {bbb [2:NsActive]} {ccc [3:NsActive]}", orch.rost.TestString())
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsInactive} {2 [-inf, ccc] RsActive p0=bbb:PsInactive} {3 (ccc, +inf] RsActive p0=ccc:PsActive}", orch.ks.LogString())
 
 	tickWait(t, orch, act)
 	require.Empty(t, commands(t, act))
-	require.Equal(t, "{test-aaa [1:NsInactive 2:NsActive 3:NsActive]}", orch.rost.TestString())
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
+	require.Equal(t, "{aaa [1:NsInactive]} {bbb [2:NsActive]} {ccc [3:NsActive]}", orch.rost.TestString())
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsInactive} {2 [-inf, ccc] RsActive p0=bbb:PsActive} {3 (ccc, +inf] RsActive p0=ccc:PsActive}", orch.ks.LogString())
 
 	//
 	// ---- Drop
 	// Orchestrator instructs parent range to drop placements.
 	//
 
-	i1d := inject(t, act, "test-aaa", 1, api.Drop).Response(api.NsDropping)
+	i1d := inject(t, act, "aaa", 1, api.Drop).Response(api.NsDropping)
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Drop(R1, test-aaa)", commands(t, act))
-	require.Equal(t, "{test-aaa [1:NsDropping 2:NsActive 3:NsActive]}", orch.rost.TestString())
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
+	require.Equal(t, "Drop(R1, aaa)", commands(t, act))
+	require.Equal(t, "{aaa [1:NsDropping]} {bbb [2:NsActive]} {ccc [3:NsActive]}", orch.rost.TestString())
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsInactive} {2 [-inf, ccc] RsActive p0=bbb:PsActive} {3 (ccc, +inf] RsActive p0=ccc:PsActive}", orch.ks.LogString())
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Drop(R1, test-aaa)", commands(t, act))
-	require.Equal(t, "{test-aaa [1:NsDropping 2:NsActive 3:NsActive]}", orch.rost.TestString())
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
+	require.Equal(t, "Drop(R1, aaa)", commands(t, act))
+	require.Equal(t, "{aaa [1:NsDropping]} {bbb [2:NsActive]} {ccc [3:NsActive]}", orch.rost.TestString())
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsInactive} {2 [-inf, ccc] RsActive p0=bbb:PsActive} {3 (ccc, +inf] RsActive p0=ccc:PsActive}", orch.ks.LogString())
 
 	requireStable(t, orch, act)
 	i1d.Response(api.NsNotFound) // R1 finished dropping.
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Drop(R1, test-aaa)", commands(t, act))
-	require.Equal(t, "{test-aaa [2:NsActive 3:NsActive]}", orch.rost.TestString())
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
+	require.Equal(t, "Drop(R1, aaa)", commands(t, act))
+	require.Equal(t, "{aaa []} {bbb [2:NsActive]} {ccc [3:NsActive]}", orch.rost.TestString())
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsInactive} {2 [-inf, ccc] RsActive p0=bbb:PsActive} {3 (ccc, +inf] RsActive p0=ccc:PsActive}", orch.ks.LogString())
 
 	tickWait(t, orch, act)
 	require.Empty(t, commands(t, act))
-	require.Equal(t, "{test-aaa [2:NsActive 3:NsActive]}", orch.rost.TestString())
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsDropped} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
+	require.Equal(t, "{aaa []} {bbb [2:NsActive]} {ccc [3:NsActive]}", orch.rost.TestString())
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsDropped} {2 [-inf, ccc] RsActive p0=bbb:PsActive} {3 (ccc, +inf] RsActive p0=ccc:PsActive}", orch.ks.LogString())
 
 	//
 	// ---- Cleanup
@@ -1047,89 +1047,89 @@ func TestSplit_Slow(t *testing.T) {
 
 	tickWait(t, orch, act)
 	require.Empty(t, commands(t, act))
-	require.Equal(t, "{test-aaa [2:NsActive 3:NsActive]}", orch.rost.TestString())
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
+	require.Equal(t, "{aaa []} {bbb [2:NsActive]} {ccc [3:NsActive]}", orch.rost.TestString())
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming} {2 [-inf, ccc] RsActive p0=bbb:PsActive} {3 (ccc, +inf] RsActive p0=ccc:PsActive}", orch.ks.LogString())
 
 	tickWait(t, orch, act)
 	require.Empty(t, commands(t, act))
-	require.Equal(t, "{test-aaa [2:NsActive 3:NsActive]}", orch.rost.TestString())
-	require.Equal(t, "{1 [-inf, +inf] RsObsolete} {2 [-inf, ccc] RsActive p0=test-aaa:PsActive} {3 (ccc, +inf] RsActive p0=test-aaa:PsActive}", orch.ks.LogString())
+	require.Equal(t, "{aaa []} {bbb [2:NsActive]} {ccc [3:NsActive]}", orch.rost.TestString())
+	require.Equal(t, "{1 [-inf, +inf] RsObsolete} {2 [-inf, ccc] RsActive p0=bbb:PsActive} {3 (ccc, +inf] RsActive p0=ccc:PsActive}", orch.ks.LogString())
 
 	requireStable(t, orch, act)
 	assertClosed(t, opErr)
 }
 
 func TestSplitFailure_Prepare(t *testing.T) {
-	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
-	rosStr := "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}"
+	ksStr := "{1 [-inf, +inf] RsActive p0=aaa:PsActive}"
+	rosStr := "{aaa [1:NsActive]} {bbb []} {ccc []} {ddd []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
-	inject(t, act, "test-bbb", 2, api.Prepare).Failure()
+	inject(t, act, "bbb", 2, api.Prepare).Failure()
 	splitOp(orch, 1)
 
 	// 1. Prepare
 
 	tickWait(t, orch, act)
 	assert.Empty(t, commands(t, act))
-	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsPending} {3 (ccc, +inf] RsActive p0=test-bbb:PsPending}", orch.ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}", orch.rost.TestString())
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive} {2 [-inf, ccc] RsActive p0=bbb:PsPending} {3 (ccc, +inf] RsActive p0=ccc:PsPending}", orch.ks.LogString())
+	assert.Equal(t, "{aaa [1:NsActive]} {bbb []} {ccc []} {ddd []}", orch.rost.TestString())
 
 	tickWait(t, orch, act)
 	require.Equal(t, "{Split 1 -> 2,3}", OpsString(orch.ks))
-	require.Equal(t, "Prepare(R2, test-bbb), Prepare(R3, test-bbb)", commands(t, act))
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsPending} {3 (ccc, +inf] RsActive p0=test-bbb:PsPending}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [3:NsInactive]} {test-ccc []}", orch.rost.TestString())
+	require.Equal(t, "Prepare(R2, bbb), Prepare(R3, ccc)", commands(t, act))
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive} {2 [-inf, ccc] RsActive p0=bbb:PsPending} {3 (ccc, +inf] RsActive p0=ccc:PsPending}", orch.ks.LogString())
+	require.Equal(t, "{aaa [1:NsActive]} {bbb []} {ccc [3:NsInactive]} {ddd []}", orch.rost.TestString())
 
 	for attempt := 2; attempt <= 3; attempt++ {
 		tickWait(t, orch, act)
 		// Only the failing placement (rID=2) will be retried.
-		require.Equal(t, "Prepare(R2, test-bbb)", commands(t, act))
-		assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsPending} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
-		assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [3:NsInactive]} {test-ccc []}", orch.rost.TestString())
+		require.Equal(t, "Prepare(R2, bbb)", commands(t, act))
+		assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive} {2 [-inf, ccc] RsActive p0=bbb:PsPending} {3 (ccc, +inf] RsActive p0=ccc:PsInactive}", orch.ks.LogString())
+		assert.Equal(t, "{aaa [1:NsActive]} {bbb []} {ccc [3:NsInactive]} {ddd []}", orch.rost.TestString())
 	}
 
-	p := mustGetPlacement(t, orch.ks, 2, "test-bbb")
+	p := mustGetPlacement(t, orch.ks, 2, "bbb")
 	assert.True(t, p.Failed(api.Prepare))
 
 	tickWait(t, orch, act)
 	// Failed placement is destroyed.
 	assert.Empty(t, commands(t, act))
-	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [3:NsInactive]} {test-ccc []}", orch.rost.TestString())
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive} {2 [-inf, ccc] RsActive} {3 (ccc, +inf] RsActive p0=ccc:PsInactive}", orch.ks.LogString())
+	assert.Equal(t, "{aaa [1:NsActive]} {bbb []} {ccc [3:NsInactive]} {ddd []}", orch.rost.TestString())
 
-	// 2. Prepare (retry on ccc)
+	// 2. Prepare (retry on ddd)
 
 	tickWait(t, orch, act)
 	require.Equal(t, "{Split 1 -> 2,3}", OpsString(orch.ks))
-	require.Equal(t, "Prepare(R2, test-ccc)", commands(t, act))
+	require.Equal(t, "Prepare(R2, ddd)", commands(t, act))
 
 	tickWait(t, orch, act)
 	assert.Empty(t, commands(t, act))
-	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-ccc:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [3:NsInactive]} {test-ccc [2:NsInactive]}", orch.rost.TestString())
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive} {2 [-inf, ccc] RsActive p0=ddd:PsInactive} {3 (ccc, +inf] RsActive p0=ccc:PsInactive}", orch.ks.LogString())
+	assert.Equal(t, "{aaa [1:NsActive]} {bbb []} {ccc [3:NsInactive]} {ddd [2:NsInactive]}", orch.rost.TestString())
 
 	// Recovered! Finish the split.
 
 	tickUntilStable(t, orch, act)
-	assert.Equal(t, "{1 [-inf, +inf] RsObsolete} {2 [-inf, ccc] RsActive p0=test-ccc:PsActive} {3 (ccc, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
-	assert.Equal(t, "{test-aaa []} {test-bbb [3:NsActive]} {test-ccc [2:NsActive]}", orch.rost.TestString())
+	assert.Equal(t, "{1 [-inf, +inf] RsObsolete} {2 [-inf, ccc] RsActive p0=ddd:PsActive} {3 (ccc, +inf] RsActive p0=ccc:PsActive}", orch.ks.LogString())
+	assert.Equal(t, "{aaa []} {bbb []} {ccc [3:NsActive]} {ddd [2:NsActive]}", orch.rost.TestString())
 }
 
 func TestSplitFailure_Deactivate_Short(t *testing.T) {
-	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
-	rosStr := "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}"
+	ksStr := "{1 [-inf, +inf] RsActive p0=aaa:PsActive}"
+	rosStr := "{aaa [1:NsActive]} {bbb []} {ccc []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
-	inject(t, act, "test-aaa", 1, api.Deactivate).Failure()
+	inject(t, act, "aaa", 1, api.Deactivate).Failure()
 	splitOp(orch, 1)
 
 	// End up in a bad but stable situation where the original range never
 	// relinquish (that's the point), but that the successors don't activate.
 	tickUntilStable(t, orch, act)
-	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive} {2 [-inf, ccc] RsActive p0=bbb:PsInactive} {3 (ccc, +inf] RsActive p0=ccc:PsInactive}", orch.ks.LogString())
+	assert.Equal(t, "{aaa [1:NsActive]} {bbb [2:NsInactive]} {ccc [3:NsInactive]}", orch.rost.TestString())
 
 	// R1 is stuck until some operator comes and unsticks it.
 	// TODO: Make it possible (configurable) to automatically force drop it.
-	p := mustGetPlacement(t, orch.ks, 1, "test-aaa")
+	p := mustGetPlacement(t, orch.ks, 1, "aaa")
 	assert.True(t, p.Failed(api.Deactivate))
 }
 
@@ -1138,47 +1138,47 @@ func TestSplitFailure_Deactivate(t *testing.T) {
 }
 
 func TestSplitFailure_Activate_Short(t *testing.T) {
-	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
-	rosStr := "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}"
+	ksStr := "{1 [-inf, +inf] RsActive p0=aaa:PsActive}"
+	rosStr := "{aaa [1:NsActive]} {bbb []} {ccc []} {ddd []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
-	inject(t, act, "test-bbb", 2, api.Activate).Failure()
+	inject(t, act, "bbb", 2, api.Activate).Failure()
 	splitOp(orch, 1)
 
 	tickUntilStable(t, orch, act)
-	assert.Equal(t, "{1 [-inf, +inf] RsObsolete} {2 [-inf, ccc] RsActive p0=test-ccc:PsActive} {3 (ccc, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
-	assert.Equal(t, "{test-aaa []} {test-bbb [3:NsActive]} {test-ccc [2:NsActive]}", orch.rost.TestString())
+	assert.Equal(t, "{1 [-inf, +inf] RsObsolete} {2 [-inf, ccc] RsActive p0=ddd:PsActive} {3 (ccc, +inf] RsActive p0=ccc:PsActive}", orch.ks.LogString())
+	assert.Equal(t, "{aaa []} {bbb []} {ccc [3:NsActive]} {ddd [2:NsActive]}", orch.rost.TestString())
 }
 
 func TestSplitFailure_Activate(t *testing.T) {
-	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
-	rosStr := "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}"
+	ksStr := "{1 [-inf, +inf] RsActive p0=aaa:PsActive}"
+	rosStr := "{aaa [1:NsActive]} {bbb []} {ccc []} {ddd []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
-	inject(t, act, "test-bbb", 2, api.Activate).Failure()
+	inject(t, act, "bbb", 2, api.Activate).Failure()
 	splitOp(orch, 1)
 
 	tickWait(t, orch, act)
 	require.Empty(t, commands(t, act))
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsPending} {3 (ccc, +inf] RsActive p0=test-bbb:PsPending}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}", orch.rost.TestString())
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive} {2 [-inf, ccc] RsActive p0=bbb:PsPending} {3 (ccc, +inf] RsActive p0=ccc:PsPending}", orch.ks.LogString())
+	require.Equal(t, "{aaa [1:NsActive]} {bbb []} {ccc []} {ddd []}", orch.rost.TestString())
 
 	// 1. Prepare
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Prepare(R2, test-bbb), Prepare(R3, test-bbb)", commands(t, act))
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsPending} {3 (ccc, +inf] RsActive p0=test-bbb:PsPending}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
+	require.Equal(t, "Prepare(R2, bbb), Prepare(R3, ccc)", commands(t, act))
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive} {2 [-inf, ccc] RsActive p0=bbb:PsPending} {3 (ccc, +inf] RsActive p0=ccc:PsPending}", orch.ks.LogString())
+	require.Equal(t, "{aaa [1:NsActive]} {bbb [2:NsInactive]} {ccc [3:NsInactive]} {ddd []}", orch.rost.TestString())
 
 	tickWait(t, orch, act)
 	require.Empty(t, commands(t, act))
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive} {2 [-inf, ccc] RsActive p0=bbb:PsInactive} {3 (ccc, +inf] RsActive p0=ccc:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{aaa [1:NsActive]} {bbb [2:NsInactive]} {ccc [3:NsInactive]} {ddd []}", orch.rost.TestString())
 
 	// 2. Deactivate
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Deactivate(R1, test-aaa)", commands(t, act))
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
+	require.Equal(t, "Deactivate(R1, aaa)", commands(t, act))
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive} {2 [-inf, ccc] RsActive p0=bbb:PsInactive} {3 (ccc, +inf] RsActive p0=ccc:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{aaa [1:NsInactive]} {bbb [2:NsInactive]} {ccc [3:NsInactive]} {ddd []}", orch.rost.TestString())
 
 	// 3. Activate
 	// Three attempts. The first one goes to both sides of the split, succeeds
@@ -1188,17 +1188,17 @@ func TestSplitFailure_Activate(t *testing.T) {
 	for attempt := 1; attempt <= 3; attempt++ {
 		tickWait(t, orch, act)
 		if attempt == 1 {
-			require.Equal(t, "Activate(R2, test-bbb), Activate(R3, test-bbb)", commands(t, act))
-			require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
-			require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive 3:NsActive]} {test-ccc []}", orch.rost.TestString())
+			require.Equal(t, "Activate(R2, bbb), Activate(R3, ccc)", commands(t, act))
+			require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsInactive} {2 [-inf, ccc] RsActive p0=bbb:PsInactive} {3 (ccc, +inf] RsActive p0=ccc:PsInactive}", orch.ks.LogString())
+			require.Equal(t, "{aaa [1:NsInactive]} {bbb [2:NsInactive]} {ccc [3:NsActive]} {ddd []}", orch.rost.TestString())
 		} else {
-			require.Equal(t, "Activate(R2, test-bbb)", commands(t, act))
-			require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
-			require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive 3:NsActive]} {test-ccc []}", orch.rost.TestString())
+			require.Equal(t, "Activate(R2, bbb)", commands(t, act))
+			require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsInactive} {2 [-inf, ccc] RsActive p0=bbb:PsInactive} {3 (ccc, +inf] RsActive p0=ccc:PsActive}", orch.ks.LogString())
+			require.Equal(t, "{aaa [1:NsInactive]} {bbb [2:NsInactive]} {ccc [3:NsActive]} {ddd []}", orch.rost.TestString())
 		}
 	}
 
-	p := mustGetPlacement(t, orch.ks, 2, "test-bbb")
+	p := mustGetPlacement(t, orch.ks, 2, "bbb")
 	require.True(t, p.Failed(api.Activate))
 
 	// 4. Deactivate
@@ -1208,16 +1208,16 @@ func TestSplitFailure_Activate(t *testing.T) {
 	// be slow, but Deactivate and Activate should be fast.
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Deactivate(R3, test-bbb)", commands(t, act))
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
-	require.True(t, mustGetPlacement(t, orch.ks, 2, "test-bbb").Failed(api.Activate))
+	require.Equal(t, "Deactivate(R3, ccc)", commands(t, act))
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsInactive} {2 [-inf, ccc] RsActive p0=bbb:PsInactive} {3 (ccc, +inf] RsActive p0=ccc:PsActive}", orch.ks.LogString())
+	require.Equal(t, "{aaa [1:NsInactive]} {bbb [2:NsInactive]} {ccc [3:NsInactive]} {ddd []}", orch.rost.TestString())
+	require.True(t, mustGetPlacement(t, orch.ks, 2, "bbb").Failed(api.Activate))
 	require.Equal(t, "{Split 1 <- 2,3}", OpsString(orch.ks))
 
 	tickWait(t, orch, act)
 	require.Empty(t, commands(t, act))
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsInactive} {2 [-inf, ccc] RsActive p0=bbb:PsInactive} {3 (ccc, +inf] RsActive p0=ccc:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{aaa [1:NsInactive]} {bbb [2:NsInactive]} {ccc [3:NsInactive]} {ddd []}", orch.rost.TestString())
 	require.Equal(t, "{Split 1 <- 2,3}", OpsString(orch.ks))
 
 	// 5. Activate
@@ -1226,40 +1226,40 @@ func TestSplitFailure_Activate(t *testing.T) {
 	// child is replaced.
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Activate(R1, test-aaa)", commands(t, act))
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsInactive 3:NsInactive]} {test-ccc []}", orch.rost.TestString())
+	require.Equal(t, "Activate(R1, aaa)", commands(t, act))
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsInactive} {2 [-inf, ccc] RsActive p0=bbb:PsInactive} {3 (ccc, +inf] RsActive p0=ccc:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{aaa [1:NsActive]} {bbb [2:NsInactive]} {ccc [3:NsInactive]} {ddd []}", orch.rost.TestString())
 	require.Equal(t, "{Split 1 <- 2,3}", OpsString(orch.ks))
 
 	// 6. Drop
 	// The failed child is dropped.
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Drop(R2, test-bbb)", commands(t, act))
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-bbb:PsInactive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [3:NsInactive]} {test-ccc []}", orch.rost.TestString())
+	require.Equal(t, "Drop(R2, bbb)", commands(t, act))
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive} {2 [-inf, ccc] RsActive p0=bbb:PsInactive} {3 (ccc, +inf] RsActive p0=ccc:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{aaa [1:NsActive]} {bbb []} {ccc [3:NsInactive]} {ddd []}", orch.rost.TestString())
 	require.Equal(t, "{Split 1 <- 2,3}", OpsString(orch.ks))
 
 	// Now the situation is basically stable, and the operation is inverted back
 	// to the normal/forwards direction so we can continue placing the split.
 	tickWait(t, orch, act)
 	require.Empty(t, commands(t, act))
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [3:NsInactive]} {test-ccc []}", orch.rost.TestString())
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive} {2 [-inf, ccc] RsActive} {3 (ccc, +inf] RsActive p0=ccc:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{aaa [1:NsActive]} {bbb []} {ccc [3:NsInactive]} {ddd []}", orch.rost.TestString())
 	require.Equal(t, "{Split 1 -> 2,3}", OpsString(orch.ks))
 
 	// 7. Prepare (retry)
 
 	tickWait(t, orch, act)
-	require.Equal(t, "Prepare(R2, test-ccc)", commands(t, act))
-	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsActive} {2 [-inf, ccc] RsActive p0=test-ccc:PsPending} {3 (ccc, +inf] RsActive p0=test-bbb:PsInactive}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [3:NsInactive]} {test-ccc [2:NsInactive]}", orch.rost.TestString())
+	require.Equal(t, "Prepare(R2, ddd)", commands(t, act))
+	require.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive} {2 [-inf, ccc] RsActive p0=ddd:PsPending} {3 (ccc, +inf] RsActive p0=ccc:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{aaa [1:NsActive]} {bbb []} {ccc [3:NsInactive]} {ddd [2:NsInactive]}", orch.rost.TestString())
 
 	// Recovered! Let the re-placement of R3 on Nccc finish.
 
 	tickUntilStable(t, orch, act)
-	require.Equal(t, "{1 [-inf, +inf] RsObsolete} {2 [-inf, ccc] RsActive p0=test-ccc:PsActive} {3 (ccc, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
-	require.Equal(t, "{test-aaa []} {test-bbb [3:NsActive]} {test-ccc [2:NsActive]}", orch.rost.TestString())
+	require.Equal(t, "{1 [-inf, +inf] RsObsolete} {2 [-inf, ccc] RsActive p0=ddd:PsActive} {3 (ccc, +inf] RsActive p0=ccc:PsActive}", orch.ks.LogString())
+	require.Equal(t, "{aaa []} {bbb []} {ccc [3:NsActive]} {ddd [2:NsActive]}", orch.rost.TestString())
 }
 
 func TestSplitFailure_Drop(t *testing.T) {
@@ -1267,21 +1267,21 @@ func TestSplitFailure_Drop(t *testing.T) {
 }
 
 func TestSplitFailure_Drop_Short(t *testing.T) {
-	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
-	rosStr := "{test-aaa [1:NsActive]} {test-bbb []} {test-ccc []}"
+	ksStr := "{1 [-inf, +inf] RsActive p0=aaa:PsActive}"
+	rosStr := "{aaa [1:NsActive]} {bbb []} {ccc []}"
 	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
-	inject(t, act, "test-aaa", 1, api.Drop).Failure()
+	inject(t, act, "aaa", 1, api.Drop).Failure()
 	splitOp(orch, 1)
 
 	// End up in a bad but stable situation where the original range never
 	// relinquish (that's the point), but that the successors don't activate.
 	tickUntilStable(t, orch, act)
-	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=test-aaa:PsInactive} {2 [-inf, ccc] RsActive p0=test-bbb:PsActive} {3 (ccc, +inf] RsActive p0=test-bbb:PsActive}", orch.ks.LogString())
-	assert.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsActive 3:NsActive]} {test-ccc []}", orch.rost.TestString())
+	assert.Equal(t, "{1 [-inf, +inf] RsSubsuming p0=aaa:PsInactive} {2 [-inf, ccc] RsActive p0=bbb:PsActive} {3 (ccc, +inf] RsActive p0=ccc:PsActive}", orch.ks.LogString())
+	assert.Equal(t, "{aaa [1:NsInactive]} {bbb [2:NsActive]} {ccc [3:NsActive]}", orch.rost.TestString())
 
 	// R1 is stuck until some operator comes and unsticks it.
 	// TODO: Make it possible (configurable) to automatically force drop it.
-	p := mustGetPlacement(t, orch.ks, 1, "test-aaa")
+	p := mustGetPlacement(t, orch.ks, 1, "aaa")
 	assert.True(t, p.Failed(api.Drop))
 }
 
