@@ -68,69 +68,12 @@ func (b *Orchestrator) Tick() {
 	defer unlock()
 
 	// Any joins?
-	// TODO: Extract this to a function.
-
 	func() {
 		b.opJoinsMu.RLock()
 		defer b.opJoinsMu.RUnlock()
 
 		for _, opJoin := range b.opJoins {
-
-			fail := func(err error) {
-				if opJoin.Err != nil {
-					opJoin.Err <- err
-					close(opJoin.Err)
-				}
-			}
-
-			r1, err := b.ks.GetRange(opJoin.Left)
-			if err != nil {
-				fail(fmt.Errorf("join with invalid left side: %v (rID=%v)", err, opJoin.Left))
-				continue
-			}
-
-			r2, err := b.ks.GetRange(opJoin.Right)
-			if err != nil {
-				fail(fmt.Errorf("join with invalid right side: %v (rID=%v)", err, opJoin.Right))
-				continue
-			}
-
-			// Find the candidate for the new (joined) range before performing
-			// the join. Once that happens, we can't (currently) abort.
-			c := ranje.AnyNode
-			if opJoin.Dest != "" {
-				c = ranje.Constraint{NodeID: opJoin.Dest}
-			}
-			nIDr3, err := b.rost.Candidate(nil, c)
-			if err != nil {
-				fail(fmt.Errorf("error selecting join candidate: %v", err))
-				continue
-			}
-
-			r3, err := b.ks.JoinTwo(r1, r2)
-			if err != nil {
-				fail(fmt.Errorf("join failed: %v (left=%v, right=%v)", err, opJoin.Left, opJoin.Right))
-				continue
-			}
-
-			// If we made it this far, the join has happened and already been
-			// persisted. No turning back now.
-
-			p := r3.NewPlacement(nIDr3)
-
-			// Unlock operator RPC if applicable.
-			// Note that this will only fire if *this* placement activates. If
-			// it fails, and is replaced, and that succeeds, the RPC will never
-			// unblock.
-			//
-			// TODO: Move this to range.OnReady, which should only fire when
-			//       the minReady number of placements are active.
-			//
-			if opJoin.Err != nil {
-				p.OnReady(func() {
-					close(opJoin.Err)
-				})
-			}
+			b.initJoin(opJoin)
 		}
 
 		b.opJoins = []OpJoin{}
@@ -652,4 +595,73 @@ func (b *Orchestrator) Run(t *time.Ticker) {
 	for ; true; <-t.C {
 		b.Tick()
 	}
+}
+
+// initJoin initiates the given join operation, and either sends the resulting
+// error down the error channel and closes it, or attaches a callback
+//
+// Caller must hold the keyspace lock and opJoinsMu.
+func (b *Orchestrator) initJoin(opJoin OpJoin) {
+	p, err := initJoinInner(b, opJoin)
+
+	// If no error channel is given, this drops the error on the floor.
+	if opJoin.Err == nil {
+		return
+	}
+
+	if err != nil {
+		opJoin.Err <- err
+		close(opJoin.Err)
+		return
+	}
+
+	// Unlock operator RPC when the join finishes.
+	//
+	// Note that this will only fire if *this* placement activates. If it fails,
+	// and is replaced, and that succeeds, the RPC will never unblock.
+	//
+	// TODO: Use Range.OnObsolete for this, like splits do, then remove
+	//       Placement.OnReady.
+	//
+	p.OnReady(func() {
+		close(opJoin.Err)
+	})
+}
+
+// initJoinInner is a helper func so we can return errors directly. This should
+// only be called by initJoin, which plumbs the error into the right channel.
+func initJoinInner(b *Orchestrator, opJoin OpJoin) (*ranje.Placement, error) {
+
+	r1, err := b.ks.GetRange(opJoin.Left)
+	if err != nil {
+		return nil, fmt.Errorf("join with invalid left side: %v (rID=%v)", err, opJoin.Left)
+	}
+
+	r2, err := b.ks.GetRange(opJoin.Right)
+	if err != nil {
+		return nil, fmt.Errorf("join with invalid right side: %v (rID=%v)", err, opJoin.Right)
+	}
+
+	// Find the candidate for the new (joined) range before performing the join.
+	// Once that happens, we can't (currently) abort.
+	c := ranje.AnyNode
+	if opJoin.Dest != "" {
+		c = ranje.Constraint{NodeID: opJoin.Dest}
+	}
+	nIDr3, err := b.rost.Candidate(nil, c)
+	if err != nil {
+		return nil, fmt.Errorf("error selecting join candidate: %v", err)
+	}
+
+	r3, err := b.ks.JoinTwo(r1, r2)
+	if err != nil {
+		return nil, fmt.Errorf("join failed: %v (left=%v, right=%v)", err, opJoin.Left, opJoin.Right)
+	}
+
+	// If we made it this far, the join has happened and already been persisted.
+	// No turning back now.
+
+	p := r3.NewPlacement(nIDr3)
+
+	return p, nil
 }
