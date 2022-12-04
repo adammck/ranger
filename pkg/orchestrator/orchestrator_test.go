@@ -1144,7 +1144,70 @@ func TestSplitFailure_Drop_Short(t *testing.T) {
 }
 
 func TestJoin(t *testing.T) {
-	t.Skip("not implemented")
+	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
+	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []}"
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+	opErr := joinOp(orch, 1, 2, "test-ccc")
+
+	// Prepare
+
+	tickWait(t, orch, act)
+	require.Equal(t, "Prepare(R3, test-ccc)", commands(t, act))
+	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsPending}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc [3:NsInactive]}", orch.rost.TestString())
+	require.Equal(t, "{Join 1,2 -> 3}", OpsString(orch.ks))
+
+	tickWait(t, orch, act)
+	require.Empty(t, commands(t, act))
+	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc [3:NsInactive]}", orch.rost.TestString())
+	require.Equal(t, "{Join 1,2 -> 3}", OpsString(orch.ks))
+
+	// Deactivate
+
+	tickWait(t, orch, act)
+	require.Equal(t, "Deactivate(R1, test-aaa), Deactivate(R2, test-bbb)", commands(t, act))
+	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsActive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsActive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive]} {test-ccc [3:NsInactive]}", orch.rost.TestString())
+
+	// Activate
+
+	tickWait(t, orch, act)
+	require.Equal(t, "Activate(R3, test-ccc)", commands(t, act))
+	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsInactive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsInactive} {3 [-inf, +inf] RsActive p0=test-ccc:PsInactive}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive]} {test-ccc [3:NsActive]}", orch.rost.TestString())
+
+	tickWait(t, orch, act)
+	require.Empty(t, commands(t, act))
+	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsInactive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsInactive} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [2:NsInactive]} {test-ccc [3:NsActive]}", orch.rost.TestString())
+
+	// Drop
+
+	tickWait(t, orch, act)
+	require.Equal(t, "Drop(R1, test-aaa), Drop(R2, test-bbb)", commands(t, act))
+	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsInactive} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsInactive} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa []} {test-bbb []} {test-ccc [3:NsActive]}", orch.rost.TestString())
+
+	// Cleanup
+
+	tickWait(t, orch, act)
+	require.Empty(t, commands(t, act))
+	require.Equal(t, "{1 [-inf, ggg] RsSubsuming p0=test-aaa:PsDropped} {2 (ggg, +inf] RsSubsuming p0=test-bbb:PsDropped} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa []} {test-bbb []} {test-ccc [3:NsActive]}", orch.rost.TestString())
+
+	tickWait(t, orch, act)
+	require.Empty(t, commands(t, act))
+	require.Equal(t, "{1 [-inf, ggg] RsSubsuming} {2 (ggg, +inf] RsSubsuming} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa []} {test-bbb []} {test-ccc [3:NsActive]}", orch.rost.TestString())
+
+	tickWait(t, orch, act)
+	require.Empty(t, commands(t, act))
+	require.Equal(t, "{1 [-inf, ggg] RsObsolete} {2 (ggg, +inf] RsObsolete} {3 [-inf, +inf] RsActive p0=test-ccc:PsActive}", orch.ks.LogString())
+	require.Equal(t, "{test-aaa []} {test-bbb []} {test-ccc [3:NsActive]}", orch.rost.TestString())
+
+	requireStable(t, orch, act)
+	assertClosed(t, opErr)
 }
 
 func TestJoin_Short(t *testing.T) {
