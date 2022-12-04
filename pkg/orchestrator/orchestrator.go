@@ -200,105 +200,7 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 		}()
 
 		if opSplit != nil {
-
-			// Find candidates for each of the placements in the new the left
-			// and right sides *before* performing the split. Once the split
-			// happens, we can't (currently) abort, so the parent range will be
-			// stuck in RsSubsuming until placement is possible.
-			//
-			// TODO: Allow split abort by allowing ranges to transition back
-			//       from RsSubsuming into RsActive, and from RsActive into some
-			//       new terminal state (RsAborted?) like RsObsolete. Would also
-			//       need a new entry state (RsNewSplit?) to indicate that it's
-			//       okay to give up, unlike RsActive. Ranges would need to keep
-			//       track of how many placements had been created and failed.
-
-			constraint := ranje.AnyNode
-
-			// Exclude any node which has a placement of the parent range.
-			// TODO: Make this tweakable; some systems may prefer to split on
-			//       the parent node (i.e. both sides are placed on the same
-			//       node as the parent they are split from) and then move.
-			for _, p := range r.Placements {
-				constraint.Not = append(constraint.Not, p.NodeID)
-			}
-
-			n := min(r.MinPlacements(), r.TargetActive()) * 2
-			nIDs := make([]api.NodeID, n)
-			var err error
-
-			for i := 0; i < n; i += 2 {
-				for ii := 0; ii < 2; ii++ {
-
-					// Copy just for this iteration, so we can mutate.
-					c := constraint
-					if i == 0 {
-						if ii == 0 && opSplit.Left != "" {
-							c.NodeID = opSplit.Left
-						} else if ii == 1 && opSplit.Right != "" {
-							c.NodeID = opSplit.Right
-						}
-					}
-
-					nIDs[i+ii], err = b.rost.Candidate(nil, c)
-					if err != nil {
-						// TODO: Make it possible to force a split even when not
-						//       enough candiates can be found.
-						if opSplit.Err != nil {
-							opSplit.Err <- err
-							close(opSplit.Err)
-						}
-						return
-					}
-
-					// Exclude this node from further placements.
-					constraint = constraint.WithNot(nIDs[i+ii])
-				}
-			}
-
-			// Perform the actual range split. The source range (r) is moved to
-			// RsSubsuming, where it will remain until its placements have all
-			// been moved elsewhere. Two new ranges
-			rL, rR, err := b.ks.Split(r, opSplit.Key)
-
-			if err != nil {
-				if opSplit.Err != nil {
-					opSplit.Err <- err
-					close(opSplit.Err)
-				}
-				return
-			}
-
-			// If we made it this far, the split has happened and already been
-			// persisted.
-
-			// TODO: We're creating placements here on a range which is NOT the
-			//       one we're ticking. That seems... okay? We hold the keyspace
-			//       lock for the whole tick. But think about edge cases?
-			//       -
-			//       We could leave some turd like NextPlacementNodeID on the
-			//       range and let the first clause (no placements?) in this
-			//       method pick it up, but (a) that's gross, and (b) what if
-			//       some later range gets placed on the node before that
-			//       happens? All worse options.
-			//       -
-			//       Actually I think we need to extract this chunk of code up
-			//       into a "ranges which have splits scheduled" loop before the
-			//       main all-ranges loop. Join is already up there.
-
-			for i := 0; i < n; i += 2 {
-				rL.NewPlacement(nIDs[i])
-				rR.NewPlacement(nIDs[i+1])
-			}
-
-			// If the split was initiated by an operator (via RPC), then it will
-			// have an error channel. When the split is complete (i.e. the range
-			// becomes obsolete) close to channel to unblock the RPC handler.
-			if opSplit.Err != nil {
-				r.OnObsolete(func() {
-					close(opSplit.Err)
-				})
-			}
+			b.initSplit(r, *opSplit)
 		}
 
 	case api.RsSubsuming:
@@ -664,4 +566,113 @@ func initJoinInner(b *Orchestrator, opJoin OpJoin) (*ranje.Placement, error) {
 	p := r3.NewPlacement(nIDr3)
 
 	return p, nil
+}
+
+// TODO: Dedup this with initJoin, once OnReady is OnObsolete.
+func (b *Orchestrator) initSplit(r *ranje.Range, opSplit OpSplit) {
+	err := initSplitInner(b, r, opSplit)
+
+	// If no error channel is given, this drops the error on the floor.
+	if opSplit.Err == nil {
+		return
+	}
+
+	if err != nil {
+		opSplit.Err <- err
+		close(opSplit.Err)
+		return
+	}
+
+	// If the split was initiated by an operator, then it will have an error
+	// channel. When the split is complete (i.e. the range becomes obsolete)
+	// close to channel to unblock the RPC handler.
+	r.OnObsolete(func() {
+		close(opSplit.Err)
+	})
+}
+
+func initSplitInner(b *Orchestrator, r *ranje.Range, opSplit OpSplit) error {
+
+	// Find candidates for each of the placements in the new the left and right
+	// sides *before* performing the split. Once the split happens, we can't
+	// (currently) abort, so the parent range will be stuck in RsSubsuming until
+	// placement is possible.
+	//
+	// TODO: Allow split abort by allowing ranges to transition back from
+	//       RsSubsuming into RsActive, and from RsActive into some new terminal
+	//       state (RsAborted?) like RsObsolete. Would also need a new entry
+	//       state (RsNewSplit?) to indicate that it's okay to give up, unlike
+	//       RsActive. Ranges would need to keep track of how many placements
+	//       had been created and failed.
+
+	constraint := ranje.AnyNode
+
+	// Exclude any node which has a placement of the parent range.
+	// TODO: Make this tweakable; some systems may prefer to split on the parent
+	//       node (i.e. both sides are placed on the same node as the parent
+	//       they are split from) and then move.
+	for _, p := range r.Placements {
+		constraint.Not = append(constraint.Not, p.NodeID)
+	}
+
+	n := min(r.MinPlacements(), r.TargetActive()) * 2
+	nIDs := make([]api.NodeID, n)
+	var err error
+
+	for i := 0; i < n; i += 2 {
+		for ii := 0; ii < 2; ii++ {
+
+			// Copy just for this iteration, so we can mutate.
+			c := constraint
+			if i == 0 {
+				if ii == 0 && opSplit.Left != "" {
+					c.NodeID = opSplit.Left
+				} else if ii == 1 && opSplit.Right != "" {
+					c.NodeID = opSplit.Right
+				}
+			}
+
+			nIDs[i+ii], err = b.rost.Candidate(nil, c)
+
+			// TODO: Make it possible to force a split even when not enough
+			//       candiates can be found.
+			if err != nil {
+				return err
+			}
+
+			// Exclude this node from further placements.
+			constraint = constraint.WithNot(nIDs[i+ii])
+		}
+	}
+
+	// Perform the actual range split. The source range (r) is moved to
+	// RsSubsuming, where it will remain until its placements have all been
+	// moved elsewhere. Two new ranges
+	rL, rR, err := b.ks.Split(r, opSplit.Key)
+	if err != nil {
+		return err
+	}
+
+	// If we made it this far, the split has happened and already been
+	// persisted.
+
+	// TODO: We're creating placements here on a range which is NOT the one
+	//       we're ticking. That seems... okay? We hold the keyspace lock for
+	//       the whole tick. But think about edge cases?
+	//       -
+	//       We could leave some turd like NextPlacementNodeID on the range and
+	//       let the first clause (no placements?) in this method pick it up,
+	//       but (a) that's gross, and (b) what if some later range gets placed
+	//       on the node before that happens? All worse options.
+	//       -
+	//       Actually I think we need to extract this chunk of code up into a
+	//       "ranges which have splits scheduled" loop before the main
+	//       all-ranges loop. Join is already up there.
+
+	for i := 0; i < n; i += 2 {
+		rL.NewPlacement(nIDs[i])
+		rR.NewPlacement(nIDs[i+1])
+	}
+
+	return nil
 }
