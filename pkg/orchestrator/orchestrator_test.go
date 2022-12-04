@@ -879,6 +879,135 @@ func TestSplit_R1(t *testing.T) {
 	assertClosed(t, opErr)
 }
 
+func TestSplit_R3(t *testing.T) {
+	ksStr := "{1 [-inf, +inf] RsActive p0=aaa:PsActive p1=bbb:PsActive p2=ccc:PsActive}"
+	rosStr := "{aaa [1:NsActive]} {bbb [1:NsActive]} {ccc [1:NsActive]} {ddd []} {eee []} {fff []} {ggg []} {hhh []} {iii []}"
+	orch, act := orchFactoryWithReplication(t, ksStr, rosStr, noStrictTransactions, r3)
+	requireStable(t, orch, act)
+
+	// 0. Initiate
+
+	opErr := splitOp(orch, 1)
+
+	// 1. Prepare
+
+	tickCmpOpErr(t, orch, act,
+		"",
+		"{aaa [1:NsActive]} {bbb [1:NsActive]} {ccc [1:NsActive]} {ddd []} {eee []} {fff []} {ggg []} {hhh []} {iii []}",
+		""+
+			"{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive p1=bbb:PsActive p2=ccc:PsActive} "+
+			"{2 [-inf, ccc] RsActive p0=ddd:PsPending p1=fff:PsPending p2=hhh:PsPending} "+
+			"{3 (ccc, +inf] RsActive p0=eee:PsPending p1=ggg:PsPending p2=iii:PsPending}",
+		"{Split 1 -> 2,3}",
+		opErr)
+
+	tickCmpOpErr(t, orch, act,
+		"Prepare(R2, ddd), Prepare(R2, fff), Prepare(R2, hhh), Prepare(R3, eee), Prepare(R3, ggg), Prepare(R3, iii)",
+		"{aaa [1:NsActive]} {bbb [1:NsActive]} {ccc [1:NsActive]} {ddd [2:NsInactive]} {eee [3:NsInactive]} {fff [2:NsInactive]} {ggg [3:NsInactive]} {hhh [2:NsInactive]} {iii [3:NsInactive]}",
+		""+
+			"{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive p1=bbb:PsActive p2=ccc:PsActive} "+
+			"{2 [-inf, ccc] RsActive p0=ddd:PsPending p1=fff:PsPending p2=hhh:PsPending} "+
+			"{3 (ccc, +inf] RsActive p0=eee:PsPending p1=ggg:PsPending p2=iii:PsPending}",
+		"{Split 1 -> 2,3}",
+		opErr)
+
+	tickCmpOpErr(t, orch, act,
+		"",
+		"{aaa [1:NsActive]} {bbb [1:NsActive]} {ccc [1:NsActive]} {ddd [2:NsInactive]} {eee [3:NsInactive]} {fff [2:NsInactive]} {ggg [3:NsInactive]} {hhh [2:NsInactive]} {iii [3:NsInactive]}",
+		""+
+			"{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive p1=bbb:PsActive p2=ccc:PsActive} "+
+			"{2 [-inf, ccc] RsActive p0=ddd:PsInactive p1=fff:PsInactive p2=hhh:PsInactive} "+
+			"{3 (ccc, +inf] RsActive p0=eee:PsInactive p1=ggg:PsInactive p2=iii:PsInactive}",
+		"{Split 1 -> 2,3}",
+		opErr)
+
+	// 2. Deactivate
+
+	tickCmpOpErr(t, orch, act,
+		"Deactivate(R1, aaa), Deactivate(R1, bbb), Deactivate(R1, ccc)",
+		"{aaa [1:NsInactive]} {bbb [1:NsInactive]} {ccc [1:NsInactive]} {ddd [2:NsInactive]} {eee [3:NsInactive]} {fff [2:NsInactive]} {ggg [3:NsInactive]} {hhh [2:NsInactive]} {iii [3:NsInactive]}",
+		""+
+			"{1 [-inf, +inf] RsSubsuming p0=aaa:PsActive p1=bbb:PsActive p2=ccc:PsActive} "+
+			"{2 [-inf, ccc] RsActive p0=ddd:PsInactive p1=fff:PsInactive p2=hhh:PsInactive} "+
+			"{3 (ccc, +inf] RsActive p0=eee:PsInactive p1=ggg:PsInactive p2=iii:PsInactive}",
+		"{Split 1 -> 2,3}",
+		opErr)
+
+	// 3. Activate
+
+	// Note that because each range is ticked in Range ID order during a tick,
+	// in a single tick we advance all of the R1 placements from PsActive to
+	// PsInactive and then the later (R2, R3) ranges are eligible for
+	// activation in the same tick. This feels weird.
+
+	tickCmpOpErr(t, orch, act,
+		"Activate(R2, ddd), Activate(R2, fff), Activate(R2, hhh), Activate(R3, eee), Activate(R3, ggg), Activate(R3, iii)",
+		"{aaa [1:NsInactive]} {bbb [1:NsInactive]} {ccc [1:NsInactive]} {ddd [2:NsActive]} {eee [3:NsActive]} {fff [2:NsActive]} {ggg [3:NsActive]} {hhh [2:NsActive]} {iii [3:NsActive]}",
+		""+
+			"{1 [-inf, +inf] RsSubsuming p0=aaa:PsInactive p1=bbb:PsInactive p2=ccc:PsInactive} "+
+			"{2 [-inf, ccc] RsActive p0=ddd:PsInactive p1=fff:PsInactive p2=hhh:PsInactive} "+
+			"{3 (ccc, +inf] RsActive p0=eee:PsInactive p1=ggg:PsInactive p2=iii:PsInactive}",
+		"{Split 1 -> 2,3}",
+		opErr)
+
+	tickCmpOpErr(t, orch, act,
+		"",
+		"{aaa [1:NsInactive]} {bbb [1:NsInactive]} {ccc [1:NsInactive]} {ddd [2:NsActive]} {eee [3:NsActive]} {fff [2:NsActive]} {ggg [3:NsActive]} {hhh [2:NsActive]} {iii [3:NsActive]}",
+		""+
+			"{1 [-inf, +inf] RsSubsuming p0=aaa:PsInactive p1=bbb:PsInactive p2=ccc:PsInactive} "+
+			"{2 [-inf, ccc] RsActive p0=ddd:PsActive p1=fff:PsActive p2=hhh:PsActive} "+
+			"{3 (ccc, +inf] RsActive p0=eee:PsActive p1=ggg:PsActive p2=iii:PsActive}",
+		"{Split 1 -> 2,3}",
+		opErr)
+
+	// 4. Drop
+
+	tickCmpOpErr(t, orch, act,
+		"Drop(R1, aaa), Drop(R1, bbb), Drop(R1, ccc)",
+		"{aaa []} {bbb []} {ccc []} {ddd [2:NsActive]} {eee [3:NsActive]} {fff [2:NsActive]} {ggg [3:NsActive]} {hhh [2:NsActive]} {iii [3:NsActive]}",
+		""+
+			"{1 [-inf, +inf] RsSubsuming p0=aaa:PsInactive p1=bbb:PsInactive p2=ccc:PsInactive} "+
+			"{2 [-inf, ccc] RsActive p0=ddd:PsActive p1=fff:PsActive p2=hhh:PsActive} "+
+			"{3 (ccc, +inf] RsActive p0=eee:PsActive p1=ggg:PsActive p2=iii:PsActive}",
+		"{Split 1 -> 2,3}",
+		opErr)
+
+	tickCmpOpErr(t, orch, act,
+		"",
+		"{aaa []} {bbb []} {ccc []} {ddd [2:NsActive]} {eee [3:NsActive]} {fff [2:NsActive]} {ggg [3:NsActive]} {hhh [2:NsActive]} {iii [3:NsActive]}",
+		""+
+			"{1 [-inf, +inf] RsSubsuming p0=aaa:PsDropped p1=bbb:PsDropped p2=ccc:PsDropped} "+
+			"{2 [-inf, ccc] RsActive p0=ddd:PsActive p1=fff:PsActive p2=hhh:PsActive} "+
+			"{3 (ccc, +inf] RsActive p0=eee:PsActive p1=ggg:PsActive p2=iii:PsActive}",
+		"{Split 1 -> 2,3}",
+		opErr)
+
+	// 5. Cleanup
+
+	tickCmpOpErr(t, orch, act,
+		"",
+		"{aaa []} {bbb []} {ccc []} {ddd [2:NsActive]} {eee [3:NsActive]} {fff [2:NsActive]} {ggg [3:NsActive]} {hhh [2:NsActive]} {iii [3:NsActive]}",
+		""+
+			"{1 [-inf, +inf] RsSubsuming} "+
+			"{2 [-inf, ccc] RsActive p0=ddd:PsActive p1=fff:PsActive p2=hhh:PsActive} "+
+			"{3 (ccc, +inf] RsActive p0=eee:PsActive p1=ggg:PsActive p2=iii:PsActive}",
+		"{Split 1 -> 2,3}", // Operation is still active.
+		opErr)
+
+	tickCmpOpErr(t, orch, act,
+		"",
+		"{aaa []} {bbb []} {ccc []} {ddd [2:NsActive]} {eee [3:NsActive]} {fff [2:NsActive]} {ggg [3:NsActive]} {hhh [2:NsActive]} {iii [3:NsActive]}",
+		""+
+			"{1 [-inf, +inf] RsObsolete} "+
+			"{2 [-inf, ccc] RsActive p0=ddd:PsActive p1=fff:PsActive p2=hhh:PsActive} "+
+			"{3 (ccc, +inf] RsActive p0=eee:PsActive p1=ggg:PsActive p2=iii:PsActive}",
+		"", // Operation has finished.
+		opErr)
+
+	requireStable(t, orch, act)
+	assertClosed(t, opErr)
+}
+
 func TestSplit_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=aaa:PsActive}"
 	rosStr := "{aaa [1:NsActive]} {bbb []} {ccc []}"
@@ -2176,6 +2305,7 @@ func tickWait(t *testing.T, orch *Orchestrator, act *actuator.Actuator, waiters 
 	}
 }
 
+// TODO: Dedup this helper!
 func tickCmp(t *testing.T, orch *Orchestrator, act *actuator.Actuator, expectedCommands, expectedRoster, expectedKeyspace string) {
 	t.Helper()
 	tickWait(t, orch, act)
@@ -2189,6 +2319,31 @@ func tickCmp(t *testing.T, orch *Orchestrator, act *actuator.Actuator, expectedC
 	// after one has given unexpected results.
 	if !a || !b || !c {
 		t.Fatal("commands, roster, or keyspace did not match expected")
+	}
+}
+
+// TODO: Dedup this helper!
+func tickCmpOpErr(t *testing.T, orch *Orchestrator, act *actuator.Actuator, expectedCommands, expectedRoster, expectedKeyspace, expectedOps string, errCh chan error) {
+	t.Helper()
+	tickWait(t, orch, act)
+
+	// non-blocking channel read
+	var err error
+	select {
+	case err = <-errCh:
+	default:
+	}
+
+	e := assert.NoError(t, err)
+	a := assert.Equal(t, expectedCommands, commands(t, act), "actuated commands")
+	b := assert.Equal(t, expectedRoster, orch.rost.TestString(), "roster state")
+	c := assert.Equal(t, expectedKeyspace, orch.ks.LogString(), "keyspace state")
+	d := assert.Equal(t, expectedOps, OpsString(orch.ks), "operations")
+
+	// But stop the test if any of them failed, since further ticks are nonsense
+	// after one has given unexpected results.
+	if !a || !b || !c || !d || !e {
+		t.Fatal("commands, roster, or keyspace did not match expected, or an error arrived on the channel")
 	}
 }
 

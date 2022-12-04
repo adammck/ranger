@@ -258,8 +258,10 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 
 		if opSplit != nil {
 
-			// Find candidates for the left and right sides *before* performing
-			// the split. Once that happens, we can't (currently) abort.
+			// Find candidates for each of the placements in the new the left
+			// and right sides *before* performing the split. Once the split
+			// happens, we can't (currently) abort, so the parent range will be
+			// stuck in RsSubsuming until placement is possible.
 			//
 			// TODO: Allow split abort by allowing ranges to transition back
 			//       from RsSubsuming into RsActive, and from RsActive into some
@@ -278,30 +280,37 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 				constraint.Not = append(constraint.Not, p.NodeID)
 			}
 
-			cL := constraint
-			if opSplit.Left != "" {
-				cL = cL.WithNodeID(opSplit.Left)
-			}
-			nIDL, err := b.rost.Candidate(nil, cL)
-			if err != nil {
-				if opSplit.Err != nil {
-					opSplit.Err <- err
-					close(opSplit.Err)
-				}
-				return
-			}
+			n := min(r.MinPlacements(), r.TargetActive()) * 2
+			nIDs := make([]api.NodeID, n)
+			var err error
 
-			cR := constraint.WithNot(nIDL)
-			if opSplit.Right != "" {
-				cR = cR.WithNodeID(opSplit.Right)
-			}
-			nIDR, err := b.rost.Candidate(nil, cR)
-			if err != nil {
-				if opSplit.Err != nil {
-					opSplit.Err <- err
-					close(opSplit.Err)
+			for i := 0; i < n; i += 2 {
+				for ii := 0; ii < 2; ii++ {
+
+					// Copy just for this iteration, so we can mutate.
+					c := constraint
+					if i == 0 {
+						if ii == 0 && opSplit.Left != "" {
+							c.NodeID = opSplit.Left
+						} else if ii == 1 && opSplit.Right != "" {
+							c.NodeID = opSplit.Right
+						}
+					}
+
+					nIDs[i+ii], err = b.rost.Candidate(nil, c)
+					if err != nil {
+						// TODO: Make it possible to force a split even when not
+						//       enough candiates can be found.
+						if opSplit.Err != nil {
+							opSplit.Err <- err
+							close(opSplit.Err)
+						}
+						return
+					}
+
+					// Exclude this node from further placements.
+					constraint = constraint.WithNot(nIDs[i+ii])
 				}
-				return
 			}
 
 			// Perform the actual range split. The source range (r) is moved to
@@ -334,8 +343,10 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 			//       into a "ranges which have splits scheduled" loop before the
 			//       main all-ranges loop. Join is already up there.
 
-			rL.NewPlacement(nIDL)
-			rR.NewPlacement(nIDR)
+			for i := 0; i < n; i += 2 {
+				rL.NewPlacement(nIDs[i])
+				rR.NewPlacement(nIDs[i+1])
+			}
 
 			// If the split was initiated by an operator (via RPC), then it will
 			// have an error channel. When the split is complete (i.e. the range

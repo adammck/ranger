@@ -139,6 +139,9 @@ func (op *Operation) direction(d dir) []*ranje.Range {
 	}
 }
 
+// Returns true if the given range is in the given direction. E.g. if R1 is
+// splitting into R2 and R3, and it is not being recalled, then
+// isDirection(Dest, R2) returns true.
 func (op *Operation) isDirection(d dir, rID api.RangeID) bool {
 	for _, rr := range op.direction(d) {
 		if rID == rr.Meta.Ident {
@@ -405,16 +408,16 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 		return fmt.Errorf("gave up")
 	}
 
-	active := r.NumPlacementsInState(api.PsActive)
-
-	// Count how many active placements this range has. If there aren't any
-	// spare, i.e. there would be fewer than the minimum if this placement
-	// deactivated, then we can't do it.
-	if active <= r.MinActive() {
-		return fmt.Errorf("not enough active placements (n=%d, min=%d)", active, r.MinActive())
-	}
-
+	// No operation ongoing.
 	if op == nil {
+
+		// Count how many active placements this range has. If there aren't any
+		// spare, i.e. there would be fewer than the minimum if this placement
+		// deactivated, then we can't do it.
+		active := r.NumPlacementsInState(api.PsActive)
+		if active <= r.MinActive() {
+			return fmt.Errorf("not enough active placements (n=%d, min=%d)", active, r.MinActive())
+		}
 
 		// If this placement is tainted, we *want* to deactivate it. But we must
 		// wait until there is at least one other placement ready to activate in
@@ -441,21 +444,16 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 		return fmt.Errorf("no reason")
 	}
 
+	// Never deactivate active placements towards the destination.
 	if op.isDirection(Dest, r.Meta.Ident) {
 		return fmt.Errorf("no problem")
 	}
 
+	// Don't deactivate any placements in the src/parent range until there are
+	// enough waiting in inactive in every dest/child range.
 	if op.isDirection(Source, r.Meta.Ident) {
-
-		// Can't deactivate if there aren't enough child placements waiting in
-		// Inactive.
 		for _, rc := range op.direction(Dest) {
-
-			// TODO: This is weird. Why are we waiting for the *maximum* number
-			//       of active placements in the dest? I think it's because
-			//       min/max doesn't make much sense until we have replicas.
-
-			if n := rc.NumPlacementsInState(api.PsInactive); n < rc.MaxActive() {
+			if n := rc.NumPlacementsInState(api.PsInactive); n < rc.TargetActive() {
 				return fmt.Errorf("not enough inactive children")
 			}
 		}
@@ -545,8 +543,8 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 		// placements. They might still need the contents of this parent range
 		// to activate.
 		for _, r2 := range op.direction(Dest) {
-			if n := r2.NumPlacementsInState(api.PsActive); n < r2.MaxActive() {
-				return fmt.Errorf("child range has too few active placements (want=%d, got=%d)", r2.MaxActive(), n)
+			if n := r2.NumPlacementsInState(api.PsActive); n < r2.TargetActive() {
+				return fmt.Errorf("child range has too few active placements (want=%d, got=%d)", r2.TargetActive(), n)
 			}
 		}
 
