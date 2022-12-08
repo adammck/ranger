@@ -110,6 +110,8 @@ func (ks *Keyspace) LogString() string {
 // sanityCheck returns an error if the curernt range state isn't sane. It does
 // nothing to try to rectify the situaton. This method mostly compensates for
 // the fact that I'm storing all these ranges in a single flat slice.
+//
+// TODO: More tests for this.
 func (ks *Keyspace) sanityCheck() error {
 
 	// Check for no duplicate range IDs.
@@ -128,6 +130,9 @@ func (ks *Keyspace) sanityCheck() error {
 			return fmt.Errorf("range in unknown state (rID=%v)", ks.ranges[i].Meta.Ident)
 		}
 	}
+
+	// TODO: Check that the start/end of each range is valid with respect to its
+	//       parents and children. I missed a bad test fixture here.
 
 	// Check that leaf ranges (i.e. those with no children) cover the entire
 	// keyspace with no overlaps. This must always be the case; we only persist
