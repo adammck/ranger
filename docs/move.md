@@ -20,11 +20,11 @@ If step 1 fails, abort the move:
 
 ---
 
-If step 2 fails, drop the destination placement and abort the move:
+If step 2 fails, do nothing. We are stuck until the source placement
+relinquishes the range:
 
 1. Prepare(b)
 2. <strike>Deactivate(a)</strike>
-3. Drop(b)
 
 [_TestMoveFailure_Deactivate_](https://cs.github.com/adammck/ranger?q=symbol%3ATestMoveFailure_Deactivate)
 

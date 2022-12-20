@@ -10,6 +10,7 @@ import (
 	rpc_actuator "github.com/adammck/ranger/pkg/actuator/rpc"
 	"github.com/adammck/ranger/pkg/keyspace"
 	"github.com/adammck/ranger/pkg/orchestrator"
+	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -55,7 +56,8 @@ func New(addrLis, addrPub string, interval time.Duration, once bool) (*Controlle
 
 	// This loads the ranges from storage, so will fail if the persister (e.g.
 	// Consul) isn't available. Starting with an empty keyspace should be rare.
-	ks, err := keyspace.New(pers)
+	// TODO: Allow replication to be customized via flags or config.
+	ks, err := keyspace.New(pers, ranje.R1)
 	if err != nil {
 		return nil, err
 	}

@@ -33,9 +33,15 @@ type Range struct {
 	// TODO: Also store the old state, so we can roll back instead of crash?
 	// TODO: Invert so that zero value is the default: needing pesisting.
 	dirty bool
+
+	// The replication config for this range. It's a pointer so it can point
+	// back to the keyspace's default replication config and be updated
+	// together. In theory it can be changed on a per-range basis, but that
+	// isn't well tested as of today.
+	repl *ReplicationConfig
 }
 
-func NewRange(rID api.RangeID) *Range {
+func NewRange(rID api.RangeID, repl *ReplicationConfig) *Range {
 	return &Range{
 		Meta: api.Meta{
 			Ident: rID,
@@ -49,7 +55,49 @@ func NewRange(rID api.RangeID) *Range {
 
 		// Starts dirty, because it hasn't been persisted yet.
 		dirty: true,
+
+		repl: repl,
 	}
+}
+
+func (r *Range) Repair(repl *ReplicationConfig) {
+	r.repl = repl
+}
+
+func (r *Range) NewPlacement(nodeID api.NodeID) *Placement {
+	p := &Placement{
+		rang:         r,
+		NodeID:       nodeID,
+		StateCurrent: api.PsPending,
+		StateDesired: api.PsPending,
+	}
+
+	r.Placements = append(r.Placements, p)
+
+	return p
+}
+
+// DestroyPlacement removes the given placement from the range. This is the only
+// was that should happen, to ensure that the onDestroy callback is called.
+func (r *Range) DestroyPlacement(p *Placement) {
+	for i, pp := range r.Placements {
+		if p != pp {
+			continue
+		}
+
+		if p.onDestroy != nil {
+			p.onDestroy()
+		}
+
+		r.Placements = append(r.Placements[:i], r.Placements[i+1:]...)
+		return
+	}
+
+	// This really should never happen. It indicates a concurrency bug, because
+	// any thread destroying placements should be holding the keyspace lock.
+	panic(fmt.Sprintf(
+		"tried to destroy non-existent placement: r=%s, dest=%s",
+		r.Meta.Ident, p.NodeID))
 }
 
 // TODO: This is only used by Keyspace.LogString, which is only used by tests!
@@ -57,7 +105,6 @@ func NewRange(rID api.RangeID) *Range {
 func (r *Range) LogString() string {
 	ps := ""
 
-	// TODO: Use Placement.LogString
 	for i, p := range r.Placements {
 		ps = fmt.Sprintf("%s p%d=%s:%s", ps, i, p.NodeID, p.StateCurrent)
 
@@ -73,8 +120,8 @@ func (r *Range) LogString() string {
 		// 	ps = fmt.Sprintf("%s:att=%d", ps, p.Attempts)
 		// }
 
-		if p.IsReplacing != "" {
-			ps = fmt.Sprintf("%s:replacing(%v)", ps, p.IsReplacing)
+		if p.Tainted {
+			ps = fmt.Sprintf("%s:tainted", ps)
 		}
 	}
 
@@ -92,17 +139,8 @@ func (r *Range) Dirty() bool {
 	return r.dirty
 }
 
-// MinPlacements returns the number of placements (in any state) that this range
-// should have. If it has fewer than this, more should be created asap.
-func (r *Range) MinPlacements() int {
-	return 1
-}
-
-// MaxActive returns the maximum number of active placements that this range
-// should ever have. Ranger will aim for exactly this number; any fewer, and
-// more should be activated asap.
-func (r *Range) MaxActive() int {
-	return 1
+func (r *Range) TargetActive() int {
+	return r.repl.TargetActive
 }
 
 // MinActive returns the minimum number of active placements that this range
@@ -110,7 +148,54 @@ func (r *Range) MaxActive() int {
 // during operations will be allowed to proceed so long as the number of active
 // ranges is not below this number. It can be equal to this number!
 func (r *Range) MinActive() int {
-	return 0
+	return r.repl.MinActive
+}
+
+// MaxActive returns the maximum number of active placements that this range
+// should ever have. Ranger will aim for exactly this number; any fewer, and
+// more should be activated asap.
+func (r *Range) MaxActive() int {
+	return r.repl.MaxActive
+}
+
+// MinPlacements returns the number of placements (in any state) that this range
+// should have. If it has fewer than this, more should be created asap.
+func (r *Range) MinPlacements() int {
+	return r.repl.MinPlacements
+}
+
+// MaxPlacements return the maximum number of placements that this range should
+// ever have. It's fine to be lower, but no more than this will be created, even
+// if that means that an operation can't proceed.
+func (r *Range) MaxPlacements() int {
+	return r.repl.MaxPlacements
+}
+
+// NumPlacements calls the given func for each placement, and returns the number
+// of which return true. This is useful when checking whether there are enough
+// placements with some complex property.
+func (r *Range) NumPlacements(f func(p *Placement) bool) int {
+	n := 0
+
+	for _, p := range r.Placements {
+		if f(p) {
+			n += 1
+		}
+	}
+
+	return n
+}
+
+// NumPlacementsInState returns the number of placements currently in the given
+// state. It's just a handy wrapper around a common usage of NumPlacements.
+//
+// TODO: This is currently only used when comparing to r.MaxActive! Maybe change
+//       it to just do that? Seems kind of weird.
+//
+func (r *Range) NumPlacementsInState(s api.PlacementState) int {
+	return r.NumPlacements(func(p *Placement) bool {
+		return p.StateCurrent == s
+	})
 }
 
 func (r *Range) ToState(new api.RangeState) error {

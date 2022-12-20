@@ -11,109 +11,14 @@ import (
 )
 
 func TestOperations(t *testing.T) {
-
-	//               ┌─────┐
-	//         ┌─────│ 1 o │─────┐
-	//         │     └─────┘     │
-	//         ▼                 ▼
-	//      ┌─────┐           ┌─────┐
-	//    ┌─│ 2 o │─┐       ┌─│ 3 s │─┐
-	//    │ └─────┘ │       │ └─────┘ │
-	//    ▼         ▼       ▼         ▼
-	// ┌─────┐   ┌─────┐ ┌─────┐   ┌─────┐
-	// │ 4 j │   │ 5 j │ │ 6 a │   │ 7 a │
-	// └─────┘   └─────┘ └─────┘   └─────┘
-	//    │         │
-	//    └────┬────┘
-	//         ▼
-	//      ┌─────┐
-	//      │ 8 a │
-	//      └─────┘
-	//
-	// R1 obsolete (was split into R2, R3 at ccc)
-	// R2 obsolete (was split into R4, R5 at bbb)
-	// R3 splitting into R6, R7 at ddd
-	// R4 joining with R5 into R8
-	// R5 joining with R4 into R8
-	// R6 active (splitting from R3)
-	// R7 active (splitting from R7)
-	// R8 active (joining from R4, R5)
-
-	r1 := &ranje.Range{
-		State:      api.RsObsolete,
-		Children:   []api.RangeID{2, 3},
-		Meta:       api.Meta{Ident: 1, Start: api.ZeroKey, End: api.ZeroKey},
-		Placements: []*ranje.Placement{},
-	}
-
-	r2 := &ranje.Range{
-		State:      api.RsObsolete,
-		Parents:    []api.RangeID{1},
-		Children:   []api.RangeID{4, 5},
-		Meta:       api.Meta{Ident: 2, End: api.Key("ccc")},
-		Placements: []*ranje.Placement{},
-	}
-
-	r3 := &ranje.Range{
-		State:      api.RsSubsuming,
-		Parents:    []api.RangeID{1},
-		Children:   []api.RangeID{6, 7},
-		Meta:       api.Meta{Ident: 3, Start: api.Key("ccc")},
-		Placements: []*ranje.Placement{},
-	}
-
-	r4 := &ranje.Range{
-		State:      api.RsSubsuming,
-		Parents:    []api.RangeID{2},
-		Children:   []api.RangeID{8},
-		Meta:       api.Meta{Ident: 4, End: api.Key("bbb")},
-		Placements: []*ranje.Placement{},
-	}
-
-	r5 := &ranje.Range{
-		State:      api.RsSubsuming,
-		Parents:    []api.RangeID{2},
-		Children:   []api.RangeID{8},
-		Meta:       api.Meta{Ident: 5, Start: api.Key("bbb")},
-		Placements: []*ranje.Placement{},
-	}
-
-	r6 := &ranje.Range{
-		State:      api.RsActive,
-		Parents:    []api.RangeID{3},
-		Children:   []api.RangeID{},
-		Meta:       api.Meta{Ident: 6, Start: api.Key("ccc"), End: api.Key("ddd")},
-		Placements: []*ranje.Placement{},
-	}
-
-	r7 := &ranje.Range{
-		State:      api.RsActive,
-		Parents:    []api.RangeID{3},
-		Children:   []api.RangeID{},
-		Meta:       api.Meta{Ident: 7, Start: api.Key("ddd")},
-		Placements: []*ranje.Placement{},
-	}
-
-	r8 := &ranje.Range{
-		State:      api.RsActive,
-		Parents:    []api.RangeID{4, 5},
-		Children:   []api.RangeID{},
-		Meta:       api.Meta{Ident: 8, End: api.Key("ccc")},
-		Placements: []*ranje.Placement{},
-	}
-
-	pers := &FakePersister{
-		ranges: []*ranje.Range{
-			r1, r2, r3, r4, r5, r6, r7, r8}}
-
-	ks, err := New(pers)
-	require.NoError(t, err)
+	ks := testFixtureR3(t)
+	r := rangeGetter(t, ks)
 
 	ops, err := ks.Operations()
 	require.NoError(t, err)
 	require.Len(t, ops, 2)
 
-	require.Equal(t, ops[0], NewOperation([]*ranje.Range{r3}, []*ranje.Range{r6, r7}))
+	require.Equal(t, ops[0], NewOperation([]*ranje.Range{r(3)}, []*ranje.Range{r(6), r(7)}))
 	for rID, b := range map[api.RangeID]bool{1: false, 2: false, 3: true, 4: false, 5: false, 6: false, 7: false, 8: false} {
 		require.Equal(t, b, ops[0].isDirection(Source, rID), "i=0, rID=%v", rID)
 	}
@@ -121,7 +26,7 @@ func TestOperations(t *testing.T) {
 		require.Equal(t, b, ops[0].isDirection(Dest, rID), "i=0, rID=%v", rID)
 	}
 
-	require.Equal(t, ops[1], NewOperation([]*ranje.Range{r4, r5}, []*ranje.Range{r8}))
+	require.Equal(t, ops[1], NewOperation([]*ranje.Range{r(4), r(5)}, []*ranje.Range{r(8)}))
 	for rID, b := range map[api.RangeID]bool{1: false, 2: false, 3: false, 4: true, 5: true, 6: false, 7: false, 8: false} {
 		require.Equal(t, b, ops[1].isDirection(Source, rID), "i=0, rID=%v", rID)
 	}
@@ -141,7 +46,7 @@ func TestNoOperations(t *testing.T) {
 		ranges: []*ranje.Range{
 			r1}}
 
-	ks, err := New(pers)
+	ks, err := New(pers, ranje.R1)
 	require.NoError(t, err)
 
 	ops, err := ks.Operations()
@@ -196,7 +101,7 @@ func TestSplitIntoThree(t *testing.T) {
 		ranges: []*ranje.Range{
 			r1, r2, r3, r4}}
 
-	ks, err := New(pers)
+	ks, err := New(pers, ranje.R1)
 	require.NoError(t, err)
 
 	ops, err := ks.Operations()
@@ -261,7 +166,7 @@ func TestJoinFromThree(t *testing.T) {
 		ranges: []*ranje.Range{
 			r1, r2, r3, r4, r5}}
 
-	ks, err := New(pers)
+	ks, err := New(pers, ranje.R1)
 	require.NoError(t, err)
 
 	ops, err := ks.Operations()
@@ -303,7 +208,7 @@ func TestSplitIntoOne(t *testing.T) {
 		ranges: []*ranje.Range{
 			r1, r2}}
 
-	ks, err := New(pers)
+	ks, err := New(pers, ranje.R1)
 	require.NoError(t, err)
 
 	ops, err := ks.Operations()
@@ -343,7 +248,7 @@ func TestJoinFromOne(t *testing.T) {
 		ranges: []*ranje.Range{
 			r1, r2}}
 
-	ks, err := New(pers)
+	ks, err := New(pers, ranje.R1)
 	require.NoError(t, err)
 
 	ops, err := ks.Operations()
@@ -419,7 +324,7 @@ func TestPlacementMayBecomeReady(t *testing.T) {
 
 	for i, ex := range examples {
 		pers := &FakePersister{ranges: ex.input}
-		ks, err := New(pers)
+		ks, err := New(pers, ranje.R1)
 		require.NoError(t, err, "i=%d", i)
 
 		op, err := getOneOperation(t, ks, i)
@@ -495,7 +400,7 @@ func TestPlacementMayBeDeactivated(t *testing.T) {
 
 	for i, ex := range examples {
 		pers := &FakePersister{ranges: ex.input}
-		ks, err := New(pers)
+		ks, err := New(pers, ranje.R1)
 		require.NoError(t, err, "i=%d", i)
 
 		op, err := getOneOperation(t, ks, i)

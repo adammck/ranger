@@ -31,11 +31,14 @@ type Placement struct {
 	// in. The Actuator is responsible for telling the remote node about this.
 	StateDesired api.PlacementState
 
-	// Set by the orchestrator to indicate that this placement was created to
-	// replace the placement of the same range on some other node. Should be
-	// cleared once the placement activates.
-	// TODO: Change this to some kind of uuid.
-	IsReplacing api.NodeID `json:",omitempty"`
+	// Set by the orchestrator to indicate that this placement should be
+	// deactivated and dropped when possible. This won't actually happen until
+	// it's possible to do so within the min/max placement boundaries.
+	//
+	// (Adding a placement without tainting the old one will result in the new
+	// one sitting at Inactive indefinitely, since there's no reason for the old
+	// one to deactivate itself.)
+	Tainted bool `json:",omitempty"`
 
 	// failures is updated by the actuator when an action is attempted a few
 	// times but fails. This generally causes the placement to become wedged
@@ -43,8 +46,7 @@ type Placement struct {
 	failures map[api.Action]bool
 
 	// Not persisted.
-	replaceDone func()
-	onReady     func()
+	onDestroy func()
 
 	// Guards everything.
 	// TODO: What is "everything" ??
@@ -53,27 +55,7 @@ type Placement struct {
 	sync.Mutex
 }
 
-func NewPlacement(r *Range, nodeID api.NodeID) *Placement {
-	return &Placement{
-		rang:         r,
-		NodeID:       nodeID,
-		StateCurrent: api.PsPending,
-		StateDesired: api.PsPending,
-	}
-}
-
-// Special constructor for placements replacing some other placement.
-func NewReplacement(r *Range, destNodeID, srcNodeID api.NodeID, done func()) *Placement {
-	return &Placement{
-		rang:         r,
-		NodeID:       destNodeID,
-		StateCurrent: api.PsPending,
-		StateDesired: api.PsPending,
-		IsReplacing:  srcNodeID,
-		replaceDone:  done,
-	}
-}
-
+// TODO: Get rid of this once deserialization works properly.
 func (p *Placement) Repair(r *Range) {
 	if p.rang != nil {
 		panic("tried to repair valid placementn")
@@ -91,17 +73,6 @@ func (p *Placement) Range() *Range {
 	return p.rang
 }
 
-func (p *Placement) DoneReplacing() {
-	p.IsReplacing = ""
-
-	// Callback to unblock operator Move RPCs.
-	// TODO: This is kind of dumb. Would be better to store the callbacks
-	//       somewhere else, and look them up when calling this method.
-	if p.replaceDone != nil {
-		p.replaceDone()
-	}
-}
-
 func (p *Placement) Want(new api.PlacementState) error {
 	if err := CanTransitionPlacement(p.StateCurrent, new); err != nil {
 		return err
@@ -116,13 +87,6 @@ func (p *Placement) ToState(new api.PlacementState) error {
 		return err
 	}
 
-	// Special case: When entering PsActive, fire the optional callback.
-	if new == api.PsActive {
-		if p.onReady != nil {
-			p.onReady()
-		}
-	}
-
 	old := p.StateCurrent
 	p.StateCurrent = new
 	p.failures = nil
@@ -133,21 +97,8 @@ func (p *Placement) ToState(new api.PlacementState) error {
 	return nil
 }
 
-func (p *Placement) OnReady(f func()) {
-	p.Lock()
-	defer p.Unlock()
-
-	if p.onReady != nil {
-		panic("placement already has non-nil onReady callback")
-	}
-
-	if p.StateCurrent != api.PsPending {
-		panic(fmt.Sprintf(
-			"can't attach onReady callback to non-pending placement (s=%v, rID=%v, nID=%v)",
-			p.StateCurrent, p.rang.Meta.Ident, p.NodeID))
-	}
-
-	p.onReady = f
+func (p *Placement) OnDestroy(f func()) {
+	p.onDestroy = f
 }
 
 // Failed returns true if the given action has been attempted but has failed.
