@@ -179,3 +179,35 @@ func TestReplicationState_OneRange(t *testing.T) {
 		},
 	}, actual)
 }
+
+func TestReplicationState_FromFixture(t *testing.T) {
+	ks := testFixtureR3(t)
+
+	actual := ks.ReplicationState()
+	assert.DeepEqual(t, []Repl{
+		{
+			Start:  api.ZeroKey,
+			End:    "bbb",
+			Total:  6,
+			Active: 3,
+		},
+		{
+			Start:  "bbb",
+			End:    "ccc",
+			Total:  6,
+			Active: 2,
+		},
+		{
+			Start:  "ccc",
+			End:    "ddd",
+			Total:  6,
+			Active: 3,
+		},
+		{
+			Start:  "ddd",
+			End:    api.ZeroKey,
+			Total:  6,
+			Active: 2,
+		},
+	}, actual)
+}
