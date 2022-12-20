@@ -38,17 +38,7 @@ type Keyspace struct {
 	replication ranje.ReplicationConfig
 }
 
-// TODO: Remove this method and the defaults.
-func New(persister persister.Persister) (*Keyspace, error) {
-	return NewWithReplication(persister, ranje.ReplicationConfig{
-		MinPlacements: 1,
-		MaxPlacements: 2,
-		MinActive:     0,
-		MaxActive:     1,
-	})
-}
-
-func NewWithReplication(persister persister.Persister, replication ranje.ReplicationConfig) (*Keyspace, error) {
+func New(persister persister.Persister, replication ranje.ReplicationConfig) (*Keyspace, error) {
 	ks := &Keyspace{
 		pers:        persister,
 		replication: replication,

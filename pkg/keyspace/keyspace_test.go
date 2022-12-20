@@ -46,7 +46,7 @@ func TestNoOperations(t *testing.T) {
 		ranges: []*ranje.Range{
 			r1}}
 
-	ks, err := New(pers)
+	ks, err := New(pers, ranje.R1)
 	require.NoError(t, err)
 
 	ops, err := ks.Operations()
@@ -101,7 +101,7 @@ func TestSplitIntoThree(t *testing.T) {
 		ranges: []*ranje.Range{
 			r1, r2, r3, r4}}
 
-	ks, err := New(pers)
+	ks, err := New(pers, ranje.R1)
 	require.NoError(t, err)
 
 	ops, err := ks.Operations()
@@ -166,7 +166,7 @@ func TestJoinFromThree(t *testing.T) {
 		ranges: []*ranje.Range{
 			r1, r2, r3, r4, r5}}
 
-	ks, err := New(pers)
+	ks, err := New(pers, ranje.R1)
 	require.NoError(t, err)
 
 	ops, err := ks.Operations()
@@ -208,7 +208,7 @@ func TestSplitIntoOne(t *testing.T) {
 		ranges: []*ranje.Range{
 			r1, r2}}
 
-	ks, err := New(pers)
+	ks, err := New(pers, ranje.R1)
 	require.NoError(t, err)
 
 	ops, err := ks.Operations()
@@ -248,7 +248,7 @@ func TestJoinFromOne(t *testing.T) {
 		ranges: []*ranje.Range{
 			r1, r2}}
 
-	ks, err := New(pers)
+	ks, err := New(pers, ranje.R1)
 	require.NoError(t, err)
 
 	ops, err := ks.Operations()
@@ -324,7 +324,7 @@ func TestPlacementMayBecomeReady(t *testing.T) {
 
 	for i, ex := range examples {
 		pers := &FakePersister{ranges: ex.input}
-		ks, err := New(pers)
+		ks, err := New(pers, ranje.R1)
 		require.NoError(t, err, "i=%d", i)
 
 		op, err := getOneOperation(t, ks, i)
@@ -400,7 +400,7 @@ func TestPlacementMayBeDeactivated(t *testing.T) {
 
 	for i, ex := range examples {
 		pers := &FakePersister{ranges: ex.input}
-		ks, err := New(pers)
+		ks, err := New(pers, ranje.R1)
 		require.NoError(t, err, "i=%d", i)
 
 		op, err := getOneOperation(t, ks, i)

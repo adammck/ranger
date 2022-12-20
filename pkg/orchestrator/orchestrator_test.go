@@ -24,25 +24,8 @@ import (
 const strictTransactions = true
 const noStrictTransactions = false
 
-// The replication config used by R1 tests.
-var r1 = &ranje.ReplicationConfig{
-	TargetActive: 1,
-	MinActive:    0,
-	MaxActive:    1,
-	//
-	MinPlacements: 1,
-	MaxPlacements: 2,
-}
-
-// The replication config used by R3 tests.
-var r3 = &ranje.ReplicationConfig{
-	TargetActive: 3,
-	MinActive:    3,
-	MaxActive:    4,
-	//
-	MinPlacements: 3,
-	MaxPlacements: 5, // Up to two spare
-}
+var r1 = ranje.R1 // Short version of ranje.R1
+var r3 = ranje.R3 // Short version of ranje.R3
 
 // Note: These tests are very verbose, but the orchestrator is the most critical
 // part of Ranger. When things go wrong here (e.g. storage nodes getting into a
@@ -77,7 +60,7 @@ var r3 = &ranje.ReplicationConfig{
 func Test_R1_Place(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []}"
-	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 
 	// First tick: Placement created, Prepare RPC sent to node and returned
 	// successfully. Remote state is updated in roster, but not keyspace.
@@ -117,7 +100,7 @@ func Test_R1_Place(t *testing.T) {
 func Test_R3_Place(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []} {test-bbb []} {test-ccc []}"
-	orch, act := orchFactoryWithReplication(t, ksStr, rosStr, noStrictTransactions, r3)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r3)
 
 	tickCmp(t, orch, act,
 		"Prepare(R1, test-aaa), Prepare(R1, test-bbb), Prepare(R1, test-ccc)",
@@ -145,7 +128,7 @@ func Test_R3_Place(t *testing.T) {
 func TestPlace_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []}"
-	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 
 	tickUntilStable(t, orch, act)
 	assert.Equal(t, "{test-aaa [1:NsActive]}", orch.rost.TestString())
@@ -155,7 +138,7 @@ func TestPlace_Short(t *testing.T) {
 func TestPlace_Slow(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []}"
-	orch, act := orchFactory(t, ksStr, rosStr, strictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, strictTransactions, r1)
 
 	i1g := inject(t, act, "test-aaa", 1, api.Prepare).Response(api.NsPreparing)
 
@@ -219,7 +202,7 @@ func TestPlace_Slow(t *testing.T) {
 func TestPlaceFailure_Prepare_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []} {test-bbb []}"
-	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 
 	inject(t, act, "test-aaa", 1, api.Prepare).Failure()
 
@@ -232,7 +215,7 @@ func TestPlaceFailure_Prepare_Short(t *testing.T) {
 func TestPlaceFailure_Activate_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []} {test-bbb []}"
-	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 
 	// Serving R1 will always fail on node aaa.
 	// (But Prepare will succeed, as is the default)
@@ -246,7 +229,7 @@ func TestPlaceFailure_Activate_Short(t *testing.T) {
 func TestPlaceFailure_Activate(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive}"
 	rosStr := "{test-aaa []} {test-bbb []}"
-	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 
 	// Serving R1 will always fail on node aaa.
 	// (But Prepare will succeed, as is the default)
@@ -300,7 +283,7 @@ func TestPlaceFailure_Activate(t *testing.T) {
 func Test_R1_Move(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
-	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 	requireStable(t, orch, act)
 
 	moveOp(orch, 1, "test-bbb")
@@ -354,7 +337,7 @@ func Test_R1_Move(t *testing.T) {
 func Test_R3_Move(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsActive p2=test-ccc:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc [1:NsActive]} {test-ddd []}"
-	orch, act := orchFactoryWithReplication(t, ksStr, rosStr, noStrictTransactions, r3)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r3)
 	requireStable(t, orch, act)
 
 	moveOpWithSource(orch, 1, "test-ccc", "test-ddd")
@@ -410,7 +393,7 @@ func Test_R3_Move(t *testing.T) {
 func Test_R3_MoveMulti(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive p1=test-bbb:PsActive p2=test-ccc:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc [1:NsActive]} {test-ddd []} {test-eee []} {test-fff []}"
-	orch, act := orchFactoryWithReplication(t, ksStr, rosStr, noStrictTransactions, r3)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r3)
 	requireStable(t, orch, act)
 
 	// Queue up *three* moves. Only two of them will proceed right away, because
@@ -478,7 +461,7 @@ func Test_R3_MoveMulti(t *testing.T) {
 func TestMove_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
-	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 	requireStable(t, orch, act)
 
 	moveOp(orch, 1, "test-bbb")
@@ -492,7 +475,7 @@ func TestMove_Short(t *testing.T) {
 func TestMove_Slow(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
-	orch, act := orchFactory(t, ksStr, rosStr, strictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, strictTransactions, r1)
 	moveOp(orch, 1, "test-bbb")
 
 	//
@@ -624,7 +607,7 @@ func TestMove_Slow(t *testing.T) {
 func TestMoveFailure_Prepare(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
-	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 	inject(t, act, "test-bbb", 1, api.Prepare).Failure()
 	moveOp(orch, 1, "test-bbb")
 
@@ -655,7 +638,7 @@ func TestMoveFailure_Prepare(t *testing.T) {
 func TestMoveFailure_Deactivate(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
-	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 	inject(t, act, "test-aaa", 1, api.Deactivate).Failure()
 	moveOp(orch, 1, "test-bbb")
 
@@ -697,7 +680,7 @@ func TestMoveFailure_Deactivate(t *testing.T) {
 func TestMoveFailure_Activate(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
-	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 	inject(t, act, "test-bbb", 1, api.Activate).Failure()
 	moveOp(orch, 1, "test-bbb")
 
@@ -769,7 +752,7 @@ func TestMoveFailure_Activate(t *testing.T) {
 func TestMoveFailure_Drop(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb []}"
-	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 	moveOp(orch, 1, "test-bbb")
 
 	i1d := inject(t, act, "test-aaa", 1, api.Drop).Failure()
@@ -805,7 +788,7 @@ func TestMoveFailure_Drop(t *testing.T) {
 func TestSplit_R1(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=aaa:PsActive}"
 	rosStr := "{aaa [1:NsActive]} {bbb []} {ccc []}"
-	orch, act := orchFactoryWithReplication(t, ksStr, rosStr, noStrictTransactions, r1)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 	requireStable(t, orch, act)
 
 	// 0. Initiate
@@ -882,7 +865,7 @@ func TestSplit_R1(t *testing.T) {
 func TestSplit_R3(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=aaa:PsActive p1=bbb:PsActive p2=ccc:PsActive}"
 	rosStr := "{aaa [1:NsActive]} {bbb [1:NsActive]} {ccc [1:NsActive]} {ddd []} {eee []} {fff []} {ggg []} {hhh []} {iii []}"
-	orch, act := orchFactoryWithReplication(t, ksStr, rosStr, noStrictTransactions, r3)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r3)
 	requireStable(t, orch, act)
 
 	// 0. Initiate
@@ -1011,7 +994,7 @@ func TestSplit_R3(t *testing.T) {
 func TestSplit_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=aaa:PsActive}"
 	rosStr := "{aaa [1:NsActive]} {bbb []} {ccc []}"
-	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 
 	splitOp(orch, 1)
 	tickUntilStable(t, orch, act)
@@ -1024,7 +1007,7 @@ func TestSplit_Short(t *testing.T) {
 func TestSplit_Slow(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=aaa:PsActive}"
 	rosStr := "{aaa [1:NsActive]} {bbb []} {ccc []}"
-	orch, act := orchFactory(t, ksStr, rosStr, strictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, strictTransactions, r1)
 	opErr := splitOp(orch, 1)
 
 	//
@@ -1191,7 +1174,7 @@ func TestSplit_Slow(t *testing.T) {
 func TestSplitFailure_Prepare(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=aaa:PsActive}"
 	rosStr := "{aaa [1:NsActive]} {bbb []} {ccc []} {ddd []}"
-	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 	inject(t, act, "bbb", 2, api.Prepare).Failure()
 	splitOp(orch, 1)
 
@@ -1246,7 +1229,7 @@ func TestSplitFailure_Prepare(t *testing.T) {
 func TestSplitFailure_Deactivate_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=aaa:PsActive}"
 	rosStr := "{aaa [1:NsActive]} {bbb []} {ccc []}"
-	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 	inject(t, act, "aaa", 1, api.Deactivate).Failure()
 	splitOp(orch, 1)
 
@@ -1269,7 +1252,7 @@ func TestSplitFailure_Deactivate(t *testing.T) {
 func TestSplitFailure_Activate_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=aaa:PsActive}"
 	rosStr := "{aaa [1:NsActive]} {bbb []} {ccc []} {ddd []}"
-	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 	inject(t, act, "bbb", 2, api.Activate).Failure()
 	splitOp(orch, 1)
 
@@ -1281,7 +1264,7 @@ func TestSplitFailure_Activate_Short(t *testing.T) {
 func TestSplitFailure_Activate(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=aaa:PsActive}"
 	rosStr := "{aaa [1:NsActive]} {bbb []} {ccc []} {ddd []}"
-	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 	inject(t, act, "bbb", 2, api.Activate).Failure()
 	splitOp(orch, 1)
 
@@ -1398,7 +1381,7 @@ func TestSplitFailure_Drop(t *testing.T) {
 func TestSplitFailure_Drop_Short(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=aaa:PsActive}"
 	rosStr := "{aaa [1:NsActive]} {bbb []} {ccc []}"
-	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 	inject(t, act, "aaa", 1, api.Drop).Failure()
 	splitOp(orch, 1)
 
@@ -1417,7 +1400,7 @@ func TestSplitFailure_Drop_Short(t *testing.T) {
 func TestJoin_R1(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []}"
-	orch, act := orchFactoryWithReplication(t, ksStr, rosStr, noStrictTransactions, r1)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 	opErr := joinOp(orch, 1, 2, "test-ccc")
 
 	// Prepare
@@ -1484,7 +1467,7 @@ func TestJoin_R1(t *testing.T) {
 func TestJoin_R3(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=aaa:PsActive p1=bbb:PsActive p2=ccc:PsActive} {2 (ggg, +inf] RsActive p0=ddd:PsActive p1=eee:PsActive p2=fff:PsActive}"
 	rosStr := "{aaa [1:NsActive]} {bbb [1:NsActive]} {ccc [1:NsActive]} {ddd [2:NsActive]} {eee [2:NsActive]} {fff [2:NsActive]} {ggg []} {hhh []} {iii []}"
-	orch, act := orchFactoryWithReplication(t, ksStr, rosStr, noStrictTransactions, r3)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r3)
 	requireStable(t, orch, act)
 
 	// Init
@@ -1571,7 +1554,7 @@ func TestJoin_R3(t *testing.T) {
 func TestJoin_Short(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []}"
-	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 	joinOp(orch, 1, 2, "test-ccc")
 
 	tickUntilStable(t, orch, act)
@@ -1583,7 +1566,7 @@ func TestJoin_Short(t *testing.T) {
 func TestJoin_Slow(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []}"
-	orch, act := orchFactory(t, ksStr, rosStr, strictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, strictTransactions, r1)
 	opErr := joinOp(orch, 1, 2, "test-ccc")
 
 	//
@@ -1725,7 +1708,7 @@ func TestJoin_Slow(t *testing.T) {
 func TestJoinFailure_InitParentExcluded(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []}"
-	orch, act := orchFactoryWithReplication(t, ksStr, rosStr, noStrictTransactions, r1)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 
 	for _, nID := range []string{"test-aaa", "test-bbb"} {
 		opErr := joinOp(orch, 1, 2, nID)
@@ -1740,7 +1723,7 @@ func TestJoinFailure_InitParentExcluded(t *testing.T) {
 func TestJoinFailure_Prepare(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []} {test-ddd []}"
-	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 	inject(t, act, "test-ccc", 3, api.Prepare).Failure()
 
 	// 0. Initiate
@@ -1775,7 +1758,7 @@ func TestJoinFailure_Prepare(t *testing.T) {
 func TestJoinFailure_Deactivate(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []} {test-ddd []}"
-	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 	_ = joinOp(orch, 1, 2, "test-ccc")
 
 	i1t := inject(t, act, "test-aaa", 1, api.Deactivate).Failure()
@@ -1908,7 +1891,7 @@ func TestJoinFailure_Deactivate(t *testing.T) {
 func TestJoinFailure_Activate_Short(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []}"
-	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 	inject(t, act, "test-ccc", 3, api.Activate).Failure()
 	joinOp(orch, 1, 2, "test-ccc")
 
@@ -1942,7 +1925,7 @@ func TestJoinFailure_Activate_Short(t *testing.T) {
 func TestJoinFailure_Drop_Short(t *testing.T) {
 	ksStr := "{1 [-inf, ggg] RsActive p0=test-aaa:PsActive} {2 (ggg, +inf] RsActive p0=test-bbb:PsActive}"
 	rosStr := "{test-aaa [1:NsActive]} {test-bbb [2:NsActive]} {test-ccc []}"
-	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 	inject(t, act, "test-aaa", 1, api.Drop).Failure()
 	joinOp(orch, 1, 2, "test-ccc")
 
@@ -1960,7 +1943,7 @@ func TestJoinFailure_Drop_Short(t *testing.T) {
 func TestMissingPlacement(t *testing.T) {
 	ksStr := "{1 [-inf, +inf] RsActive p0=test-aaa:PsActive}"
 	rosStr := "{test-aaa []}"
-	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions)
+	orch, act := orchFactory(t, ksStr, rosStr, noStrictTransactions, r1)
 
 	// Orchestrator notices that the node doesn't have the range, so marks the
 	// placement as abandoned.
@@ -2116,8 +2099,7 @@ func parseRoster(t *testing.T, s string) []nodeStub {
 	return ns
 }
 
-// TODO: Remove config param. Config was a mistake.
-func keyspaceFactory(t *testing.T, stubs []rangeStub, repl *ranje.ReplicationConfig) *keyspace.Keyspace {
+func keyspaceFactory(t *testing.T, stubs []rangeStub, repl ranje.ReplicationConfig) *keyspace.Keyspace {
 	ranges := make([]*ranje.Range, len(stubs))
 	for i := range stubs {
 		r := ranje.NewRange(api.RangeID(i+1), nil)
@@ -2144,18 +2126,7 @@ func keyspaceFactory(t *testing.T, stubs []rangeStub, repl *ranje.ReplicationCon
 	}
 
 	pers := &FakePersister{ranges: ranges}
-
-	var ks *keyspace.Keyspace
-	var err error
-
-	// TODO: Straighten this out somehow.
-	if repl == nil {
-		// Use default replication.
-		ks, err = keyspace.New(pers)
-	} else {
-		ks, err = keyspace.NewWithReplication(pers, *repl)
-	}
-
+	ks, err := keyspace.New(pers, repl)
 	if err != nil {
 		t.Fatalf("keyspace.New: %s", err)
 	}
@@ -2203,19 +2174,13 @@ func rosterFactory(t *testing.T, ctx context.Context, ks *keyspace.Keyspace, stu
 	return rost
 }
 
-// TODO: Merge this with orchFactoryCheck once TestJunk is gone.
-func orchFactoryNoCheck(t *testing.T, sKS, sRos string, strict bool, repl *ranje.ReplicationConfig) (*Orchestrator, *actuator.Actuator) {
+// TODO: Replace the strict and repl params with options or something.
+func orchFactory(t *testing.T, sKS, sRos string, strict bool, repl ranje.ReplicationConfig) (*Orchestrator, *actuator.Actuator) {
 	ks := keyspaceFactory(t, parseKeyspace(t, sKS), repl)
 	ros := rosterFactory(t, context.TODO(), ks, parseRoster(t, sRos))
 	srv := grpc.NewServer() // TODO: Allow this to be nil.
 	act := actuator.New(ks, ros, 0, mock_actuator.New(strict))
 	orch := New(ks, ros, srv)
-	return orch, act
-}
-
-// TODO: Replace the strict and repl params with options or something.
-func orchFactoryWithReplication(t *testing.T, sKS, sRos string, strict bool, repl *ranje.ReplicationConfig) (*Orchestrator, *actuator.Actuator) {
-	orch, act := orchFactoryNoCheck(t, sKS, sRos, strict, repl)
 
 	// Verify that the current state of the keyspace and roster is what was
 	// requested. (Require it, because if not, the test harness is broken.)
@@ -2223,11 +2188,6 @@ func orchFactoryWithReplication(t *testing.T, sKS, sRos string, strict bool, rep
 	require.Equal(t, sRos, orch.rost.TestString())
 
 	return orch, act
-}
-
-// The older interface which almost all of the tests use.
-func orchFactory(t *testing.T, sKS, sRos string, strict bool) (*Orchestrator, *actuator.Actuator) {
-	return orchFactoryWithReplication(t, sKS, sRos, strict, r1)
 }
 
 func placementStateFromString(t *testing.T, s string) api.PlacementState {

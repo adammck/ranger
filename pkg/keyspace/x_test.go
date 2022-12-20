@@ -145,7 +145,7 @@ func testFixtureR3(t *testing.T) *Keyspace {
 
 func makeKeyspace(t *testing.T, ranges ...*ranje.Range) *Keyspace {
 	pers := &FakePersister{ranges: ranges}
-	ks, err := New(pers)
+	ks, err := New(pers, ranje.R1)
 	if err != nil {
 		t.Fatalf("unexpected failure making keyspace: %v", err)
 		return nil // unreachable
