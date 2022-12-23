@@ -247,7 +247,93 @@ For more complex examples, read the _Slicer_ and _Shard Manager_ papers.
 
 ### State Machines
 
-TODO
+Ranger has three state machines: [RangeState][rs], [PlacementState][ps], and
+[RemoteState][ns].
+
+#### RangeState
+
+Ranges are simple. They are born Active, become Subsuming when they are split or
+joined, and then become Obsolete once the split/join operation is completed.
+There are no backwards transitions; to keep the keyspace history linear, once a
+range begins begin subsumed, there is no turning back. (But note that the
+transition may take as long as necessary, and the _placements_ may be rolled
+back to recover from failures. But they will eventually be rolled forwards again
+to complete the operation.)
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> RsActive
+    RsActive --> RsSubsuming
+    RsSubsuming --> RsObsolete
+    RsObsolete --> [*]
+```
+
+These states are owned by the Keyspace in the controller, and persisted across
+restarts by the Persister. It would be a catastrophe to lose the range state.
+
+#### PlacementState
+
+Placements are more complex, because this state machine is really the core of
+Ranger. To maximize availability and adherence to the replication config, the
+Keyspace, Orchestrator, and Actuator components carefully coordinate these
+state changes and convey them to the remote nodes via their Rangelets.
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> PsPending
+    PsPending --> PsMissing
+    PsInactive --> PsMissing
+    PsActive --> PsMissing
+    PsMissing --> PsDropped
+    PsPending --> PsInactive: Prepare
+    PsInactive --> PsActive: Activate
+    PsActive --> PsInactive: Deactivate
+    PsInactive --> PsDropped: Drop
+    PsDropped --> [*]
+```
+
+Note that the PsMissing state is an odd one here, because most other states can
+transition into it with no command RPC (Activate, Drop, etc) being involved. It
+happens when a placement is expected to be in a state, but the Rangelet reports
+that the node doesn't have it. This may be because of a bug whatever, but the
+orchestrator responds by moving the placement into PsMissing so it can be
+replaced.
+
+#### RemoteState
+
+In addition to the controller-side placement state, the Roster keeps track of
+the **remote state** of each placement, which is whatever the Rangelet says it
+is. This one isn't a real state machine: there's no enforcement at all, so any
+state can transition into any other. (The normal/expected transitions are shown
+below.) We allow this mostly to ensure that the controller can handle unexpected
+transitions, e.g. if a node unilaterally decides to drop a placement because
+it's overloaded.
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> NsPreparing: Prepare
+    NsPreparing --> NsInactive
+    NsInactive --> NsActivating: Activate
+    NsActivating --> NsActive
+    NsActive --> NsDeactivating: Deactivate
+    NsDeactivating --> NsInactive
+    NsInactive --> NsDropping: Drop
+    NsDropping --> NsNotFound
+    NsNotFound --> [*]
+```
+
+Note that the remote states are a superset of placement states, but include
+intermediate states like `NsActivating`. These are used to signal back to the
+controller that, for example, the Rangelet has called the `Activate` method but
+it hasn't returned yet.
+
+These states are owned by the Rangelet on each node, and are reported back to
+the controller in response to command RPCs (Prepare, Activate, etc) and periodic
+status probes. They're cached by the Roster, and are not currently persisted
+between controller restarts.
 
 ## Related Work
 
@@ -267,3 +353,6 @@ MIT
 
 [sm]: https://dl.acm.org/doi/pdf/10.1145/3477132.3483546
 [slcr]: https://www.usenix.org/system/files/conference/osdi16/osdi16-adya.pdf
+[rs]: pkg/api/range_state.go
+[ps]: pkg/api/placement_state.go
+[ns]: pkg/api/remote_state.go
