@@ -10,7 +10,3 @@ __debug_bin
 
 # no need to lock development deps
 /examples/kv/Brewfile.lock.json
-
-# temporary! just to reduce noise while i'm iterating.
-/pkg/proto/gen/*.go
-/examples/kv/proto/gen/*.go
