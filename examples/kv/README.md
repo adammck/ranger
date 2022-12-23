@@ -32,16 +32,7 @@ $ brew bundle --file Brewfile
 Homebrew Bundle complete! 2 Brewfile dependencies now installed.
 ```
 
-
 ## Usage
-
-Generate protos stubs:  
-(I'll check these in once they're stable!)
-
-```console
-$ ../../bin/gen-proto.sh
-$ bin/gen-proto.sh
-```
 
 Start consul in the background (for service discovery), and run a simple three
 node cluster:  
