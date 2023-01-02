@@ -259,7 +259,7 @@ func (n *Node) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Construct the HTTP (data-plane) address fo the node which we believe
+		// Construct the HTTP (data-plane) address of the node which we believe
 		// the key is assigned to, and redirect to it. The caller might follow
 		// this automatically. We could alteratively proxy the request to the
 		// relevant node (like TCube cacheservers did/do), but this is just a
