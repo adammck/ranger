@@ -23,6 +23,7 @@ import (
 	"github.com/adammck/ranger/pkg/rangelet/mirror"
 	"github.com/adammck/ranger/pkg/rangelet/storage/null"
 	consulapi "github.com/hashicorp/consul/api"
+	"golang.org/x/sync/singleflight"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -88,6 +89,7 @@ type Node struct {
 	// Cache stuff
 	hsrv  *http.Server
 	cache map[string][32]byte
+	group singleflight.Group
 }
 
 func NewNode(addrGRPC, addrHTTP string) (*Node, error) {
@@ -266,11 +268,15 @@ func (n *Node) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Block if same key is being concurrently hashed.
+	// Look up the answer from the cache
 	h, ok := n.cache[k]
-	if !ok {
-		h = hash(k)
-		n.cache[k] = h
+	if !ok { // The answer is not in the cache
+		// Compute it and store it in the cache,
+		// unless there is a computation already started.
+		n.group.Do(k, func() (interface{}, error) {
+			n.cache[k] = hash(k)
+			return nil, nil
+		})
 	}
 
 	w.Header().Set("Server", n.hsrv.Addr)
