@@ -41,7 +41,7 @@ func main() {
 	addrHTTP := flag.String("http", "localhost:8001", "http server")
 	flag.Parse()
 
-	// Replace default logger.
+	// TODO: replace default logger.
 	log.Default().SetOutput(os.Stdout)
 	log.Default().SetPrefix("")
 	log.Default().SetFlags(0)
