@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -90,6 +91,7 @@ type Node struct {
 	hsrv  *http.Server
 	cache map[string][32]byte
 	group singleflight.Group
+	mu    sync.RWMutex
 }
 
 func NewNode(addrGRPC, addrHTTP string) (*Node, error) {
@@ -270,14 +272,20 @@ func (n *Node) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Look up the answer from the cache
+	n.mu.RLock()
 	h, ok := n.cache[k]
+	n.mu.RUnlock()
 	if !ok { // The answer is not in the cache
 		// Compute it and store it in the cache,
 		// unless there is a computation already started.
-		n.group.Do(k, func() (interface{}, error) {
-			n.cache[k] = hash(k)
-			return nil, nil
+		h_interface, _, _ := n.group.Do(k, func() (interface{}, error) {
+			h := hash(k)
+			n.mu.Lock()
+			n.cache[k] = h
+			n.mu.Unlock()
+			return h, nil
 		})
+		h = h_interface.([32]byte)
 	}
 
 	w.Header().Set("Server", n.hsrv.Addr)
