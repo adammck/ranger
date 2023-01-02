@@ -170,6 +170,7 @@ func (n *Node) Run(ctx context.Context) error {
 		return err
 	}
 
+	// Start the HTTP server in a background routine.
 	go func() {
 		err := n.hsrv.Serve(lish)
 		if err != nil && err != http.ErrServerClosed {
