@@ -265,7 +265,7 @@ func (n *Node) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// relevant node (like TCube cacheservers did/do), but this is just a
 		// simple demo.
 		url := fmt.Sprintf("http://%s/%s", dataAddr(res[0].Remote), k)
-		http.Redirect(w, r, url, http.StatusFound)
+		http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 		return
 	}
 
