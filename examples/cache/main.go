@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/adammck/ranger/pkg/rangelet/mirror"
 	"github.com/adammck/ranger/pkg/rangelet/storage/null"
 	consulapi "github.com/hashicorp/consul/api"
+	"golang.org/x/sync/singleflight"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -40,7 +42,7 @@ func main() {
 	addrHTTP := flag.String("http", "localhost:8001", "http server")
 	flag.Parse()
 
-	// Replace default logger.
+	// TODO: replace default logger.
 	log.Default().SetOutput(os.Stdout)
 	log.Default().SetPrefix("")
 	log.Default().SetFlags(0)
@@ -88,6 +90,8 @@ type Node struct {
 	// Cache stuff
 	hsrv  *http.Server
 	cache map[string][32]byte
+	group singleflight.Group
+	mu    sync.RWMutex
 }
 
 func NewNode(addrGRPC, addrHTTP string) (*Node, error) {
@@ -168,6 +172,7 @@ func (n *Node) Run(ctx context.Context) error {
 		return err
 	}
 
+	// Start the HTTP server in a background routine.
 	go func() {
 		err := n.hsrv.Serve(lish)
 		if err != nil && err != http.ErrServerClosed {
@@ -256,21 +261,31 @@ func (n *Node) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Construct the HTTP (data-plane) address fo the node which we believe
+		// Construct the HTTP (data-plane) address of the node which we believe
 		// the key is assigned to, and redirect to it. The caller might follow
 		// this automatically. We could alteratively proxy the request to the
 		// relevant node (like TCube cacheservers did/do), but this is just a
 		// simple demo.
 		url := fmt.Sprintf("http://%s/%s", dataAddr(res[0].Remote), k)
-		http.Redirect(w, r, url, http.StatusFound)
+		http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 		return
 	}
 
-	// TODO: Block if same key is being concurrently hashed.
+	// Look up the answer from the cache
+	n.mu.RLock()
 	h, ok := n.cache[k]
-	if !ok {
-		h = hash(k)
-		n.cache[k] = h
+	n.mu.RUnlock()
+	if !ok { // The answer is not in the cache
+		// Compute it and store it in the cache,
+		// unless there is a computation already started.
+		h_interface, _, _ := n.group.Do(k, func() (interface{}, error) {
+			h := hash(k)
+			n.mu.Lock()
+			n.cache[k] = h
+			n.mu.Unlock()
+			return h, nil
+		})
+		h = h_interface.([32]byte)
 	}
 
 	w.Header().Set("Server", n.hsrv.Addr)
