@@ -9,6 +9,7 @@ import (
 
 	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/test/fake_storage"
+	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,7 +18,9 @@ import (
 const waitFor = 500 * time.Millisecond
 const tick = 10 * time.Millisecond
 
-func Setup() (*MockNode, *Rangelet) {
+func Setup() (clockwork.FakeClock, *MockNode, *Rangelet) {
+	c := clockwork.NewFakeClock()
+
 	n := &MockNode{
 		wgPrepare:    &sync.WaitGroup{},
 		wgActivate:   &sync.WaitGroup{},
@@ -26,13 +29,12 @@ func Setup() (*MockNode, *Rangelet) {
 	}
 
 	stor := fake_storage.NewFakeStorage(nil)
-	rglt := newRangelet(n, stor)
-	rglt.gracePeriod = 10 * time.Millisecond
-	return n, rglt
+	rglt := newRangelet(c, n, stor)
+	return c, n, rglt
 }
 
 func TestPrepareFast(t *testing.T) {
-	_, rglt := Setup()
+	_, _, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
 	p := []api.Parent{}
@@ -55,7 +57,7 @@ func TestPrepareFast(t *testing.T) {
 }
 
 func TestPrepareSlow(t *testing.T) {
-	n, rglt := Setup()
+	c, n, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
 	p := []api.Parent{}
@@ -64,6 +66,23 @@ func TestPrepareSlow(t *testing.T) {
 	n.wgPrepare.Add(1)
 
 	for i := 0; i < 2; i++ {
+
+		// The first call to rglt.prepare will block forever in withTimeout,
+		// because time is frozen for this test. Wait for the main thread to
+		// reach that, and then advance to let it return.
+		//
+		// Subsequent calls will not sleep, because the first call is still
+		// waiting in Prepare (because n.wgPrepare), even after the timeout.
+		//
+		// TODO: What should probably happen is that *all* calls to prepare,
+		// including those which are no-op because the placement is already in
+		// NsPreparing, should block for the grace period and return as soon as
+		// the placement becomes NsInactive. That would also remove this dumb
+		// if statement.
+		if i == 0 {
+			blockThenAdvance(t, c)
+		}
+
 		ri, err := rglt.prepare(m, p)
 		require.NoError(t, err)
 		assert.Equal(t, ri.Meta, m)
@@ -99,7 +118,7 @@ func TestPrepareSlow(t *testing.T) {
 }
 
 func TestPrepareErrorFast(t *testing.T) {
-	n, rglt := Setup()
+	_, n, rglt := Setup()
 	n.erPrepare = errors.New("error from Prepare")
 
 	m := api.Meta{Ident: 1}
@@ -117,7 +136,7 @@ func TestPrepareErrorFast(t *testing.T) {
 }
 
 func TestPrepareErrorSlow(t *testing.T) {
-	n, rglt := Setup()
+	c, n, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
 	p := []api.Parent{}
@@ -130,6 +149,9 @@ func TestPrepareErrorSlow(t *testing.T) {
 	// from Prepare, the outer call (give succeeds because it will exceed the
 	// grace period and respond with NsPreparing.
 	for i := 0; i < 2; i++ {
+		if i == 0 {
+			blockThenAdvance(t, c)
+		}
 		ri, err := rglt.prepare(m, p)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
@@ -157,7 +179,7 @@ func setupServe(infos map[api.RangeID]*api.RangeInfo, m api.Meta) {
 }
 
 func TestServeFast(t *testing.T) {
-	_, rglt := Setup()
+	_, _, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
 	setupServe(rglt.info, m)
@@ -180,7 +202,7 @@ func TestServeFast(t *testing.T) {
 }
 
 func TestServeSlow(t *testing.T) {
-	n, rglt := Setup()
+	c, n, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
 	setupServe(rglt.info, m)
@@ -189,6 +211,7 @@ func TestServeSlow(t *testing.T) {
 	n.wgActivate.Add(1)
 
 	// This one will give up waiting and return early.
+	blockThenAdvance(t, c)
 	ri, err := rglt.serve(m.Ident)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
@@ -217,7 +240,7 @@ func TestServeSlow(t *testing.T) {
 }
 
 func TestServeUnknown(t *testing.T) {
-	_, rglt := Setup()
+	_, _, rglt := Setup()
 
 	ri, err := rglt.serve(1)
 	require.EqualError(t, err, "rpc error: code = InvalidArgument desc = can't Activate unknown range: 1")
@@ -225,7 +248,7 @@ func TestServeUnknown(t *testing.T) {
 }
 
 func TestServeErrorFast(t *testing.T) {
-	n, rglt := Setup()
+	_, n, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
 	setupServe(rglt.info, m)
@@ -244,7 +267,7 @@ func TestServeErrorFast(t *testing.T) {
 }
 
 func TestServeErrorSlow(t *testing.T) {
-	n, rglt := Setup()
+	c, n, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
 	setupServe(rglt.info, m)
@@ -254,6 +277,9 @@ func TestServeErrorSlow(t *testing.T) {
 	n.wgActivate.Add(1)
 
 	for i := 0; i < 2; i++ {
+		if i == 0 {
+			blockThenAdvance(t, c)
+		}
 		ri, err := rglt.serve(m.Ident)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
@@ -281,7 +307,7 @@ func setupDeactivate(infos map[api.RangeID]*api.RangeInfo, m api.Meta) {
 }
 
 func TestDeactivateFast(t *testing.T) {
-	_, rglt := Setup()
+	_, _, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
 	setupDeactivate(rglt.info, m)
@@ -304,7 +330,7 @@ func TestDeactivateFast(t *testing.T) {
 }
 
 func TestDeactivateSlow(t *testing.T) {
-	n, rglt := Setup()
+	c, n, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
 	setupDeactivate(rglt.info, m)
@@ -314,6 +340,9 @@ func TestDeactivateSlow(t *testing.T) {
 	// Try to call serve a few times.
 	// Should be the same response.
 	for i := 0; i < 2; i++ {
+		if i == 0 {
+			blockThenAdvance(t, c)
+		}
 		ri, err := rglt.take(m.Ident)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
@@ -343,7 +372,7 @@ func TestDeactivateSlow(t *testing.T) {
 }
 
 func TestDeactivateUnknown(t *testing.T) {
-	_, rglt := Setup()
+	_, _, rglt := Setup()
 
 	ri, err := rglt.take(1)
 	require.EqualError(t, err, "rpc error: code = InvalidArgument desc = can't Deactivate unknown range: 1")
@@ -351,7 +380,7 @@ func TestDeactivateUnknown(t *testing.T) {
 }
 
 func TestDeactivateErrorFast(t *testing.T) {
-	n, rglt := Setup()
+	_, n, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
 	setupDeactivate(rglt.info, m)
@@ -370,7 +399,7 @@ func TestDeactivateErrorFast(t *testing.T) {
 }
 
 func TestDeactivateErrorSlow(t *testing.T) {
-	n, rglt := Setup()
+	c, n, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
 	setupDeactivate(rglt.info, m)
@@ -380,6 +409,9 @@ func TestDeactivateErrorSlow(t *testing.T) {
 	n.wgDeactivate.Add(1)
 
 	for i := 0; i < 2; i++ {
+		if i == 0 {
+			blockThenAdvance(t, c)
+		}
 		ri, err := rglt.take(m.Ident)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
@@ -407,7 +439,7 @@ func setupDrop(infos map[api.RangeID]*api.RangeInfo, m api.Meta) {
 }
 
 func TestDropFast(t *testing.T) {
-	_, rglt := Setup()
+	_, _, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
 	setupDrop(rglt.info, m)
@@ -428,7 +460,7 @@ func TestDropFast(t *testing.T) {
 }
 
 func TestDropSlow(t *testing.T) {
-	n, rglt := Setup()
+	c, n, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
 	setupDrop(rglt.info, m)
@@ -437,6 +469,9 @@ func TestDropSlow(t *testing.T) {
 	n.wgDrop.Add(1)
 
 	for i := 0; i < 2; i++ {
+		if i == 0 {
+			blockThenAdvance(t, c)
+		}
 		ri, err := rglt.drop(m.Ident)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
@@ -464,7 +499,7 @@ func TestDropSlow(t *testing.T) {
 }
 
 func TestDropUnknown(t *testing.T) {
-	_, rglt := Setup()
+	_, _, rglt := Setup()
 
 	ri, err := rglt.drop(1)
 	require.NoError(t, err)
@@ -476,7 +511,7 @@ func TestDropUnknown(t *testing.T) {
 }
 
 func TestDropErrorFast(t *testing.T) {
-	n, rglt := Setup()
+	_, n, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
 	setupDrop(rglt.info, m)
@@ -495,7 +530,7 @@ func TestDropErrorFast(t *testing.T) {
 }
 
 func TestDropErrorSlow(t *testing.T) {
-	n, rglt := Setup()
+	c, n, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
 	setupDrop(rglt.info, m)
@@ -505,6 +540,9 @@ func TestDropErrorSlow(t *testing.T) {
 	n.wgDrop.Add(1)
 
 	for i := 0; i < 2; i++ {
+		if i == 0 {
+			blockThenAdvance(t, c)
+		}
 		ri, err := rglt.drop(m.Ident)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
@@ -524,7 +562,32 @@ func TestDropErrorSlow(t *testing.T) {
 	}, waitFor, tick)
 }
 
-// ----
+// ---- helpers
+
+// blockThenAdvance starts a goroutine which blocks until the given clock has
+// one waiter, and then advances three seconds to unblock it. This is used to
+// synchronize the tricky Slow tests, which block the main thread for some
+// period (waiting for the timeout) before returning.
+func blockThenAdvance(t *testing.T, c clockwork.FakeClock) {
+	wg := sync.WaitGroup{}
+
+	// Register a cleanup function at the end of the test, to make sure that
+	// this call was actually needed. Otherwise the goroutine below may just
+	// block at BlockUntil and then be terminated at the end of the test,
+	// leading to a misleading test.
+	t.Cleanup(func() {
+		wg.Wait()
+	})
+
+	wg.Add(1)
+	go func() {
+		c.BlockUntil(1)
+		c.Advance(3 * time.Second)
+		wg.Done()
+	}()
+}
+
+// ---- mocks
 
 type MockNode struct {
 	erPrepare error           // error to return

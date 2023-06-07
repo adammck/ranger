@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/adammck/ranger/pkg/api"
+	"github.com/jonboulle/clockwork"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -32,11 +33,17 @@ type Rangelet struct {
 	// *some* ranges to be moved.
 	xWantDrain uint32
 
+	// gracePeriod controls the amount of time that the command methods (e.g.
+	// prepare, serve) will wait before returning. This is useful when the node
+	// takes a while to execute a command.
 	gracePeriod time.Duration
 
 	// Holds functions to be called when a specific range leaves a state. This
 	// is just for testing. Register callbacks via the OnLeaveState method.
 	callbacks map[callback]func()
+
+	// Just for testing.
+	clock clockwork.Clock
 }
 
 type callback struct {
@@ -45,7 +52,8 @@ type callback struct {
 }
 
 func New(n api.Node, sr grpc.ServiceRegistrar, s api.Storage) *Rangelet {
-	r := newRangelet(n, s)
+	c := clockwork.NewRealClock()
+	r := newRangelet(c, n, s)
 
 	// Can't think of any reason this would be useful outside of a test.
 	if sr != nil {
@@ -59,7 +67,7 @@ func New(n api.Node, sr grpc.ServiceRegistrar, s api.Storage) *Rangelet {
 // newRangelet constructs a new Rangelet without a NodeServer. This is only
 // really useful during testing. I cannot think of any reason a client would
 // want a rangelet with no gRPC interface to receive range assignments through.
-func newRangelet(n api.Node, s api.Storage) *Rangelet {
+func newRangelet(c clockwork.Clock, n api.Node, s api.Storage) *Rangelet {
 	r := &Rangelet{
 		info:     map[api.RangeID]*api.RangeInfo{},
 		watchers: []*watcher{},
@@ -69,6 +77,7 @@ func newRangelet(n api.Node, s api.Storage) *Rangelet {
 
 		gracePeriod: 1 * time.Second,
 		callbacks:   map[callback]func(){},
+		clock:       c,
 	}
 
 	for _, ri := range s.Read() {
@@ -141,7 +150,7 @@ func (r *Rangelet) prepare(rm api.Meta, parents []api.Parent) (api.RangeInfo, er
 	r.notifyWatchers(ri)
 	r.Unlock()
 
-	withTimeout(r.gracePeriod, func() {
+	withTimeout(r.clock, r.gracePeriod, func() {
 		r.runThenUpdateState(rID, api.NsPreparing, api.NsInactive, api.NsNotFound, func() error {
 			return r.n.Prepare(rm, parents)
 		})
@@ -196,7 +205,7 @@ func (r *Rangelet) serve(rID api.RangeID) (api.RangeInfo, error) {
 	r.notifyWatchers(ri)
 	r.Unlock()
 
-	withTimeout(r.gracePeriod, func() {
+	withTimeout(r.clock, r.gracePeriod, func() {
 		r.runThenUpdateState(rID, api.NsActivating, api.NsActive, api.NsInactive, func() error {
 			return r.n.Activate(rID)
 		})
@@ -240,7 +249,7 @@ func (r *Rangelet) take(rID api.RangeID) (api.RangeInfo, error) {
 	r.notifyWatchers(ri)
 	r.Unlock()
 
-	withTimeout(r.gracePeriod, func() {
+	withTimeout(r.clock, r.gracePeriod, func() {
 		r.runThenUpdateState(rID, api.NsDeactivating, api.NsInactive, api.NsActive, func() error {
 			return r.n.Deactivate(rID)
 		})
@@ -286,7 +295,7 @@ func (r *Rangelet) drop(rID api.RangeID) (api.RangeInfo, error) {
 	r.notifyWatchers(ri)
 	r.Unlock()
 
-	withTimeout(r.gracePeriod, func() {
+	withTimeout(r.clock, r.gracePeriod, func() {
 		r.runThenUpdateState(rID, api.NsDropping, api.NsNotFound, api.NsInactive, func() error {
 			return r.n.Drop(rID)
 		})
@@ -541,7 +550,7 @@ func notFound(rID api.RangeID) api.RangeInfo {
 	}
 }
 
-func withTimeout(timeout time.Duration, f func()) bool {
+func withTimeout(c clockwork.Clock, timeout time.Duration, f func()) bool {
 	ch := make(chan struct{})
 	go func() {
 		f()
@@ -552,7 +561,7 @@ func withTimeout(timeout time.Duration, f func()) bool {
 	case <-ch:
 		return true
 
-	case <-time.After(timeout):
+	case <-c.After(timeout):
 		return false
 	}
 }

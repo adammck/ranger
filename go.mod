@@ -12,7 +12,10 @@ require (
 	google.golang.org/protobuf v1.28.0
 )
 
-require github.com/pkg/errors v0.8.1 // indirect
+require (
+	github.com/jonboulle/clockwork v0.4.0 // indirect
+	github.com/pkg/errors v0.8.1 // indirect
+)
 
 require (
 	github.com/armon/go-metrics v0.4.0 // indirect

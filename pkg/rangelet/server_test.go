@@ -8,6 +8,7 @@ import (
 	"github.com/adammck/ranger/pkg/api"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/test/fake_storage"
+	"github.com/jonboulle/clockwork"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
@@ -58,8 +59,9 @@ type testHarness struct {
 func setup(t *testing.T, ri rangeInfos) *testHarness {
 	ctx := context.Background()
 
+	c := clockwork.NewFakeClock()
 	stor := fake_storage.NewFakeStorage(ri)
-	rglt := newRangelet(nil, stor)
+	rglt := newRangelet(c, nil, stor)
 	ns := newNodeServer(rglt) // <-- SUT
 	srv := grpc.NewServer()
 	ns.Register(srv)
