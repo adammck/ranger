@@ -28,8 +28,9 @@ func New(rg ranje.RangeGetter, ng roster.NodeGetter) *Actuator {
 }
 
 // TODO: This is currently duplicated.
+//
 // TODO: This interface should probably only take the command -- the placement
-//       and node can be fetched from the Getters if needed.
+// and node can be fetched from the Getters if needed.
 func (a *Actuator) Command(cmd api.Command, p *ranje.Placement, n *roster.Node) error {
 	s, err := a.cmd(cmd.Action, p, n)
 	if err != nil {
@@ -37,7 +38,7 @@ func (a *Actuator) Command(cmd api.Command, p *ranje.Placement, n *roster.Node) 
 	}
 
 	// TODO: This special case is weird. It was less so when Prepare was a
-	//       separate method. Think about it or something.
+	// separate method. Think about it or something.
 	if cmd.Action == api.Prepare {
 		n.UpdateRangeInfo(&api.RangeInfo{
 			Meta:  p.Range().Meta,

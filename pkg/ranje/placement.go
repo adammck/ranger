@@ -11,8 +11,9 @@ import (
 // Placement represents a pair of range+node.
 type Placement struct {
 	// owned by Keyspace.
+	//
 	// TODO: Make this a range Ident instead? Anyone who needs the range will
-	//       probably have a RangeGetter like keyspace.
+	// probably have a RangeGetter like keyspace.
 	rang *Range
 
 	// NodeID is the Ident of the node this placement is assigned to. Immutable

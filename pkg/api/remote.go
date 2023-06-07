@@ -17,8 +17,7 @@ import (
 // a different host if using e.g. an EBS volume.)
 //
 // TODO: Should we remove support for non-node/rangelet use-cases? It would
-//       simplify the api. If not, should we store the remote type, too?
-//
+// simplify the api. If not, should we store the remote type, too?
 type Remote struct {
 	Ident string
 	Host  string

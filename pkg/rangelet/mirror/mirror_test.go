@@ -55,7 +55,7 @@ func TestStatic(t *testing.T) {
 	})
 
 	// TODO: Add some kind of sync method to block until the mirror has fetched
-	//       something (or nothing) from each node.
+	// something (or nothing) from each node.
 	time.Sleep(100 * time.Millisecond)
 
 	res := h.mirror.Find(api.Key("ccc"))

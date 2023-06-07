@@ -122,7 +122,7 @@ func (ks *Keyspace) sanityCheck() error {
 	}
 
 	// TODO: Check that the start/end of each range is valid with respect to its
-	//       parents and children. I missed a bad test fixture here.
+	// parents and children. I missed a bad test fixture here.
 
 	// Check that leaf ranges (i.e. those with no children) cover the entire
 	// keyspace with no overlaps. This must always be the case; we only persist
@@ -224,8 +224,8 @@ func (ks *Keyspace) Split(r *ranje.Range, k api.Key) (one *ranje.Range, two *ran
 	}
 
 	// TODO: Child ranges should inherit their replication configs from their
-	//       parent range(s). This is currently okay because there's no way to
-	//       change configs for individual ranges.
+	// parent range(s). This is currently okay because there's no way to change
+	// configs for individual ranges.
 
 	one = ks.newRange()
 	one.Meta.Start = r.Meta.Start
@@ -258,13 +258,12 @@ func (ks *Keyspace) Split(r *ranje.Range, k api.Key) (one *ranje.Range, two *ran
 // Callers *must* hold the keyspace lock.
 //
 // TODO: Instead of calling this on an actual keyspace, provide a RangeGetter
-//       method on the keyspace to acquire the range lock, and return a
-//       RangeGetter with a Close method to unlock. The Ranges method is
-//       somewhat like this, but returns the ranges slice.
+// method on the keyspace to acquire the range lock, and return a RangeGetter
+// with a Close method to unlock. The Ranges method is somewhat like this, but
+// returns the ranges slice.
 //
 // TODO: Many callers currently call this without holding the lock! Evidently
-//       this interface sucks and should be replaced as suggested above.
-//
+// this interface sucks and should be replaced as suggested above.
 func (ks *Keyspace) GetRange(rID api.RangeID) (*ranje.Range, error) {
 	for _, r := range ks.ranges {
 		if r.Meta.Ident == rID {
@@ -320,7 +319,8 @@ func (ks *Keyspace) PlacementsByNodeID(nID api.NodeID) []PBNID {
 // RangeToState tries to move the given range into the given state.
 //
 // TODO: This is currently only used to move ranges into Obsolete after they
-//       have been subsumed. Can we replace this with *ObsoleteRange*?
+//
+//	have been subsumed. Can we replace this with *ObsoleteRange*?
 func (ks *Keyspace) RangeToState(r *ranje.Range, state api.RangeState) error {
 	// Orchestrator already has lock.
 	// TODO: Verify this somehow?
@@ -370,7 +370,8 @@ func (ks *Keyspace) mustPersistDirtyRanges() error {
 // Caller must hold rangesMu.
 //
 // TODO: Make this Join an arbitrary number of ranges. I think that's supported
-//       by the new operations thing now.
+//
+//	by the new operations thing now.
 func (ks *Keyspace) JoinTwo(one *ranje.Range, two *ranje.Range) (*ranje.Range, error) {
 	for _, r := range []*ranje.Range{one, two} {
 		if r.State != api.RsActive {

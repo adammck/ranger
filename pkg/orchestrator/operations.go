@@ -15,8 +15,8 @@ type OpSplit struct {
 	Key   api.Key
 
 	// TODO: Update this interface (and the proto) to accomodate replication.
-	//       Currently only the first placement can be placed deliberately.
-	//       Others just go wherever.
+	// Currently only the first placement can be placed deliberately. Others
+	// just go wherever.
 	Left  api.NodeID
 	Right api.NodeID
 

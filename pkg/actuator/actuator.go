@@ -13,8 +13,8 @@ import (
 
 type Impl interface {
 	// TODO: This can probably be simplified further. Ideally just the command,
-	//       and the implementation can embed a keyspace or roster to look the
-	//       other stuff up if they want.
+	// and the implementation can embed a keyspace or roster to look the other
+	// stuff up if they want.
 	Command(cmd api.Command, p *ranje.Placement, n *roster.Node) error
 }
 
@@ -145,7 +145,7 @@ func (a *Actuator) Exec(cmd api.Command, p *ranje.Placement, n *roster.Node) {
 	go func() {
 
 		// TODO: Inject some client-side chaos here, too. RPCs complete very
-		//       quickly locally, which doesn't test our in-flight thing well.
+		// quickly locally, which doesn't test our in-flight thing well.
 
 		err := a.Impl.Command(cmd, p, n)
 		if err != nil {
@@ -219,7 +219,7 @@ func (a *Actuator) incrementError(cmd api.Command, p *ranje.Placement, n *roster
 		p.SetFailed(cmd.Action, true)
 
 		// TODO: Can this go somewhere else? The roster needs to know that the
-		//       failure happened so it can avoid placing ranges on the node.
+		// failure happened so it can avoid placing ranges on the node.
 		if cmd.Action == api.Prepare || cmd.Action == api.Activate {
 			n.PlacementFailed(p.Range().Meta.Ident, time.Now())
 		}

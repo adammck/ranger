@@ -166,7 +166,7 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 			// moveOp results in a new placement is... just known.
 			//
 			// TODO: This is a hack and doesn't belong here. Move ops should be
-			//       broken into adds and taints.
+			// broken into adds and taints.
 			if len(r.Placements) >= r.MaxPlacements() {
 				break
 			}
@@ -209,7 +209,7 @@ func (b *Orchestrator) tickRange(r *ranje.Range, op *keyspace.Operation) {
 
 	case api.RsObsolete:
 		// TODO: Skip obsolete ranges in Tick. There's never anything to do with
-		//       them, except possibly discard them, which we don't support yet.
+		// them, except possibly discard them, which we don't support yet.
 
 	default:
 		panic(fmt.Sprintf("unknown RangeState value: %s", r.State))
@@ -235,7 +235,7 @@ func (b *Orchestrator) moveOp(rID api.RangeID) (OpMove, bool) {
 	defer b.opMovesMu.RUnlock()
 
 	// TODO: Incredibly dumb to iterate this list for every range. Do it once at
-	//       the start of the Tick and stitch them back together or something!
+	// the start of the Tick and stitch them back together or something!
 	for i := range b.opMoves {
 		if b.opMoves[i].Range == rID {
 			tmp := b.opMoves[i]
@@ -329,7 +329,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 	// exclude the current node from the candidates.
 	//
 	// TODO: Also this is almost certainly only valid in some placement states;
-	//       think about that.
+	// think about that.
 	if n != nil && n.WantDrain() {
 		func() {
 			b.opMovesMu.Lock()
@@ -554,7 +554,7 @@ func initJoinInner(b *Orchestrator, opJoin OpJoin) (*ranje.Range, error) {
 
 	// Use replication configs of the left parent for now.
 	// TODO: Verify that the two ranges have compatible replication configs, so
-	//       that the join can be performed without deadlocking.
+	// that the join can be performed without deadlocking.
 	n := min(r1.MinPlacements(), r1.TargetActive())
 	nIDs := make([]api.NodeID, n)
 
@@ -626,18 +626,18 @@ func initSplitInner(b *Orchestrator, r *ranje.Range, opSplit OpSplit) error {
 	// placement is possible.
 	//
 	// TODO: Allow split abort by allowing ranges to transition back from
-	//       RsSubsuming into RsActive, and from RsActive into some new terminal
-	//       state (RsAborted?) like RsObsolete. Would also need a new entry
-	//       state (RsNewSplit?) to indicate that it's okay to give up, unlike
-	//       RsActive. Ranges would need to keep track of how many placements
-	//       had been created and failed.
+	// RsSubsuming into RsActive, and from RsActive into some new terminal state
+	// (RsAborted?) like RsObsolete. Would also need a new entry state
+	// (RsNewSplit?) to indicate that it's okay to give up, unlike RsActive.
+	// Ranges would need to keep track of how many placements had been created
+	// and failed.
 
 	constraint := ranje.AnyNode
 
 	// Exclude any node which has a placement of the parent range.
 	// TODO: Make this tweakable; some systems may prefer to split on the parent
-	//       node (i.e. both sides are placed on the same node as the parent
-	//       they are split from) and then move.
+	// node (i.e. both sides are placed on the same node as the parent they are
+	// split from) and then move.
 	for _, p := range r.Placements {
 		constraint.Not = append(constraint.Not, p.NodeID)
 	}
@@ -662,7 +662,7 @@ func initSplitInner(b *Orchestrator, r *ranje.Range, opSplit OpSplit) error {
 			nIDs[i+ii], err = b.rost.Candidate(nil, c)
 
 			// TODO: Make it possible to force a split even when not enough
-			//       candiates can be found.
+			// candiates can be found.
 			if err != nil {
 				return err
 			}
@@ -684,17 +684,17 @@ func initSplitInner(b *Orchestrator, r *ranje.Range, opSplit OpSplit) error {
 	// persisted.
 
 	// TODO: We're creating placements here on a range which is NOT the one
-	//       we're ticking. That seems... okay? We hold the keyspace lock for
-	//       the whole tick. But think about edge cases?
-	//       -
-	//       We could leave some turd like NextPlacementNodeID on the range and
-	//       let the first clause (no placements?) in this method pick it up,
-	//       but (a) that's gross, and (b) what if some later range gets placed
-	//       on the node before that happens? All worse options.
-	//       -
-	//       Actually I think we need to extract this chunk of code up into a
-	//       "ranges which have splits scheduled" loop before the main
-	//       all-ranges loop. Join is already up there.
+	// we're ticking. That seems... okay? We hold the keyspace lock for the
+	// whole tick. But think about edge cases?
+	// .
+	// We could leave some turd like NextPlacementNodeID on the range and let
+	// the first clause (no placements?) in this method pick it up, but (a)
+	// that's gross, and (b) what if some later range gets placed on the node
+	// before that happens? All worse options.
+	// .
+	// Actually I think we need to extract this chunk of code up into a "ranges
+	// which have splits scheduled" loop before the main all-ranges loop. Join
+	// is already up there.
 
 	for i := 0; i < n; i += 2 {
 		rL.NewPlacement(nIDs[i])
