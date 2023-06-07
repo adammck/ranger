@@ -35,8 +35,10 @@ type NodeClient interface {
 	Activate(ctx context.Context, in *ServeRequest, opts ...grpc.CallOption) (*ServeResponse, error)
 	Deactivate(ctx context.Context, in *DeactivateRequest, opts ...grpc.CallOption) (*DeactivateResponse, error)
 	Drop(ctx context.Context, in *DropRequest, opts ...grpc.CallOption) (*DropResponse, error)
-	// Controller wants to know the state of the node, including its ranges.
+	// Controller wants to know the state of the node, including its ranges, and
+	// (optionally) may extend the expiry of some ranges.
 	// Proxy shouldn't call this; use Ranges instead.
+	// TODO: Rename this now that it is not just fetching info.
 	Info(ctx context.Context, in *InfoRequest, opts ...grpc.CallOption) (*InfoResponse, error)
 	// Proxy wants to know what it can forward to this node.
 	// Controller shouldn't call this; use Info instead.
@@ -136,8 +138,10 @@ type NodeServer interface {
 	Activate(context.Context, *ServeRequest) (*ServeResponse, error)
 	Deactivate(context.Context, *DeactivateRequest) (*DeactivateResponse, error)
 	Drop(context.Context, *DropRequest) (*DropResponse, error)
-	// Controller wants to know the state of the node, including its ranges.
+	// Controller wants to know the state of the node, including its ranges, and
+	// (optionally) may extend the expiry of some ranges.
 	// Proxy shouldn't call this; use Ranges instead.
+	// TODO: Rename this now that it is not just fetching info.
 	Info(context.Context, *InfoRequest) (*InfoResponse, error)
 	// Proxy wants to know what it can forward to this node.
 	// Controller shouldn't call this; use Info instead.
