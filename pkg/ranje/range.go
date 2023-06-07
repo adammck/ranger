@@ -48,9 +48,10 @@ func NewRange(rID api.RangeID, repl *ReplicationConfig) *Range {
 		},
 
 		// Born active, to be placed right away.
+		//
 		// TODO: Maybe we need a pending state first? Do the parent ranges need
-		//       to do anything else after this range is created but before it's
-		//       placed?
+		// to do anything else after this range is created but before it's
+		// placed?
 		State: api.RsActive,
 
 		// Starts dirty, because it hasn't been persisted yet.
@@ -101,7 +102,7 @@ func (r *Range) DestroyPlacement(p *Placement) {
 }
 
 // TODO: This is only used by Keyspace.LogString, which is only used by tests!
-//       So move it to the tests or use it elsewhere.
+// So move it to the tests or use it elsewhere.
 func (r *Range) LogString() string {
 	ps := ""
 
@@ -190,8 +191,8 @@ func (r *Range) NumPlacements(f func(p *Placement) bool) int {
 // state. It's just a handy wrapper around a common usage of NumPlacements.
 //
 // TODO: This is currently only used when comparing to r.MaxActive! Maybe change
-//       it to just do that? Seems kind of weird.
 //
+//	it to just do that? Seems kind of weird.
 func (r *Range) NumPlacementsInState(s api.PlacementState) int {
 	return r.NumPlacements(func(p *Placement) bool {
 		return p.StateCurrent == s

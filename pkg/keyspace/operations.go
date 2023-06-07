@@ -197,8 +197,8 @@ func isRecalling(parents, children []*ranje.Range) bool {
 	// gaps while we wait for an operator (or node crash).
 	//
 	// TODO: Is this necessary if there's only one parent? What can even be done
-	//       except the split becoming wedged? TestSplitFailure_Deactivate will
-	//       maybe untangle this.
+	// except the split becoming wedged? TestSplitFailure_Deactivate will maybe
+	// untangle this.
 	for _, rc := range parents {
 		for _, pc := range rc.Placements {
 			if pc.Failed(api.Deactivate) {
@@ -431,9 +431,10 @@ func (op *Operation) MayDeactivate(p *ranje.Placement, r *ranje.Range) error {
 			n := r.NumPlacements(func(other *ranje.Placement) bool {
 				return other != p && other.StateCurrent == api.PsInactive && !other.Failed(api.Activate)
 			})
+
 			// TODO: This is no good! Multiple placements may deactivate in a
-			//       single tick based on the availability of *one* inactive
-			//       placement ready to activate. Maybe look at StateDesired.
+			// single tick based on the availability of *one* inactive placement
+			// ready to activate. Maybe look at StateDesired.
 			if n > 0 {
 				return nil
 			}
@@ -510,7 +511,7 @@ func (op *Operation) MayDrop(p *ranje.Placement, r *ranje.Range) error {
 		// linear. There is no good reason.
 		//
 		// TODO: Write some more tests to verify that there is no real reason to
-		//       delay the drop, and then just do that.
+		// delay the drop, and then just do that.
 		if p.Failed(api.Activate) {
 			n := r.NumPlacementsInState(api.PsActive)
 

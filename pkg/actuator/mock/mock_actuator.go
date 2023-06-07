@@ -50,7 +50,7 @@ func (a *Actuator) Command(cmd api.Command, p *ranje.Placement, n *roster.Node) 
 	}
 
 	// TODO: This special case is weird. It was less so when Prepare was a
-	//       separate method. Think about it or something.
+	// separate method. Think about it or something.
 	if cmd.Action == api.Prepare {
 		n.UpdateRangeInfo(&api.RangeInfo{
 			Meta:  p.Range().Meta,

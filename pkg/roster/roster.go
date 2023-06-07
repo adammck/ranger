@@ -178,8 +178,8 @@ func (ros *Roster) Discover() {
 			n = NewNode(r, conn)
 			ros.Nodes[r.NodeID()] = n
 
-			// TODO: Should we also send a blank NodeInfo to introduce the
-			//       node? We haven't probed yet, so don't know what's assigned.
+			// TODO: Should we also send a blank NodeInfo to introduce the node?
+			// We haven't probed yet, so don't know what's assigned.
 
 			// TODO: Do this outside of the lock!!
 			if ros.add != nil {
@@ -313,7 +313,7 @@ func (r *Roster) Tick() {
 }
 
 // TODO: Need some way to gracefully stop! Have to close the info channel to
-//       stop the reconciler.
+// stop the reconciler.
 func (r *Roster) Run(t *time.Ticker) {
 	for ; true; <-t.C {
 		r.Tick()
@@ -323,12 +323,11 @@ func (r *Roster) Run(t *time.Ticker) {
 // Candidate returns the NodeIdent of a node which could accept the given range.
 //
 // TODO: Instead of an actual range, this should take a "pseudo-range" which is
-//       either a single range (wanting to split) and split point, or two ranges
-//       (wanting to join). Or I guess just a wrapper around a single (moving)
-//       range. From these, we can estimate how much capacity the candidate
-//       node(s) will need, allowing us to find candidates before actually
-//       performing splits and joins.
-//
+// either a single range (wanting to split) and split point, or two ranges
+// (wanting to join). Or I guess just a wrapper around a single (moving) range.
+// From these, we can estimate how much capacity the candidate node(s) will
+// need, allowing us to find candidates before actually performing splits and
+// joins.
 func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (api.NodeID, error) {
 	r.RLock()
 	defer r.RUnlock()
@@ -440,8 +439,9 @@ func (r *Roster) Candidate(rng *ranje.Range, c ranje.Constraint) (api.NodeID, er
 
 	// Pick the node with lowest utilization. For nodes with the exact same
 	// utilization, pick the node with the lowest (lexicographically) ident.
+	//
 	// TODO: This doesn't take into account ranges which are on the way to that
-	//       node, and is generally totally insufficient.
+	// node, and is generally totally insufficient.
 
 	sort.Slice(candidates, func(i, j int) bool {
 		ci := nodes[candidates[i]]

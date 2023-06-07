@@ -28,8 +28,8 @@ type Rangelet struct {
 	s api.Storage
 
 	// TODO: Store abstract "node load" or "node status"? Drain is just a desire
-	//       for all of the ranges to be moved away. Overload is just a desire
-	//       for *some* ranges to be moved.
+	// for all of the ranges to be moved away. Overload is just a desire for
+	// *some* ranges to be moved.
 	xWantDrain uint32
 
 	gracePeriod time.Duration
@@ -159,8 +159,8 @@ func (r *Rangelet) prepare(rm api.Meta, parents []api.Parent) (api.RangeInfo, er
 		// right, so the controller knows what to do.
 		//
 		// TODO: Remove this (and return NotFound directly), so the controller
-		//       sees the same version of the state whether updated by probe or
-		//       by response from RPC.
+		// sees the same version of the state whether updated by probe or by
+		// response from RPC.
 		return api.RangeInfo{
 			Meta:  api.Meta{Ident: rID},
 			State: api.NsNotFound,
@@ -307,8 +307,8 @@ func (r *Rangelet) drop(rID api.RangeID) (api.RangeInfo, error) {
 }
 
 // TODO: This method should be able to return multiple ranges. Might be called
-//       during an operation where both src and dest are on this node. Currently
-//       just returns the first one it finds.
+// during an operation where both src and dest are on this node. Currently just
+// returns the first one it finds.
 func (r *Rangelet) Find(k api.Key) (api.RangeID, bool) {
 	for _, ri := range r.info {
 

@@ -700,9 +700,9 @@ func TestMoveFailure_Activate(t *testing.T) {
 	require.Equal(t, "{test-aaa [1:NsInactive]} {test-bbb [1:NsInactive]}", orch.rost.TestString())
 
 	// TODO: Why doesn't this step happen? Think it's the placement-ordering
-	//       thing where some stuff happens in one step instead of two if
-	//       dependent placements are ordered a certain way. Need to perform two
-	//       separate steps: update keyspace, then send RPCs.
+	// thing where some stuff happens in one step instead of two if dependent
+	// placements are ordered a certain way. Need to perform two separate steps:
+	// update keyspace, then send RPCs.
 
 	// tickWait(t, orch, act)
 	// require.Empty(t, commands(t, act))
@@ -1828,8 +1828,8 @@ func TestJoinFailure_Deactivate(t *testing.T) {
 	//require.Equal(t, "{test-aaa []} {test-bbb [2:NsActive]} {test-ccc [3:NsInactive]} {test-ddd []}", orch.rost.TestString())
 	//
 	// TODO: Fix this so the test can continue via probing. This is broken
-	//       because actuation is now mocked, but the roster isn't, so tries to
-	//       send its own actual rpc probes which of course return nonsense.
+	// because actuation is now mocked, but the roster isn't, so tries to send
+	// its own actual rpc probes which of course return nonsense.
 
 	// For now, reset the failure flag so the next tick will try again. (This
 	// actually seems like something there should be an operator interface for!)

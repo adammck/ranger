@@ -14,10 +14,11 @@ message RangeMeta {
 }
 
 // Sent from the controller with Prepare.
+//
 // TODO: Should include the placement index in here, so the node can verify that
-//       the controller is talking about the same placement when it sees
-//       duplicates. Just in case the controller has gone mad and is trying to
-//       place multiple replicas of the same range on a single node.
+// the controller is talking about the same placement when it sees duplicates.
+// Just in case the controller has gone mad and is trying to place multiple
+// replicas of the same range on a single node.
 message Placement {
   string node = 1;
   PlacementState state = 2;
@@ -40,8 +41,8 @@ message LoadInfo {
 
 // TODO: Rename to RemoteRangeInfo, since this is the view from the remote.
 message RangeInfo {
-  // TODO: Do we need the whole meta here? Maybe ID is enough?
-  //       Nice to confirm range boundaries I guess.
+  // TODO: Do we need the whole meta here? Maybe ID is enough? Nice to confirm
+  // range boundaries I guess.
   RangeMeta meta = 1;
 
   // The state which the range is currently in, according to the node.

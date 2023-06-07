@@ -270,10 +270,11 @@ func (x *RangeMeta) GetEnd() []byte {
 }
 
 // Sent from the controller with Prepare.
+//
 // TODO: Should include the placement index in here, so the node can verify that
-//       the controller is talking about the same placement when it sees
-//       duplicates. Just in case the controller has gone mad and is trying to
-//       place multiple replicas of the same range on a single node.
+// the controller is talking about the same placement when it sees duplicates.
+// Just in case the controller has gone mad and is trying to place multiple
+// replicas of the same range on a single node.
 type Placement struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -396,8 +397,8 @@ type RangeInfo struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// TODO: Do we need the whole meta here? Maybe ID is enough?
-	//       Nice to confirm range boundaries I guess.
+	// TODO: Do we need the whole meta here? Maybe ID is enough? Nice to confirm
+	// range boundaries I guess.
 	Meta *RangeMeta `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
 	// The state which the range is currently in, according to the node.
 	State RangeNodeState `protobuf:"varint,2,opt,name=state,proto3,enum=ranger.RangeNodeState" json:"state,omitempty"`

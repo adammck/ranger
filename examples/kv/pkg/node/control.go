@@ -59,7 +59,7 @@ func (n *Node) Prepare(rm api.Meta, parents []api.Parent) error {
 	}
 
 	// TODO: Ideally we would perform most of the fetch here, and only exchange
-	//       the delta (keys which have changed since then) in Activate.
+	// the delta (keys which have changed since then) in Activate.
 
 	n.ranges[rm.Ident] = &Range{
 		data:     map[string][]byte{},
@@ -149,7 +149,7 @@ func (n *Node) performChaos() error {
 	time.Sleep(d)
 
 	// TODO: This causes actual problems really fast if raised significantly.
-	//       Looks like an orchestrator bug. Look into it.
+	// Looks like an orchestrator bug. Look into it.
 	if rand.Float32() < 0.05 {
 		return fmt.Errorf("it's your unlucky day")
 	}
