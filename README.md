@@ -335,6 +335,16 @@ the controller in response to command RPCs (Prepare, Activate, etc) and periodic
 status probes. They're cached by the Roster, and are not currently persisted
 between controller restarts.
 
+## Development
+
+To run the tests:
+
+```sh
+$ bin/test.sh
+```
+
+Or use [act][] to run the [CI checks][ci] locally.
+
 ## Related Work
 
 I've taken ideas from most of these systems. I'll expand this doc soon to
@@ -356,3 +366,5 @@ MIT
 [rs]: pkg/api/range_state.go
 [ps]: pkg/api/placement_state.go
 [ns]: pkg/api/remote_state.go
+[act]: https://github.com/nektos/act
+[ci]: https://github.com/adammck/ranger/blob/master/.github/workflows/go.yml
