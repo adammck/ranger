@@ -2,6 +2,7 @@ syntax = "proto3";
 
 option go_package = "github.com/adammck/ranger/pkg/proto";
 
+import "google/protobuf/timestamp.proto";
 import "ranje.proto";
 
 package ranger;
@@ -12,8 +13,10 @@ service Node {
   rpc Deactivate (DeactivateRequest) returns (DeactivateResponse) {}
   rpc Drop (DropRequest) returns (DropResponse) {}
 
-  // Controller wants to know the state of the node, including its ranges.
+  // Controller wants to know the state of the node, including its ranges, and
+  // (optionally) may extend the expiry of some ranges.
   // Proxy shouldn't call this; use Ranges instead.
+  // TODO: Rename this now that it is not just fetching info.
   rpc Info (InfoRequest) returns (InfoResponse) {}
 
   // Proxy wants to know what it can forward to this node.
@@ -50,6 +53,12 @@ message PrepareResponse {
 message ServeRequest {
   uint64 range = 1;
   bool force = 2;
+
+  // The placement should be deactivated at this time, in order to enforce
+  // at-most-n active ranges during network partitions (where the controller
+  // can't contact the node to explicitly tell it to deactivate). During normal
+  // network conditions, this will be constantly bumped via InfoRequest.
+  google.protobuf.Timestamp expire = 3;
 }
 
 message ServeResponse {
