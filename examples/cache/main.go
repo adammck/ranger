@@ -317,9 +317,10 @@ func hash(input string) [32]byte {
 // would have to deserialize it themselves.
 //
 // In the case of this service, the extra payload would be simply:
-//   type CacheNodeInfo struct {
-// 	   dataPort int
-//   }
+//
+//	  type CacheNodeInfo struct {
+//		   dataPort int
+//	  }
 //
 // More complex services may smuggle signals like ingestion or replication lag,
 // which clients then use to decide which result to use, although those examples
