@@ -1,6 +1,7 @@
 package rangelet
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -21,9 +22,17 @@ type watcher struct {
 }
 
 type Rangelet struct {
-	info         map[api.RangeID]*api.RangeInfo
-	watchers     []*watcher
-	sync.RWMutex // guards info (keys *and* values), watchers, and callbacks
+	info map[api.RangeID]*api.RangeInfo
+
+	// leases stores the time at which each range in NsActive should deactivate.
+	// Guarded by RWMutex. Whenever updated, call XXXXX.
+	leases        map[api.RangeID]time.Time
+	leasesChanged chan interface{}
+
+	watchers []*watcher
+
+	// RWMutex guards info (keys *and* values), leases, watchers, and callbacks.
+	sync.RWMutex
 
 	n api.Node
 	s api.Storage
@@ -61,6 +70,9 @@ func New(n api.Node, sr grpc.ServiceRegistrar, s api.Storage) *Rangelet {
 		server.Register(sr)
 	}
 
+	// TODO: Add ctx to this constructor.
+	r.startExpireRoutine(context.TODO())
+
 	return r
 }
 
@@ -70,7 +82,10 @@ func New(n api.Node, sr grpc.ServiceRegistrar, s api.Storage) *Rangelet {
 func newRangelet(c clockwork.Clock, n api.Node, s api.Storage) *Rangelet {
 	r := &Rangelet{
 		info:     map[api.RangeID]*api.RangeInfo{},
+		leases:   map[api.RangeID]time.Time{},
 		watchers: []*watcher{},
+
+		leasesChanged: make(chan interface{}, 10),
 
 		n: n,
 		s: s,
@@ -86,6 +101,64 @@ func newRangelet(c clockwork.Clock, n api.Node, s api.Storage) *Rangelet {
 	}
 
 	return r
+}
+
+func (r *Rangelet) leaseExpired(rID api.RangeID) bool {
+	_, err := r.take(rID)
+
+	// TODO: What to do here? Retry? Crash?? This is really not good!
+	//if err != nil {
+	//	panic(fmt.Sprintf("Couldn't take!! %v", err))
+	//}
+
+	return err != nil
+}
+
+func (r *Rangelet) startExpireRoutine(ctx context.Context) {
+	go func() {
+		for {
+			expired := r.waitForExpire(ctx)
+			if expired {
+				continue
+			}
+
+			select {
+			case <-r.leasesChanged:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+func (r *Rangelet) waitForExpire(ctx context.Context) bool {
+	// TODO: Is this needed? Maybe only call under lock?
+	r.RLock()
+
+	if len(r.leases) == 0 {
+		r.RUnlock()
+		return false
+	}
+
+	// https://stackoverflow.com/a/32620397
+	nextTime := time.Unix(1<<63-62135596801, 999999999)
+	var nextID api.RangeID
+	for rID, t := range r.leases {
+		if t.Before(nextTime) {
+			nextTime = t
+			nextID = rID
+		}
+	}
+
+	// TODO: Skip the select if already expired?
+	select {
+	case <-r.clock.After(nextTime.Sub(r.clock.Now())):
+		r.RUnlock()
+		return r.leaseExpired(nextID)
+	case <-ctx.Done():
+		r.RUnlock()
+		return false
+	}
 }
 
 var ErrNotFound = errors.New("not found")
@@ -179,7 +252,7 @@ func (r *Rangelet) prepare(rm api.Meta, parents []api.Parent) (api.RangeInfo, er
 	return *ri, nil
 }
 
-func (r *Rangelet) serve(rID api.RangeID) (api.RangeInfo, error) {
+func (r *Rangelet) serve(rID api.RangeID, expire time.Time) (api.RangeInfo, error) {
 	r.Lock()
 
 	ri, ok := r.info[rID]
@@ -189,6 +262,11 @@ func (r *Rangelet) serve(rID api.RangeID) (api.RangeInfo, error) {
 	}
 
 	if ri.State == api.NsActivating || ri.State == api.NsActive {
+
+		// TODO: This currently ignores the expire time, because it was already
+		// set by the first Activate RPC. Extending the lease happens via the
+		// probes. But this shold probably work, too, in case activation takes
+		// longer than the lease duration (pathological, but still).
 		r.Unlock()
 		return *ri, nil
 	}
@@ -198,10 +276,19 @@ func (r *Rangelet) serve(rID api.RangeID) (api.RangeInfo, error) {
 		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Activate: %v", ri.State)
 	}
 
+	// Already having a lease indicates a rangelet bug!
+	// TODO: Should this block activation, though?
+	if _, ok := r.leases[rID]; ok {
+		r.Unlock()
+		return *ri, status.Errorf(codes.Internal, "already have lease for range: %v", rID)
+	}
+
 	// State is NsInactive
 
 	log.Printf("R%s: %s -> %s", rID, ri.State, api.NsActivating)
 	ri.State = api.NsActivating
+	r.leases[rID] = expire
+	r.leasesChanged <- struct{}{}
 	r.notifyWatchers(ri)
 	r.Unlock()
 
@@ -242,10 +329,19 @@ func (r *Rangelet) take(rID api.RangeID) (api.RangeInfo, error) {
 		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Deactivate: %v", ri.State)
 	}
 
+	// Not having a lease indicates a rangelet bug!
+	// TODO: Should this block activation, though?
+	if _, ok := r.leases[rID]; !ok {
+		r.Unlock()
+		return *ri, status.Errorf(codes.Internal, "mising lease for range: %v", rID)
+	}
+
 	// State is NsActive
 
 	log.Printf("R%s: %s -> %s", rID, ri.State, api.NsDeactivating)
 	ri.State = api.NsDeactivating
+	delete(r.leases, rID)
+	r.leasesChanged <- struct{}{}
 	r.notifyWatchers(ri)
 	r.Unlock()
 

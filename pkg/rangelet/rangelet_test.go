@@ -1,6 +1,7 @@
 package rangelet
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -17,6 +18,9 @@ import (
 // For assert.Eventually
 const waitFor = 500 * time.Millisecond
 const tick = 10 * time.Millisecond
+
+// https://stackoverflow.com/a/32620397
+var maxTime = time.Unix(1<<63-62135596801, 999999999)
 
 func Setup() (clockwork.FakeClock, *MockNode, *Rangelet) {
 	c := clockwork.NewFakeClock()
@@ -184,7 +188,7 @@ func TestServeFast(t *testing.T) {
 	m := api.Meta{Ident: 1}
 	setupServe(rglt.info, m)
 
-	ri, err := rglt.serve(m.Ident)
+	ri, err := rglt.serve(m.Ident, maxTime)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
 	assert.Equal(t, api.NsActive, ri.State)
@@ -195,7 +199,7 @@ func TestServeFast(t *testing.T) {
 	assert.Equal(t, api.NsActive, ri.State)
 
 	// Check idempotency.
-	ri, err = rglt.serve(m.Ident)
+	ri, err = rglt.serve(m.Ident, maxTime)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
 	assert.Equal(t, api.NsActive, ri.State)
@@ -212,7 +216,7 @@ func TestServeSlow(t *testing.T) {
 
 	// This one will give up waiting and return early.
 	blockThenAdvance(t, c)
-	ri, err := rglt.serve(m.Ident)
+	ri, err := rglt.serve(m.Ident, maxTime)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
 	assert.Equal(t, api.NsActivating, ri.State)
@@ -232,7 +236,7 @@ func TestServeSlow(t *testing.T) {
 	}, waitFor, tick)
 
 	for i := 0; i < 2; i++ {
-		ri, err = rglt.serve(m.Ident)
+		ri, err = rglt.serve(m.Ident, maxTime)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
 		assert.Equal(t, api.NsActive, ri.State)
@@ -242,7 +246,7 @@ func TestServeSlow(t *testing.T) {
 func TestServeUnknown(t *testing.T) {
 	_, _, rglt := Setup()
 
-	ri, err := rglt.serve(1)
+	ri, err := rglt.serve(1, maxTime)
 	require.EqualError(t, err, "rpc error: code = InvalidArgument desc = can't Activate unknown range: 1")
 	assert.Equal(t, api.RangeInfo{}, ri)
 }
@@ -255,7 +259,7 @@ func TestServeErrorFast(t *testing.T) {
 
 	n.erActivate = errors.New("error from Activate")
 
-	ri, err := rglt.serve(m.Ident)
+	ri, err := rglt.serve(m.Ident, maxTime)
 	require.NoError(t, err)
 	assert.Equal(t, m, ri.Meta)
 	assert.Equal(t, api.NsInactive, ri.State)
@@ -280,7 +284,7 @@ func TestServeErrorSlow(t *testing.T) {
 		if i == 0 {
 			blockThenAdvance(t, c)
 		}
-		ri, err := rglt.serve(m.Ident)
+		ri, err := rglt.serve(m.Ident, maxTime)
 		require.NoError(t, err)
 		assert.Equal(t, m, ri.Meta)
 		assert.Equal(t, api.NsActivating, ri.State)
@@ -299,18 +303,20 @@ func TestServeErrorSlow(t *testing.T) {
 	}, waitFor, tick)
 }
 
-func setupDeactivate(infos map[api.RangeID]*api.RangeInfo, m api.Meta) {
-	infos[m.Ident] = &api.RangeInfo{
+func setupDeactivate(rglt *Rangelet, m api.Meta, expire time.Time) {
+	rglt.info[m.Ident] = &api.RangeInfo{
 		Meta:  m,
 		State: api.NsActive,
 	}
+	rglt.leases[m.Ident] = expire
 }
 
 func TestDeactivateFast(t *testing.T) {
-	_, _, rglt := Setup()
+	c, _, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
-	setupDeactivate(rglt.info, m)
+	exp := c.Now().Add(10 * time.Minute)
+	setupDeactivate(rglt, m, exp)
 
 	ri, err := rglt.take(m.Ident)
 	require.NoError(t, err)
@@ -333,7 +339,8 @@ func TestDeactivateSlow(t *testing.T) {
 	c, n, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
-	setupDeactivate(rglt.info, m)
+	exp := c.Now().Add(10 * time.Minute)
+	setupDeactivate(rglt, m, exp)
 
 	n.wgDeactivate.Add(1)
 
@@ -371,6 +378,28 @@ func TestDeactivateSlow(t *testing.T) {
 	}
 }
 
+func TestDeactivateExpire(t *testing.T) {
+	c, n, rglt := Setup()
+	rglt.startExpireRoutine(context.TODO())
+
+	m := api.Meta{Ident: 1}
+	exp := c.Now().Add(10 * time.Minute)
+	setupDeactivate(rglt, m, exp)
+
+	// Advance time far enough that the lease has expired.
+	c.Advance(11 * time.Minute)
+
+	// Assert that deactivate was called, even though we didn't call it.
+	require.Eventually(t, func() bool {
+		return atomic.LoadUint32(&n.nDeactivate) > 0
+	}, waitFor, tick)
+
+	// Check that state was updated.
+	ri, ok := rglt.rangeInfo(m.Ident)
+	require.True(t, ok)
+	require.Equal(t, api.NsInactive, ri.State)
+}
+
 func TestDeactivateUnknown(t *testing.T) {
 	_, _, rglt := Setup()
 
@@ -380,10 +409,11 @@ func TestDeactivateUnknown(t *testing.T) {
 }
 
 func TestDeactivateErrorFast(t *testing.T) {
-	_, n, rglt := Setup()
+	c, n, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
-	setupDeactivate(rglt.info, m)
+	exp := c.Now().Add(10 * time.Minute)
+	setupDeactivate(rglt, m, exp)
 
 	n.erDeactivate = errors.New("error from Deactivate")
 
@@ -402,7 +432,8 @@ func TestDeactivateErrorSlow(t *testing.T) {
 	c, n, rglt := Setup()
 
 	m := api.Meta{Ident: 1}
-	setupDeactivate(rglt.info, m)
+	exp := c.Now().Add(10 * time.Minute)
+	setupDeactivate(rglt, m, exp)
 
 	// Deactivate will block, then return an error.
 	n.erDeactivate = errors.New("error from Deactivate")

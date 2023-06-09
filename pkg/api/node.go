@@ -18,6 +18,8 @@ type Node interface {
 	Prepare(m Meta, p []Parent) error
 
 	// Activate
+	// TODO: Add a context param, so activation can be cancelled if it takes
+	// too long and the lease expires. (Probably add it to all commands.)
 	Activate(rID RangeID) error
 
 	// Deactivate

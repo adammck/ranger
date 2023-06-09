@@ -85,7 +85,12 @@ func (ns *NodeServer) Activate(ctx context.Context, req *pb.ServeRequest) (*pb.S
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	ri, err := ns.r.serve(rID)
+	err = req.Expire.CheckValid()
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+
+	ri, err := ns.r.serve(rID, req.Expire.AsTime())
 	if err != nil {
 		return nil, err
 	}
