@@ -380,7 +380,10 @@ func TestDeactivateSlow(t *testing.T) {
 
 func TestDeactivateExpire(t *testing.T) {
 	c, n, rglt := Setup()
-	rglt.startExpireRoutine(context.TODO())
+
+	ctx, canc := context.WithCancel(context.Background())
+	rglt.startExpireRoutine(ctx)
+	t.Cleanup(canc)
 
 	m := api.Meta{Ident: 1}
 	exp := c.Now().Add(10 * time.Minute)
