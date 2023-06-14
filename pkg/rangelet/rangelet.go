@@ -76,9 +76,8 @@ func New(n api.Node, sr grpc.ServiceRegistrar, s api.Storage) *Rangelet {
 	return r
 }
 
-// newRangelet constructs a new Rangelet without a NodeServer. This is only
-// really useful during testing. I cannot think of any reason a client would
-// want a rangelet with no gRPC interface to receive range assignments through.
+// newRangelet constructs a new Rangelet without a NodeServer or an expiry
+// goroutine. This is dangerous and only useful during testing.
 func newRangelet(c clockwork.Clock, n api.Node, s api.Storage) *Rangelet {
 	r := &Rangelet{
 		info:     map[api.RangeID]*api.RangeInfo{},
