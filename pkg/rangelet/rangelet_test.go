@@ -305,10 +305,10 @@ func TestServeErrorSlow(t *testing.T) {
 
 func setupDeactivate(rglt *Rangelet, m api.Meta, expire time.Time) {
 	rglt.info[m.Ident] = &api.RangeInfo{
-		Meta:  m,
-		State: api.NsActive,
+		Meta:   m,
+		State:  api.NsActive,
+		Expire: expire,
 	}
-	rglt.leases[m.Ident] = expire
 }
 
 func TestDeactivateFast(t *testing.T) {

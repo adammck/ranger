@@ -24,10 +24,8 @@ type watcher struct {
 type Rangelet struct {
 	info map[api.RangeID]*api.RangeInfo
 
-	// leases stores the time at which each range in NsActive should deactivate.
-	// Guarded by RWMutex. Whenever updated, call XXXXX.
-	leases        map[api.RangeID]time.Time
-	leasesChanged chan interface{}
+	// Written every time an Expiry changes in info. This is a hack.
+	changed chan interface{}
 
 	watchers []*watcher
 
@@ -81,10 +79,8 @@ func New(n api.Node, sr grpc.ServiceRegistrar, s api.Storage) *Rangelet {
 func newRangelet(c clockwork.Clock, n api.Node, s api.Storage) *Rangelet {
 	r := &Rangelet{
 		info:     map[api.RangeID]*api.RangeInfo{},
-		leases:   map[api.RangeID]time.Time{},
+		changed:  make(chan interface{}, 1),
 		watchers: []*watcher{},
-
-		leasesChanged: make(chan interface{}, 10),
 
 		n: n,
 		s: s,
@@ -122,7 +118,7 @@ func (r *Rangelet) startExpireRoutine(ctx context.Context) {
 			}
 
 			select {
-			case <-r.leasesChanged:
+			case <-r.changed:
 			case <-ctx.Done():
 				return
 			}
@@ -134,19 +130,20 @@ func (r *Rangelet) waitForExpire(ctx context.Context) bool {
 	// TODO: Is this needed? Maybe only call under lock?
 	r.RLock()
 
-	if len(r.leases) == 0 {
-		r.RUnlock()
-		return false
-	}
-
 	// https://stackoverflow.com/a/32620397
 	nextTime := time.Unix(1<<63-62135596801, 999999999)
 	var nextID api.RangeID
-	for rID, t := range r.leases {
-		if t.Before(nextTime) {
+	for rID, ri := range r.info {
+		if t := ri.Expire; !t.IsZero() && t.Before(nextTime) {
 			nextTime = t
 			nextID = rID
 		}
+	}
+
+	// No active ranges.
+	if nextID == api.ZeroRange {
+		r.RUnlock()
+		return false
 	}
 
 	// TODO: Skip the select if already expired?
@@ -276,18 +273,18 @@ func (r *Rangelet) serve(rID api.RangeID, expire time.Time) (api.RangeInfo, erro
 	}
 
 	// Already having a lease indicates a rangelet bug!
-	// TODO: Should this block activation, though?
-	if _, ok := r.leases[rID]; ok {
+	// TODO: Should this block activation, though? Maybe just overwrite it.
+	if !ri.Expire.IsZero() {
 		r.Unlock()
-		return *ri, status.Errorf(codes.Internal, "already have lease for range: %v", rID)
+		return *ri, status.Errorf(codes.Internal, "already have expiry for inactive range: %v", rID)
 	}
 
 	// State is NsInactive
 
 	log.Printf("R%s: %s -> %s", rID, ri.State, api.NsActivating)
 	ri.State = api.NsActivating
-	r.leases[rID] = expire
-	r.leasesChanged <- struct{}{}
+	ri.Expire = expire
+	r.notifyExpireChanged()
 	r.notifyWatchers(ri)
 	r.Unlock()
 
@@ -328,19 +325,19 @@ func (r *Rangelet) take(rID api.RangeID) (api.RangeInfo, error) {
 		return *ri, status.Errorf(codes.InvalidArgument, "invalid state for Deactivate: %v", ri.State)
 	}
 
-	// Not having a lease indicates a rangelet bug!
-	// TODO: Should this block activation, though?
-	if _, ok := r.leases[rID]; !ok {
+	// Not having an expiry indicates a rangelet bug!
+	// TODO: Should this block deactivation, though? Maybe just ignore it.
+	if ri.Expire.IsZero() {
 		r.Unlock()
-		return *ri, status.Errorf(codes.Internal, "mising lease for range: %v", rID)
+		return *ri, status.Errorf(codes.Internal, "mising expiry for range: %v", rID)
 	}
 
 	// State is NsActive
 
 	log.Printf("R%s: %s -> %s", rID, ri.State, api.NsDeactivating)
 	ri.State = api.NsDeactivating
-	delete(r.leases, rID)
-	r.leasesChanged <- struct{}{}
+	ri.Expire = time.Time{}
+	r.notifyExpireChanged()
 	r.notifyWatchers(ri)
 	r.Unlock()
 
@@ -551,6 +548,17 @@ func (r *Rangelet) watch(f func(*api.RangeInfo) bool) {
 	// Block until the watcher is removed, which will only happen when the func
 	// returns false.
 	wg.Wait()
+}
+
+// notifyExpireChanged notifies the expiry goroutine that a range has been
+// activated or deactivated, so it may need to re-examine the range infos.
+func (r *Rangelet) notifyExpireChanged() {
+	// non-blocking write: if the channel is full (i.e. there is already a
+	// pending notification), then we don't need to write another.
+	select {
+	case r.changed <- struct{}{}:
+	default:
+	}
 }
 
 // Caller must hold rangelet write lock.
