@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/adammck/ranger/pkg/api"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
@@ -19,7 +20,8 @@ import (
 type rangeInfos map[api.RangeID]*api.RangeInfo
 
 func TestRanges(t *testing.T) {
-	h := setup(t, singleRange())
+	c := clockwork.NewFakeClock()
+	h := setup(t, singleRange(c))
 	req := &pb.RangesRequest{}
 
 	res, err := h.client.Ranges(h.ctx, req)
@@ -79,11 +81,12 @@ func setup(t *testing.T, ri rangeInfos) *testHarness {
 	}
 }
 
-func singleRange() rangeInfos {
+func singleRange(c clockwork.Clock) rangeInfos {
 	return rangeInfos{
 		1: {
-			Meta:  api.Meta{Ident: 1},
-			State: api.NsActive,
+			Meta:   api.Meta{Ident: 1},
+			State:  api.NsActive,
+			Expire: c.Now().Add(10 * time.Second),
 		},
 	}
 }

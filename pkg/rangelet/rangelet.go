@@ -258,11 +258,8 @@ func (r *Rangelet) serve(rID api.RangeID, expire time.Time) (api.RangeInfo, erro
 	}
 
 	if ri.State == api.NsActivating || ri.State == api.NsActive {
-
-		// TODO: This currently ignores the expire time, because it was already
-		// set by the first Activate RPC. Extending the lease happens via the
-		// probes. But this shold probably work, too, in case activation takes
-		// longer than the lease duration (pathological, but still).
+		ri.Expire = expire
+		r.notifyExpireChanged()
 		r.Unlock()
 		return *ri, nil
 	}

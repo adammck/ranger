@@ -303,6 +303,27 @@ func TestServeErrorSlow(t *testing.T) {
 	}, waitFor, tick)
 }
 
+func TestServeExtendLease(t *testing.T) {
+	c, n, rglt := Setup()
+
+	m := api.Meta{Ident: 1}
+	exp1 := c.Now().Add(10 * time.Minute)
+	rglt.info[m.Ident] = &api.RangeInfo{
+		Meta:   m,
+		State:  api.NsActive,
+		Expire: exp1,
+	}
+
+	// Activating an already-active range updates the expiry...
+	exp2 := exp1.Add(10 * time.Minute)
+	ri, err := rglt.serve(m.Ident, exp2)
+	require.NoError(t, err)
+	assert.Equal(t, exp2, ri.Expire)
+
+	// ...but it does NOT notify the node again.
+	assert.Zero(t, n.nActivate)
+}
+
 func setupDeactivate(rglt *Rangelet, m api.Meta, expire time.Time) {
 	rglt.info[m.Ident] = &api.RangeInfo{
 		Meta:   m,

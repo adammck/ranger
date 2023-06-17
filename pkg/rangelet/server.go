@@ -96,6 +96,7 @@ func (ns *NodeServer) Activate(ctx context.Context, req *pb.ServeRequest) (*pb.S
 	}
 
 	return &pb.ServeResponse{
+		// TODO: Do we also need to pass back the expiry time here?
 		State: conv.RemoteStateToProto(ri.State),
 	}, nil
 }
