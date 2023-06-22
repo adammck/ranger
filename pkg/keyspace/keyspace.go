@@ -78,8 +78,7 @@ func New(persister persister.Persister, replication ranje.ReplicationConfig) (*K
 	// Sanity-check the ranges for no gaps and no overlaps.
 	err = ks.sanityCheck()
 	if err != nil {
-		// TODO: Not this
-		panic(fmt.Sprintf("failed sanity check: %v", err))
+		return nil, err
 	}
 
 	return ks, nil
@@ -175,6 +174,24 @@ func (ks *Keyspace) sanityCheck() error {
 		} else { // not last range
 			if r.Meta.End == api.ZeroKey {
 				return fmt.Errorf("non-last leaf range ended with zero key (rID=%d)", r.Meta.Ident)
+			}
+		}
+	}
+
+	for _, r := range ks.ranges {
+		for _, p := range r.Placements {
+			if n := r.NumPlacementsWithLease(); n > r.MaxActive() {
+				return fmt.Errorf("range has too many placements with lease (rID=%d, n=%d, max=%d)", r.Meta.Ident, n, r.MaxActive())
+			}
+
+			// Active placements (or those wanting to become active) must hold a
+			// lease. Other states *may* hold a lease. (It's okay if a lease has
+			// already expired, because the controller might have been down for
+			// a while.)
+			if p.StateDesired == api.PsActive || p.StateCurrent == api.PsActive {
+				if p.ActivationLeaseExpires.IsZero() {
+					return fmt.Errorf("range has active placement with no lease (rID=%d, nod=%s, des=%s, cur=%s)", r.Meta.Ident, p.NodeID, p.StateDesired, p.StateCurrent)
+				}
 			}
 		}
 	}
