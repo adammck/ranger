@@ -12,6 +12,7 @@ import (
 	"github.com/adammck/ranger/pkg/orchestrator"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
+	"github.com/jonboulle/clockwork"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
@@ -68,7 +69,7 @@ func New(addrLis, addrPub string, interval time.Duration, once bool) (*Controlle
 	actImpl := rpc_actuator.New(ks, rost)
 	act := actuator.New(ks, rost, time.Duration(3*time.Second), actImpl)
 
-	orch := orchestrator.New(ks, rost, srv)
+	orch := orchestrator.New(clockwork.NewRealClock(), ks, rost, srv)
 
 	return &Controller{
 		addrLis:  addrLis,

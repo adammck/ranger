@@ -11,10 +11,13 @@ import (
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
+	"github.com/jonboulle/clockwork"
 	"google.golang.org/grpc"
 )
 
 type Orchestrator struct {
+	c clockwork.Clock
+
 	ks   *keyspace.Keyspace
 	rost *roster.Roster // TODO: Use simpler interface, not whole Roster.
 	srv  *grpc.Server
@@ -37,8 +40,9 @@ type Orchestrator struct {
 	opJoinsMu sync.RWMutex
 }
 
-func New(ks *keyspace.Keyspace, rost *roster.Roster, srv *grpc.Server) *Orchestrator {
+func New(clock clockwork.Clock, ks *keyspace.Keyspace, rost *roster.Roster, srv *grpc.Server) *Orchestrator {
 	b := &Orchestrator{
+		c:        clock,
 		ks:       ks,
 		rost:     rost,
 		srv:      srv,

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"context"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/adammck/ranger/pkg/keyspace"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
+	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -2176,11 +2178,12 @@ func rosterFactory(t *testing.T, ctx context.Context, ks *keyspace.Keyspace, stu
 
 // TODO: Replace the strict and repl params with options or something.
 func orchFactory(t *testing.T, sKS, sRos string, strict bool, repl ranje.ReplicationConfig) (*Orchestrator, *actuator.Actuator) {
+	c := clockwork.NewFakeClockAt(time.Unix(0, 0))
 	ks := keyspaceFactory(t, parseKeyspace(t, sKS), repl)
 	ros := rosterFactory(t, context.TODO(), ks, parseRoster(t, sRos))
 	srv := grpc.NewServer() // TODO: Allow this to be nil.
 	act := actuator.New(ks, ros, 0, mock_actuator.New(strict))
-	orch := New(ks, ros, srv)
+	orch := New(c, ks, ros, srv)
 
 	// Verify that the current state of the keyspace and roster is what was
 	// requested. (Require it, because if not, the test harness is broken.)
