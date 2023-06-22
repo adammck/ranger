@@ -395,6 +395,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			// The node doesn't have the placement any more! Maybe we tried to
 			// activate it but gave up.
 			if p.Failed(api.Activate) {
+				p.GiveLease(time.Time{}) // TODO: Better method
 				destroy = true
 				return
 			}
@@ -417,6 +418,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			// move to Ready, the one it is replacing (maybe) must reliniquish
 			// it first.
 			if err := op.MayActivate(p, r); err == nil {
+				p.GiveLease(b.c.Now().Add(1 * time.Minute)) // TODO: Make configurable
 				p.Want(api.PsActive)
 				return
 			}
@@ -434,6 +436,8 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			// is working on it. Just keep waiting. But send another Activate
 			// RPC to check whether it's finished and is now Ready. (Or has
 			// changed to some other state through crash or bug.)
+			//
+			// TODO: Extend the lease?
 			p.Want(api.PsActive)
 
 		case api.NsDropping:
@@ -450,7 +454,6 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 		}
 
 	case api.PsActive:
-		doDeactivate := false
 
 		ri, ok := n.Get(p.Range().Meta.Ident)
 		if !ok {
@@ -461,23 +464,22 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 
 		switch ri.State {
 		case api.NsActive:
-			doDeactivate = true
+			// TODO: Extend lease if close to expiry?
+
+			if err := op.MayDeactivate(p, r); err == nil {
+				p.Want(api.PsInactive)
+			}
 
 		case api.NsDeactivating:
 			p.Want(api.PsInactive)
 
 		case api.NsInactive:
+			p.GiveLease(time.Time{}) // TODO: Better method
 			b.ks.PlacementToState(p, api.PsInactive)
 
 		default:
 			log.Printf("unexpected remote state: ris=%s, psc=%s", ri.State, p.StateCurrent)
 			b.ks.PlacementToState(p, api.PsMissing)
-		}
-
-		if doDeactivate {
-			if err := op.MayDeactivate(p, r); err == nil {
-				p.Want(api.PsInactive)
-			}
 		}
 
 	case api.PsMissing:

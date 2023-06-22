@@ -345,6 +345,25 @@ func (op *Operation) MayActivate(p *ranje.Placement, r *ranje.Range) error {
 		return fmt.Errorf("too many active placements (n=%d, MaxActive=%d)", active, r.MaxActive())
 	}
 
+	// Check how many leases have been granted to placements in this range.
+	// Since we can't activate without a lease, we have to abort if there are
+	// too many leases out, even if there aren't enough *active* placements.
+	{
+		holders := r.NumPlacements(func(pp *ranje.Placement) bool {
+			return pp != p && !p.ActivationLeaseExpires.IsZero()
+		})
+		if holders >= r.MaxActive() {
+			return fmt.Errorf("too many placements holding activation lease (n=%d, MaxActive=%d)", active, r.MaxActive())
+		}
+	}
+
+	// TODO: Look into why this doesn't work. Should be the same thing!
+	// if p.ActivationLeaseExpires.IsZero() {
+	// 	if holders := r.NumPlacementsWithLease(); holders >= r.MaxActive() {
+	// 		return fmt.Errorf("too many placements holding activation lease (n=%d, MaxActive=%d)", active, r.MaxActive())
+	// 	}
+	// }
+
 	if op == nil {
 
 		// If this placement is tainted, *only* allow it to activate if there
