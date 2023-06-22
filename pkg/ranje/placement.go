@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/adammck/ranger/pkg/api"
 )
@@ -41,6 +42,10 @@ type Placement struct {
 	// one to deactivate itself.)
 	Tainted bool `json:",omitempty"`
 
+	// Must be set before setting StateDesired to PsActive.
+	// TODO: Make this private, set it via Want (or new Activate method?)
+	ActivationLeaseExpires time.Time
+
 	// failures is updated by the actuator when an action is attempted a few
 	// times but fails. This generally causes the placement to become wedged
 	// until an operator intervenes.
@@ -75,12 +80,21 @@ func (p *Placement) Range() *Range {
 }
 
 func (p *Placement) Want(new api.PlacementState) error {
+	if new == api.PsActive && p.ActivationLeaseExpires.IsZero() {
+		// This should never happen, and indicates a bug
+		return fmt.Errorf("can't activate range without lease")
+	}
+
 	if err := CanTransitionPlacement(p.StateCurrent, new); err != nil {
 		return err
 	}
 
 	p.StateDesired = new
 	return nil
+}
+
+func (p *Placement) GiveLease(t time.Time) {
+	p.ActivationLeaseExpires = t
 }
 
 func (p *Placement) ToState(new api.PlacementState) error {

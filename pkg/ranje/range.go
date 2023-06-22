@@ -124,6 +124,10 @@ func (r *Range) LogString() string {
 		if p.Tainted {
 			ps = fmt.Sprintf("%s:tainted", ps)
 		}
+
+		if !p.ActivationLeaseExpires.IsZero() {
+			ps = fmt.Sprintf("%s:%d", ps, p.ActivationLeaseExpires.Unix())
+		}
 	}
 
 	return fmt.Sprintf("{%s %s%s}", r.Meta, r.State, ps)
@@ -189,13 +193,15 @@ func (r *Range) NumPlacements(f func(p *Placement) bool) int {
 
 // NumPlacementsInState returns the number of placements currently in the given
 // state. It's just a handy wrapper around a common usage of NumPlacements.
-//
-// TODO: This is currently only used when comparing to r.MaxActive! Maybe change
-//
-//	it to just do that? Seems kind of weird.
 func (r *Range) NumPlacementsInState(s api.PlacementState) int {
 	return r.NumPlacements(func(p *Placement) bool {
 		return p.StateCurrent == s
+	})
+}
+
+func (r *Range) NumPlacementsWithLease() int {
+	return r.NumPlacements(func(p *Placement) bool {
+		return !p.ActivationLeaseExpires.IsZero()
 	})
 }
 

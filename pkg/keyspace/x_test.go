@@ -2,12 +2,16 @@ package keyspace
 
 import (
 	"testing"
+	"time"
 
 	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/ranje"
+	"github.com/jonboulle/clockwork"
 )
 
 func testFixtureR3(t *testing.T) *Keyspace {
+	c := clockwork.NewFakeClock()
+	exp := c.Now().Add(1 * time.Minute)
 	p := true
 
 	//               ┌─────┐
@@ -64,7 +68,7 @@ func testFixtureR3(t *testing.T) *Keyspace {
 	}
 	if p {
 		r3.Placements = []*ranje.Placement{
-			{NodeID: "aaa", StateCurrent: api.PsActive, StateDesired: api.PsActive},
+			{NodeID: "aaa", StateCurrent: api.PsActive, StateDesired: api.PsActive, ActivationLeaseExpires: exp},
 			{NodeID: "bbb", StateCurrent: api.PsInactive, StateDesired: api.PsInactive},
 			{NodeID: "ccc", StateCurrent: api.PsInactive, StateDesired: api.PsInactive},
 		}
@@ -79,8 +83,8 @@ func testFixtureR3(t *testing.T) *Keyspace {
 	if p {
 		r4.Placements = []*ranje.Placement{
 			{NodeID: "ddd", StateCurrent: api.PsInactive, StateDesired: api.PsInactive},
-			{NodeID: "eee", StateCurrent: api.PsActive, StateDesired: api.PsActive},
-			{NodeID: "fff", StateCurrent: api.PsActive, StateDesired: api.PsActive},
+			{NodeID: "eee", StateCurrent: api.PsActive, StateDesired: api.PsActive, ActivationLeaseExpires: exp},
+			{NodeID: "fff", StateCurrent: api.PsActive, StateDesired: api.PsActive, ActivationLeaseExpires: exp},
 		}
 	}
 
@@ -94,7 +98,7 @@ func testFixtureR3(t *testing.T) *Keyspace {
 		r5.Placements = []*ranje.Placement{
 			{NodeID: "ggg", StateCurrent: api.PsInactive, StateDesired: api.PsInactive},
 			{NodeID: "hhh", StateCurrent: api.PsInactive, StateDesired: api.PsInactive},
-			{NodeID: "iii", StateCurrent: api.PsActive, StateDesired: api.PsActive},
+			{NodeID: "iii", StateCurrent: api.PsActive, StateDesired: api.PsActive, ActivationLeaseExpires: exp},
 		}
 	}
 
@@ -106,8 +110,8 @@ func testFixtureR3(t *testing.T) *Keyspace {
 	}
 	if p {
 		r6.Placements = []*ranje.Placement{
-			{NodeID: "jjj", StateCurrent: api.PsActive, StateDesired: api.PsActive},
-			{NodeID: "kkk", StateCurrent: api.PsActive, StateDesired: api.PsActive},
+			{NodeID: "jjj", StateCurrent: api.PsActive, StateDesired: api.PsActive, ActivationLeaseExpires: exp},
+			{NodeID: "kkk", StateCurrent: api.PsActive, StateDesired: api.PsActive, ActivationLeaseExpires: exp},
 			{NodeID: "lll", StateCurrent: api.PsInactive, StateDesired: api.PsInactive},
 		}
 	}
@@ -120,7 +124,7 @@ func testFixtureR3(t *testing.T) *Keyspace {
 	}
 	if p {
 		r7.Placements = []*ranje.Placement{
-			{NodeID: "mmm", StateCurrent: api.PsActive, StateDesired: api.PsActive},
+			{NodeID: "mmm", StateCurrent: api.PsActive, StateDesired: api.PsActive, ActivationLeaseExpires: exp},
 			{NodeID: "nnn", StateCurrent: api.PsInactive, StateDesired: api.PsInactive},
 			{NodeID: "ooo", StateCurrent: api.PsInactive, StateDesired: api.PsInactive},
 		}
@@ -134,18 +138,20 @@ func testFixtureR3(t *testing.T) *Keyspace {
 	}
 	if p {
 		r8.Placements = []*ranje.Placement{
-			{NodeID: "mmm", StateCurrent: api.PsActive, StateDesired: api.PsActive},
+			{NodeID: "mmm", StateCurrent: api.PsActive, StateDesired: api.PsActive, ActivationLeaseExpires: exp},
 			{NodeID: "nnn", StateCurrent: api.PsInactive, StateDesired: api.PsInactive},
 			{NodeID: "ooo", StateCurrent: api.PsInactive, StateDesired: api.PsInactive},
 		}
 	}
 
-	return makeKeyspace(t, r1, r2, r3, r4, r5, r6, r7, r8)
+	return makeKeyspace(t, ranje.R3, r1, r2, r3, r4, r5, r6, r7, r8)
 }
 
-func makeKeyspace(t *testing.T, ranges ...*ranje.Range) *Keyspace {
+func makeKeyspace(t *testing.T, rc ranje.ReplicationConfig, ranges ...*ranje.Range) *Keyspace {
+	t.Helper()
+
 	pers := &FakePersister{ranges: ranges}
-	ks, err := New(pers, ranje.R1)
+	ks, err := New(pers, rc)
 	if err != nil {
 		t.Fatalf("unexpected failure making keyspace: %v", err)
 		return nil // unreachable

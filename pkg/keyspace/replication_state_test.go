@@ -2,9 +2,11 @@ package keyspace
 
 import (
 	"testing"
+	"time"
 
 	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/ranje"
+	"github.com/jonboulle/clockwork"
 	"gotest.tools/assert"
 )
 
@@ -20,7 +22,7 @@ func TestFlatRanges_Empty(t *testing.T) {
 		Meta:  api.Meta{Ident: 1},
 	}
 
-	ks := makeKeyspace(t, r1)
+	ks := makeKeyspace(t, ranje.R1, r1)
 
 	actual := flatRanges(ks)
 	assert.DeepEqual(t, []Repl{
@@ -84,7 +86,7 @@ func TestFlatRanges_ThreeStable(t *testing.T) {
 		},
 	}
 
-	ks := makeKeyspace(t, r1, r2, r3, r4)
+	ks := makeKeyspace(t, ranje.R1, r1, r2, r3, r4)
 
 	actual := flatRanges(ks)
 	assert.DeepEqual(t, []Repl{
@@ -136,6 +138,9 @@ func TestFlatRanges_FromFixture(t *testing.T) {
 }
 
 func TestReplicationState_OneRange(t *testing.T) {
+	c := clockwork.NewFakeClock()
+	exp := c.Now().Add(1 * time.Minute)
+
 	//
 	// ┌─────┐
 	// │ 1 a │
@@ -150,9 +155,10 @@ func TestReplicationState_OneRange(t *testing.T) {
 		Meta:  api.Meta{Ident: 1},
 		Placements: []*ranje.Placement{
 			{
-				NodeID:       "aaa",
-				StateCurrent: api.PsActive,
-				StateDesired: api.PsActive,
+				NodeID:                 "aaa",
+				StateCurrent:           api.PsActive,
+				StateDesired:           api.PsActive,
+				ActivationLeaseExpires: exp,
 			},
 			{
 				NodeID:       "bbb",
@@ -167,7 +173,7 @@ func TestReplicationState_OneRange(t *testing.T) {
 		},
 	}
 
-	ks := makeKeyspace(t, r1)
+	ks := makeKeyspace(t, ranje.R1, r1)
 
 	actual := ks.ReplicationState()
 	assert.DeepEqual(t, []Repl{

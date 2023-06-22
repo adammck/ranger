@@ -3,9 +3,11 @@ package keyspace
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/ranje"
+	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -350,6 +352,9 @@ func TestPlacementMayBecomeReady(t *testing.T) {
 }
 
 func TestPlacementMayBeDeactivated(t *testing.T) {
+	c := clockwork.NewFakeClock()
+	exp := c.Now().Add(1 * time.Minute)
+
 	examples := []struct {
 		name   string
 		input  []*ranje.Range
@@ -361,7 +366,7 @@ func TestPlacementMayBeDeactivated(t *testing.T) {
 				{
 					State:      api.RsActive,
 					Meta:       api.Meta{Ident: 1, Start: api.ZeroKey},
-					Placements: []*ranje.Placement{{NodeID: "n1", StateCurrent: api.PsActive}},
+					Placements: []*ranje.Placement{{NodeID: "n1", StateCurrent: api.PsActive, ActivationLeaseExpires: exp}},
 				},
 			},
 			output: [][]string{
@@ -375,13 +380,13 @@ func TestPlacementMayBeDeactivated(t *testing.T) {
 					State:      api.RsSubsuming,
 					Children:   []api.RangeID{3},
 					Meta:       api.Meta{Ident: 1, Start: api.ZeroKey, End: api.Key("ggg")},
-					Placements: []*ranje.Placement{{NodeID: "n1", StateCurrent: api.PsActive}},
+					Placements: []*ranje.Placement{{NodeID: "n1", StateCurrent: api.PsActive, ActivationLeaseExpires: exp}},
 				},
 				{
 					State:      api.RsSubsuming,
 					Children:   []api.RangeID{3},
 					Meta:       api.Meta{Ident: 2, Start: api.Key("ggg"), End: api.ZeroKey},
-					Placements: []*ranje.Placement{{NodeID: "n2", StateCurrent: api.PsActive}},
+					Placements: []*ranje.Placement{{NodeID: "n2", StateCurrent: api.PsActive, ActivationLeaseExpires: exp}},
 				},
 				{
 					State:      api.RsActive,
