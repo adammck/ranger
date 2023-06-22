@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/adammck/ranger/pkg/api"
 	mockdisc "github.com/adammck/ranger/pkg/discovery/mock"
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
+	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -18,6 +20,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/testing/protocmp"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"gotest.tools/assert"
 	"gotest.tools/assert/cmp"
 )
@@ -83,34 +86,58 @@ func TestPrepare(t *testing.T) {
 }
 
 func TestServe(t *testing.T) {
-	h := setup(t)
-	p := getPlacement(t, h.rangeGetter, 3, 0)
-	n, err := h.nodeGetter.NodeByIdent("node-aaa")
-	assert.NilError(t, err)
-
 	cmd := api.Command{
 		RangeIdent: 3,
 		NodeIdent:  "node-aaa",
 		Action:     api.Activate,
 	}
 
-	// success
+	setupTestServe := func(t *testing.T) (*Harness, *roster.Node, *ranje.Placement) {
+		h := setup(t)
 
-	err = h.actuator.Command(cmd, p, n)
-	assert.NilError(t, err)
+		n, err := h.nodeGetter.NodeByIdent("node-aaa")
+		assert.NilError(t, err)
 
-	assert.Assert(t, h.node.serveReq != nil)
-	assert.DeepEqual(t, pb.ServeRequest{
-		Range: 3,
-		Force: false,
-	}, h.node.serveReq, protocmp.Transform())
+		p := getPlacement(t, h.rangeGetter, 3, 0)
+		return h, n, p
+	}
 
-	// error
+	t.Run("success", func(t *testing.T) {
+		h, n, p := setupTestServe(t)
 
-	h.node.serveErr = status.Errorf(codes.FailedPrecondition, "injected")
+		err := h.actuator.Command(cmd, p, n)
+		assert.NilError(t, err)
 
-	err = h.actuator.Command(cmd, p, n)
-	assert.Error(t, err, "rpc error: code = FailedPrecondition desc = injected")
+		assert.Assert(t, h.node.serveReq != nil)
+		assert.DeepEqual(t, pb.ServeRequest{
+			Range:  3,
+			Force:  false,
+			Expire: timestamppb.New(h.clock.Now().Add(1 * time.Minute)),
+		}, h.node.serveReq, protocmp.Transform())
+	})
+
+	t.Run("no lease", func(t *testing.T) {
+		h, n, p := setupTestServe(t)
+
+		// Patch the lease out. This is a hack, and shouldn't happen.
+		// TODO: Update the test fixture to include a second node and inactive
+		// placement without a lease, which we can use here.
+		p.ActivationLeaseExpires = time.Time{}
+
+		err := h.actuator.Command(cmd, p, n)
+		assert.Error(t, err, "can't serve placement with no lease")
+	})
+
+	t.Run("server error", func(t *testing.T) {
+		h, n, p := setupTestServe(t)
+
+		p.ActivationLeaseExpires = h.clock.Now().Add(1 * time.Minute)
+
+		h.node.serveErr = status.Errorf(codes.FailedPrecondition, "injected")
+
+		err := h.actuator.Command(cmd, p, n)
+		assert.Error(t, err, "rpc error: code = FailedPrecondition desc = injected")
+	})
 }
 
 func TestDeactivate(t *testing.T) {
@@ -343,6 +370,7 @@ func nodeServer(ctx context.Context, s *grpc.Server) (*grpc.ClientConn, func()) 
 // ------------------------------------------------------------------ Harness --
 
 type Harness struct {
+	clock       clockwork.FakeClock
 	discovery   *mockdisc.MockDiscovery
 	node        *NodeServer
 	rangeGetter *FakeRangeGetter
@@ -364,7 +392,7 @@ func setupDiscovery() (*mockdisc.MockDiscovery, api.Remote) {
 	return d, da
 }
 
-func setupRangeGetter() *FakeRangeGetter {
+func setupRangeGetter(c clockwork.Clock) *FakeRangeGetter {
 
 	//      ┌─────┐
 	//    ┌─│ 1 s │─┐
@@ -396,6 +424,7 @@ func setupRangeGetter() *FakeRangeGetter {
 	r2p0 := r2.NewPlacement("node-aaa")
 	r2p0.StateCurrent = api.PsActive
 	r2p0.StateDesired = api.PsActive
+	r2p0.ActivationLeaseExpires = c.Now().Add(1 * time.Minute)
 
 	r3 := &ranje.Range{
 		State:    api.RsActive,
@@ -406,12 +435,14 @@ func setupRangeGetter() *FakeRangeGetter {
 	r3p0 := r3.NewPlacement("node-aaa")
 	r3p0.StateCurrent = api.PsActive
 	r3p0.StateDesired = api.PsActive
+	r3p0.ActivationLeaseExpires = c.Now().Add(1 * time.Minute)
 
 	return NewFakeRangeGetter(r1, r2, r3)
 }
 
 func setup(t *testing.T) *Harness {
 	ctx := context.Background()
+	c := clockwork.NewFakeClock()
 
 	srv := grpc.NewServer()
 	n1 := &NodeServer{}
@@ -428,10 +459,11 @@ func setup(t *testing.T) *Harness {
 		},
 	}
 
-	rg := setupRangeGetter()
+	rg := setupRangeGetter(c)
 	a := New(rg, ng)
 
 	return &Harness{
+		clock:       c,
 		discovery:   d,
 		node:        n1,
 		rangeGetter: rg,

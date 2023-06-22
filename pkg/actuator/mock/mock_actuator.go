@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/ranje"
@@ -73,6 +74,18 @@ func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (a
 		RangeIdent: p.Range().Meta.Ident,
 		NodeIdent:  n.Ident(),
 		Action:     action,
+	}
+
+	if action == api.Activate {
+		exp := p.ActivationLeaseExpires
+
+		// This should never happen, so explode to fail test.
+		// TODO: Maybe plumb in t.Testing, so we can fail instead of panic?
+		if exp.IsZero() {
+			panic("activate command with no lease")
+		}
+
+		cmd.Expires = exp
 	}
 
 	a.mu.Lock()
@@ -143,11 +156,12 @@ func (ij *Inject) Response(ns api.RemoteState) *Inject {
 	return ij
 }
 
-func (a *Actuator) Inject(nID api.NodeID, rID api.RangeID, act api.Action) *Inject {
+func (a *Actuator) Inject(nID api.NodeID, rID api.RangeID, act api.Action, expires time.Time) *Inject {
 	cmd := api.Command{
 		RangeIdent: rID,
 		NodeIdent:  nID,
 		Action:     act,
+		Expires:    expires,
 	}
 
 	exp := &Inject{

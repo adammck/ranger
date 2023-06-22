@@ -11,6 +11,7 @@ import (
 	pb "github.com/adammck/ranger/pkg/proto/gen"
 	"github.com/adammck/ranger/pkg/ranje"
 	"github.com/adammck/ranger/pkg/roster"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type Actuator struct {
@@ -64,7 +65,7 @@ func (a *Actuator) cmd(action api.Action, p *ranje.Placement, n *roster.Node) (a
 		s, err = give(ctx, n, p, util.GetParents(a.rg, a.ng, p.Range()))
 
 	case api.Activate:
-		s, err = serve(ctx, n, p)
+		s, err = serve(ctx, n, p.Range().Meta.Ident, p.ActivationLeaseExpires)
 
 	case api.Deactivate:
 		s, err = take(ctx, n, p)
@@ -99,10 +100,14 @@ func give(ctx context.Context, n *roster.Node, p *ranje.Placement, parents []*pb
 	return res.RangeInfo.State, nil
 }
 
-func serve(ctx context.Context, n *roster.Node, p *ranje.Placement) (pb.RangeNodeState, error) {
-	rID := p.Range().Meta.Ident
+func serve(ctx context.Context, n *roster.Node, rID api.RangeID, expires time.Time) (pb.RangeNodeState, error) {
+	if expires.IsZero() {
+		return pb.RangeNodeState_UNKNOWN, fmt.Errorf("can't serve placement with no lease")
+	}
+
 	req := &pb.ServeRequest{
-		Range: conv.RangeIDToProto(rID),
+		Range:  conv.RangeIDToProto(rID),
+		Expire: timestamppb.New(expires),
 	}
 
 	// TODO: Retry a few times before giving up.

@@ -2540,7 +2540,7 @@ func inject(t *testing.T, a *actuator.Actuator, nID api.NodeID, rID api.RangeID,
 		t.Fatalf("expected mock actuator, got: %T", a.Impl)
 	}
 
-	return ma.Inject(nID, rID, act)
+	return ma.Inject(nID, rID, act, expires)
 }
 
 // ------------------------------------------------------------------- persister
