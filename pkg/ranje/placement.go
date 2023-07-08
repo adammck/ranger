@@ -93,7 +93,8 @@ func (p *Placement) Want(new api.PlacementState) error {
 	return nil
 }
 
-func (p *Placement) GiveLease(t time.Time) {
+// Only the keyspace may call this!
+func (p *Placement) SetLease(t time.Time) {
 	p.ActivationLeaseExpires = t
 }
 

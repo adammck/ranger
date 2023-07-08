@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/adammck/ranger/pkg/api"
 	"github.com/adammck/ranger/pkg/persister"
@@ -76,7 +77,7 @@ func New(persister persister.Persister, replication ranje.ReplicationConfig) (*K
 	}
 
 	// Sanity-check the ranges for no gaps and no overlaps.
-	err = ks.sanityCheck()
+	err = ks.SanityCheck()
 	if err != nil {
 		return nil, err
 	}
@@ -96,12 +97,12 @@ func (ks *Keyspace) LogString() string {
 	return strings.Join(s, " ")
 }
 
-// sanityCheck returns an error if the curernt range state isn't sane. It does
+// SanityCheck returns an error if the curernt range state isn't sane. It does
 // nothing to try to rectify the situaton. This method mostly compensates for
 // the fact that I'm storing all these ranges in a single flat slice.
 //
 // TODO: More tests for this.
-func (ks *Keyspace) sanityCheck() error {
+func (ks *Keyspace) SanityCheck() error {
 
 	// Check for no duplicate range IDs.
 
@@ -348,6 +349,18 @@ func (ks *Keyspace) RangeToState(r *ranje.Range, state api.RangeState) error {
 	}
 
 	return ks.mustPersistDirtyRanges()
+}
+
+// TODO: Update callers to check the error!
+func (ks *Keyspace) PlacementLease(p *ranje.Placement, t time.Time) error {
+	p.SetLease(t)
+
+	err := ks.mustPersistDirtyRanges()
+	if err != nil {
+		panic(fmt.Sprintf("mustPersistDirtyRanges: %v", err))
+	}
+
+	return nil
 }
 
 // Callers don't bother checking the error we return, so we panic instead.

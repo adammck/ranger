@@ -321,6 +321,9 @@ func opFromRange(ks *Keyspace, r *ranje.Range) (op *Operation, err error) {
 	return NewOperation(parents, children), nil
 }
 
+func (op *Operation) MayGiveLease(p *ranje.Placement, r *ranje.Range) error {
+}
+
 // MayActivate returns whether the given placement is permitted to move from
 // PsInactive to PsActive.
 func (op *Operation) MayActivate(p *ranje.Placement, r *ranje.Range) error {
@@ -337,7 +340,7 @@ func (op *Operation) MayActivate(p *ranje.Placement, r *ranje.Range) error {
 		return fmt.Errorf("gave up")
 	}
 
-	active := r.NumPlacementsInState(api.PsActive)
+	active := r.NumPlacementsWantState(api.PsActive)
 
 	// Count how many active placements this range has. If there are already the
 	// maximum allowed, we certainly can't activate another.
@@ -345,24 +348,15 @@ func (op *Operation) MayActivate(p *ranje.Placement, r *ranje.Range) error {
 		return fmt.Errorf("too many active placements (n=%d, MaxActive=%d)", active, r.MaxActive())
 	}
 
-	// Check how many leases have been granted to placements in this range.
-	// Since we can't activate without a lease, we have to abort if there are
-	// too many leases out, even if there aren't enough *active* placements.
-	{
-		holders := r.NumPlacements(func(pp *ranje.Placement) bool {
-			return pp != p && !p.ActivationLeaseExpires.IsZero()
-		})
-		if holders >= r.MaxActive() {
-			return fmt.Errorf("too many placements holding activation lease (n=%d, MaxActive=%d)", active, r.MaxActive())
+	// Check leases. If this placement already has one, then no problem, we can
+	// activate it. If it doesn't, it still might be okay (since giving a lease
+	// and activating happens in a single tick), but we have to check that there
+	// aren't already the maximum number granted.
+	if p.ActivationLeaseExpires.IsZero() {
+		if holders := r.NumPlacementsWithLease(); holders >= r.MaxActive() {
+			return fmt.Errorf("too many placements holding activation lease (n=%d, MaxActive=%d)", r.NumPlacementsWithLease(), r.MaxActive())
 		}
 	}
-
-	// TODO: Look into why this doesn't work. Should be the same thing!
-	// if p.ActivationLeaseExpires.IsZero() {
-	// 	if holders := r.NumPlacementsWithLease(); holders >= r.MaxActive() {
-	// 		return fmt.Errorf("too many placements holding activation lease (n=%d, MaxActive=%d)", active, r.MaxActive())
-	// 	}
-	// }
 
 	if op == nil {
 

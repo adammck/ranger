@@ -395,7 +395,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			// The node doesn't have the placement any more! Maybe we tried to
 			// activate it but gave up.
 			if p.Failed(api.Activate) {
-				p.GiveLease(time.Time{}) // TODO: Better method
+				b.ks.PlacementLease(p, time.Time{}) // TODO: Better method
 				destroy = true
 				return
 			}
@@ -414,11 +414,17 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 		switch ri.State {
 		case api.NsInactive:
 
+			// Failed, so take back the lease.
+			if p.Failed(api.Activate) {
+				b.ks.PlacementLease(p, time.Time{}) // TODO: Better method
+				return
+			}
+
 			// This is the first time around. In order for this placement to
 			// move to Ready, the one it is replacing (maybe) must reliniquish
 			// it first.
 			if err := op.MayActivate(p, r); err == nil {
-				p.GiveLease(b.c.Now().Add(1 * time.Minute)) // TODO: Make configurable
+				b.ks.PlacementLease(p, b.c.Now().Add(1*time.Minute)) // TODO: Make configurable
 				p.Want(api.PsActive)
 				return
 			}
@@ -474,7 +480,7 @@ func (b *Orchestrator) tickPlacement(p *ranje.Placement, r *ranje.Range, op *key
 			p.Want(api.PsInactive)
 
 		case api.NsInactive:
-			p.GiveLease(time.Time{}) // TODO: Better method
+			b.ks.PlacementLease(p, time.Time{}) // TODO: Better method
 			b.ks.PlacementToState(p, api.PsInactive)
 
 		default:

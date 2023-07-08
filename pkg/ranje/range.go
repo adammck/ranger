@@ -199,6 +199,12 @@ func (r *Range) NumPlacementsInState(s api.PlacementState) int {
 	})
 }
 
+func (r *Range) NumPlacementsWantState(s api.PlacementState) int {
+	return r.NumPlacements(func(p *Placement) bool {
+		return p.StateDesired == s
+	})
+}
+
 func (r *Range) NumPlacementsWithLease() int {
 	return r.NumPlacements(func(p *Placement) bool {
 		return !p.ActivationLeaseExpires.IsZero()

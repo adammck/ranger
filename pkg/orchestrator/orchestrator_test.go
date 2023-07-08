@@ -414,20 +414,29 @@ func Test_R3_MoveMulti(t *testing.T) {
 		"{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc [1:NsActive]} {test-ddd [1:NsInactive]} {test-eee [1:NsInactive]} {test-fff []}",
 		"{1 [-inf, +inf] RsActive p0=test-aaa:PsActive:tainted:30 p1=test-bbb:PsActive:tainted:30 p2=test-ccc:PsActive:30 p3=test-ddd:PsInactive p4=test-eee:PsInactive}")
 
+	// First activation
+
 	tickCmp(t, orch, act,
-		"Activate(R1, test-ddd, 60), Activate(R1, test-eee, 60)",
-		"{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc [1:NsActive]} {test-ddd [1:NsActive]} {test-eee [1:NsActive]} {test-fff []}",
-		"{1 [-inf, +inf] RsActive p0=test-aaa:PsActive:tainted:30 p1=test-bbb:PsActive:tainted:30 p2=test-ccc:PsActive:30 p3=test-ddd:PsInactive:60 p4=test-eee:PsInactive:60}")
+		"Activate(R1, test-ddd, 60)",
+		"{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc [1:NsActive]} {test-ddd [1:NsActive]} {test-eee [1:NsInactive]} {test-fff []}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsActive:tainted:30 p1=test-bbb:PsActive:tainted:30 p2=test-ccc:PsActive:30 p3=test-ddd:PsInactive:60 p4=test-eee:PsInactive}")
 
 	tickCmp(t, orch, act,
 		"",
-		"{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc [1:NsActive]} {test-ddd [1:NsActive]} {test-eee [1:NsActive]} {test-fff []}",
-		"{1 [-inf, +inf] RsActive p0=test-aaa:PsActive:tainted:30 p1=test-bbb:PsActive:tainted:30 p2=test-ccc:PsActive:30 p3=test-ddd:PsActive:60 p4=test-eee:PsActive:60}")
+		"{test-aaa [1:NsActive]} {test-bbb [1:NsActive]} {test-ccc [1:NsActive]} {test-ddd [1:NsActive]} {test-eee [1:NsInactive]} {test-fff []}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsActive:tainted:30 p1=test-bbb:PsActive:tainted:30 p2=test-ccc:PsActive:30 p3=test-ddd:PsActive:60 p4=test-eee:PsInactive}")
 
 	tickCmp(t, orch, act,
 		"Deactivate(R1, test-aaa), Deactivate(R1, test-bbb)",
+		"{test-aaa [1:NsInactive]} {test-bbb [1:NsInactive]} {test-ccc [1:NsActive]} {test-ddd [1:NsActive]} {test-eee [1:NsInactive]} {test-fff []}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsActive:tainted:30 p1=test-bbb:PsActive:tainted:30 p2=test-ccc:PsActive:30 p3=test-ddd:PsActive:60 p4=test-eee:PsInactive}")
+
+	// Second activation
+
+	tickCmp(t, orch, act,
+		"Activate(R1, test-eee, 60)",
 		"{test-aaa [1:NsInactive]} {test-bbb [1:NsInactive]} {test-ccc [1:NsActive]} {test-ddd [1:NsActive]} {test-eee [1:NsActive]} {test-fff []}",
-		"{1 [-inf, +inf] RsActive p0=test-aaa:PsActive:tainted:30 p1=test-bbb:PsActive:tainted:30 p2=test-ccc:PsActive:30 p3=test-ddd:PsActive:60 p4=test-eee:PsActive:60}")
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive:tainted p1=test-bbb:PsInactive:tainted p2=test-ccc:PsActive:30 p3=test-ddd:PsActive:60 p4=test-eee:PsInactive:60}")
 
 	tickCmp(t, orch, act,
 		"",
@@ -724,12 +733,22 @@ func TestMoveFailure_Activate(t *testing.T) {
 	p := mustGetPlacement(t, orch.ks, 1, "test-bbb")
 	require.True(t, p.Failed(api.Activate))
 
+	tickCmp(t, orch, act,
+		"",
+		"{test-aaa [1:NsInactive]} {test-bbb [1:NsInactive]}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive:tainted p1=test-bbb:PsInactive:60}")
+
+	tickCmp(t, orch, act,
+		"",
+		"{test-aaa [1:NsInactive]} {test-bbb [1:NsInactive]}",
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive:tainted p1=test-bbb:PsInactive}")
+
 	// Range is reactivated on the original node, because the new one failed.
 
 	tickCmp(t, orch, act,
 		"Activate(R1, test-aaa, 60)",
 		"{test-aaa [1:NsActive]} {test-bbb [1:NsInactive]}",
-		"{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive:tainted:60 p1=test-bbb:PsInactive:60}")
+		"{1 [-inf, +inf] RsActive p0=test-aaa:PsInactive:tainted p1=test-bbb:PsInactive:60}")
 
 	// TODO: This step is also merged with the next :|
 	// tickWait(t, orch, act)
@@ -2370,6 +2389,14 @@ func tickWait(t *testing.T, orch *Orchestrator, act *actuator.Actuator, waiters 
 
 	ma.Reset()
 	orch.Tick()
+
+	// TODO: This shouldn't be necesary, because it shouldn't be possible for
+	// the keyspace to get into an insane state after startup. But I goofed.
+	err := orch.ks.SanityCheck()
+	if err != nil {
+		t.Fatalf("keyspace left in invalid state after tick: %v", err)
+	}
+
 	act.Tick()
 	act.Wait()
 
