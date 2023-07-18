@@ -3,7 +3,6 @@ module github.com/adammck/ranger
 go 1.18
 
 require (
-	github.com/google/go-cmp v0.5.8
 	github.com/hashicorp/consul/api v1.12.0
 	github.com/lthibault/jitterbug v2.0.0+incompatible
 	github.com/stretchr/testify v1.7.1
@@ -12,7 +11,10 @@ require (
 	google.golang.org/protobuf v1.28.0
 )
 
-require github.com/pkg/errors v0.8.1 // indirect
+require (
+	github.com/google/go-cmp v0.5.8 // indirect
+	github.com/pkg/errors v0.8.1 // indirect
+)
 
 require (
 	github.com/armon/go-metrics v0.4.0 // indirect
@@ -30,9 +32,9 @@ require (
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	golang.org/x/net v0.0.0-20220526153639-5463443f8c37 // indirect
-	golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a // indirect
-	golang.org/x/text v0.3.7 // indirect
+	golang.org/x/net v0.7.0 // indirect
+	golang.org/x/sys v0.5.0 // indirect
+	golang.org/x/text v0.7.0 // indirect
 	google.golang.org/genproto v0.0.0-20220527130721-00d5c0f3be58 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gotest.tools v2.2.0+incompatible
